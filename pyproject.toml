@@ -45,7 +45,12 @@ select = [
     "RUF",  # ruff-specific
 ]
 ignore = [
-    "E501",  # line too long (handled by formatter)
+    "E501",    # line too long (handled by formatter)
+    "RUF002",  # ambiguous unicode chars in docstrings (中文全角标点)
+    "RUF003",  # ambiguous unicode chars in comments
+    "RUF012",  # mutable class attr (VALID_ENTITY_TYPES sets — acceptable for dataclass class vars)
+    "RUF022",  # unsorted __all__ (grouped by category intentionally)
+    "UP017",   # timezone.utc vs datetime.UTC (3.13 compat)
 ]
 
 [tool.ruff.lint.isort]
