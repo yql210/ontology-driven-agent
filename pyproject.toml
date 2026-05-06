@@ -1,0 +1,76 @@
+[project]
+name = "layerkg"
+version = "0.1.0"
+description = "Ontology-Driven Agent + LayerKG: 基于本体驱动的可更新知识图谱引擎"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "neo4j>=6.2.0",
+    "tree-sitter>=0.24",
+    "chromadb>=1.0",
+    "click>=8.1",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.11",
+    "pytest>=8.0",
+    "pytest-cov>=6.0",
+    "pyright>=1.1",
+]
+
+[project.scripts]
+layerkg = "layerkg.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["layerkg"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "unit: 纯单元测试，无外部依赖",
+    "integration: 需要 Neo4j/ChromaDB 等外部服务",
+    "slow: 耗时超过1秒的测试",
+]
+addopts = "-v --tb=short"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "basic"
+include = ["src"]
+exclude = ["**/__pycache__"]
+reportMissingImports = true
+reportMissingTypeStubs = false
