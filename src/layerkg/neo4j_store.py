@@ -1,0 +1,286 @@
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from neo4j import GraphDatabase
+from neo4j import Result as Neo4jResult
+
+from layerkg.graph_store import GraphStore
+from layerkg.schema import RELATION_TYPE_TO_NEO4J
+
+logger = logging.getLogger(__name__)
+
+# 实体标签列表，用于约束创建
+ENTITY_LABELS = [
+    "CodeEntity",
+    "ConceptEntity",
+    "DocEntity",
+    "ResourceEntity",
+    "ModuleEntity",
+    "ChangeSetEntity",
+]
+
+
+class Neo4jGraphStore(GraphStore):
+    """Neo4j 图数据库实现。
+
+    使用 neo4j-python-driver 连接 Neo4j 数据库，实现节点和关系的 CRUD 操作。
+
+    Attributes:
+        _driver: Neo4j Driver 实例，内部使用。
+        _uri: 数据库连接 URI。
+        _user: 数据库用户名。
+        _password: 数据库密码。
+    """
+
+    def __init__(self, uri: str, user: str, password: str) -> None:
+        """初始化 Neo4j 连接。
+
+        Args:
+            uri: Neo4j 连接 URI，如 bolt://localhost:7687。
+            user: 数据库用户名。
+            password: 数据库密码。
+        """
+        self._uri = uri
+        self._user = user
+        self._password = password
+        self._driver = GraphDatabase.driver(uri, auth=(user, password))
+
+    def close(self) -> None:
+        """关闭数据库连接。"""
+        self._driver.close()
+        logger.debug("Neo4j driver closed")
+
+    def __enter__(self) -> Neo4jGraphStore:
+        """进入 context manager。
+
+        Returns:
+            self。
+        """
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        """退出 context manager，关闭连接。"""
+        self.close()
+
+    def merge_node(self, label: str, properties: dict) -> dict:
+        """合并（创建或更新）节点。
+
+        使用 MERGE 语句根据 id 查找节点，存在则更新属性，不存在则创建。
+
+        Args:
+            label: 节点标签，如 CodeEntity、ConceptEntity。
+            properties: 节点属性字典，必须包含 'id'。
+
+        Returns:
+            合并后的节点属性。
+
+        Raises:
+            ValueError: 当 properties 缺少 'id' 时。
+        """
+        if "id" not in properties:
+            msg = "properties must contain 'id'"
+            raise ValueError(msg)
+
+        # 构建 SET 子句，排除 id（id 已在 MERGE 中使用）
+        set_clauses = []
+        for key in properties:
+            if key != "id":
+                set_clauses.append(f"n.{key} = ${key}")
+
+        set_statement = ", ".join(set_clauses) if set_clauses else ""
+
+        cypher = f"MERGE (n:{label} {{id: $id}})"
+        if set_statement:
+            cypher += f" SET {set_statement}"
+
+        with self._driver.session() as session:
+            session.run(cypher, **properties)
+            logger.debug(f"Merged node {label}:{properties['id']}")
+
+        return properties
+
+    def get_node(self, node_id: str) -> dict | None:
+        """根据 ID 获取节点。
+
+        Args:
+            node_id: 节点 ID。
+
+        Returns:
+            节点属性字典，不存在则返回 None。
+        """
+        cypher = "MATCH (n {id: $id}) RETURN n"
+
+        with self._driver.session() as session:
+            result: Neo4jResult = session.run(cypher, id=node_id)
+            record = result.single()
+
+            if record is None:
+                return None
+
+            node = record.get("n")
+            return dict(node)
+
+    def delete_node(self, node_id: str) -> bool:
+        """删除节点。
+
+        使用 DETACH DELETE 同时删除节点及其所有关系。
+
+        Args:
+            node_id: 节点 ID。
+
+        Returns:
+            是否成功删除（节点不存在返回 False）。
+        """
+        cypher = "MATCH (n {id: $id}) DETACH DELETE n"
+
+        with self._driver.session() as session:
+            result: Neo4jResult = session.run(cypher, id=node_id)
+            summary = result.consume()
+            # counters.nodes_deleted 返回删除的节点数
+            deleted_count = summary.counters.nodes_deleted
+
+            return deleted_count > 0
+
+    def merge_relation(
+        self,
+        source_id: str,
+        target_id: str,
+        rel_type: str,
+        properties: dict | None = None,
+    ) -> dict:
+        """合并（创建或更新）关系。
+
+        Args:
+            source_id: 源节点 ID。
+            target_id: 目标节点 ID。
+            rel_type: 关系类型，支持 snake_case 或 UPPER_SNAKE。
+            properties: 关系属性（可选）。
+
+        Returns:
+            合并后的关系属性。
+        """
+        # 转换关系类型为 Neo4j 格式（UPPER_SNAKE）
+        neo4j_rel_type = RELATION_TYPE_TO_NEO4J.get(rel_type, rel_type.upper())
+
+        # 构建 MERGE 语句
+        cypher = f"MERGE (source {{id: $source_id}})-[r:{neo4j_rel_type}]->(target {{id: $target_id}})"
+
+        # 准备参数
+        params: dict[str, Any] = {"source_id": source_id, "target_id": target_id}
+
+        # 如果有属性，添加 SET 子句
+        if properties:
+            set_clauses = []
+            for key, value in properties.items():
+                set_clauses.append(f"r.{key} = ${key}")
+                params[key] = value
+            cypher += " SET " + ", ".join(set_clauses)
+
+        with self._driver.session() as session:
+            session.run(cypher, **params)
+            logger.debug(f"Merged relation {source_id}-[{neo4j_rel_type}]->{target_id}")
+
+        return properties or {}
+
+    def delete_relation(self, source_id: str, target_id: str, rel_type: str) -> bool:
+        """删除关系。
+
+        Args:
+            source_id: 源节点 ID。
+            target_id: 目标节点 ID。
+            rel_type: 关系类型，支持 snake_case 或 UPPER_SNAKE。
+
+        Returns:
+            是否成功删除。
+        """
+        # 转换关系类型为 Neo4j 格式（UPPER_SNAKE）
+        neo4j_rel_type = RELATION_TYPE_TO_NEO4J.get(rel_type, rel_type.upper())
+
+        cypher = f"MATCH (source {{id: $source_id}})-[r:{neo4j_rel_type}]->(target {{id: $target_id}}) DELETE r"
+
+        with self._driver.session() as session:
+            result: Neo4jResult = session.run(cypher, source_id=source_id, target_id=target_id)
+            summary = result.consume()
+            deleted_count = summary.counters.relationships_deleted
+
+            return deleted_count > 0
+
+    def get_relations(
+        self,
+        source_id: str | None = None,
+        target_id: str | None = None,
+        rel_type: str | None = None,
+    ) -> list[dict]:
+        """查询关系。
+
+        Args:
+            source_id: 源节点 ID（可选）。
+            target_id: 目标节点 ID（可选）。
+            rel_type: 关系类型，支持 snake_case 或 UPPER_SNAKE（可选）。
+
+        Returns:
+            匹配的关系列表，每项包含 source_id, target_id, rel_type, properties。
+        """
+        # 构建 MATCH 子句
+        match_clause = "MATCH (source)-[r]->(target)"
+
+        # 构建动态 WHERE 条件
+        where_conditions = []
+        params: dict[str, Any] = {}
+
+        if source_id:
+            where_conditions.append("source.id = $source_id")
+            params["source_id"] = source_id
+
+        if target_id:
+            where_conditions.append("target.id = $target_id")
+            params["target_id"] = target_id
+
+        if rel_type:
+            # 转换关系类型为 Neo4j 格式（UPPER_SNAKE）
+            neo4j_rel_type = RELATION_TYPE_TO_NEO4J.get(rel_type, rel_type.upper())
+            # 需要重新构建 MATCH 子句来过滤关系类型
+            match_clause = f"MATCH (source)-[r:{neo4j_rel_type}]->(target)"
+
+        # 组装完整查询
+        cypher = match_clause
+        if where_conditions:
+            cypher += " WHERE " + " AND ".join(where_conditions)
+
+        cypher += (
+            " RETURN source.id AS source_id, target.id AS target_id, type(r) AS rel_type, properties(r) AS properties"
+        )
+
+        with self._driver.session() as session:
+            result: Neo4jResult = session.run(cypher, **params)
+            return [record.data() for record in result]
+
+    def query(self, cypher: str, params: dict | None = None) -> list[dict]:
+        """执行 Cypher 查询。
+
+        Args:
+            cypher: Cypher 查询语句。
+            params: 查询参数（可选）。
+
+        Returns:
+            查询结果列表。
+        """
+        params = params or {}
+
+        with self._driver.session() as session:
+            result: Neo4jResult = session.run(cypher, **params)
+            return [record.data() for record in result]
+
+    def ensure_constraints(self) -> None:
+        """确保数据库存在必要的唯一约束。
+
+        为 6 个实体标签创建 id 字段的唯一约束。
+        如果约束已存在则忽略（IF NOT EXISTS）。
+        """
+        for label in ENTITY_LABELS:
+            cypher = f"CREATE CONSTRAINT IF NOT EXISTS FOR (n:{label}) REQUIRE n.id IS UNIQUE"
+            with self._driver.session() as session:
+                session.run(cypher)
+            logger.debug(f"Ensured constraint for {label}")
