@@ -8,6 +8,15 @@ from layerkg.chroma_store import ChromaStore, OllamaEmbeddingFunction
 from layerkg.config import LayerKGConfig
 from layerkg.exceptions import EmbeddingError, LayerKGError, SchemaValidationError, StoreError
 from layerkg.graph_store import GraphStore
+from layerkg.impact_propagator import (
+    DEFAULT_DECAY_SCHEDULE,
+    DEFAULT_WEIGHT_MATRIX,
+    ImpactedNode,
+    ImpactPropagator,
+    ImpactReport,
+    ImpactSeverity,
+    PropagationDirection,
+)
 from layerkg.schema import (
     RELATION_TYPE_TO_NEO4J,
     VALID_RELATION_TYPES,
@@ -46,6 +55,14 @@ __all__ = [
     "GitStatus",
     "SHA256Cache",
     "GitChangeDetector",
+    # impact propagator
+    "ImpactPropagator",
+    "ImpactReport",
+    "ImpactedNode",
+    "ImpactSeverity",
+    "PropagationDirection",
+    "DEFAULT_WEIGHT_MATRIX",
+    "DEFAULT_DECAY_SCHEDULE",
     # schema - entities
     "CodeEntity",
     "ConceptEntity",
