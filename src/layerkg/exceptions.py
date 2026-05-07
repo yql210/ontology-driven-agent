@@ -15,3 +15,7 @@ class StoreError(LayerKGError):
 
 class EmbeddingError(LayerKGError):
     """嵌入向量生成失败。"""
+
+
+class ExtractionError(LayerKGError):
+    """语义关系提取失败。"""

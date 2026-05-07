@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from layerkg.exceptions import (
     EmbeddingError,
+    ExtractionError,
     LayerKGError,
     SchemaValidationError,
     StoreError,
@@ -27,3 +28,8 @@ def test_error_message():
 
 def test_embedding_error_is_layerkg_error():
     assert issubclass(EmbeddingError, LayerKGError)
+
+
+def test_extraction_error_inherits():
+    """ExtractionError 继承 LayerKGError。"""
+    assert issubclass(ExtractionError, LayerKGError)

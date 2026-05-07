@@ -81,3 +81,8 @@ include = ["src"]
 exclude = ["**/__pycache__"]
 reportMissingImports = true
 reportMissingTypeStubs = false
+
+[dependency-groups]
+dev = [
+    "pytest-mock>=3.15.1",
+]
