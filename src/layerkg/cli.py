@@ -7,6 +7,7 @@ import click
 
 from layerkg.builder import LayerKGBuilder
 from layerkg.config import LayerKGConfig
+from layerkg.incremental_updater import IncrementalUpdater
 
 
 @click.group()
@@ -75,3 +76,16 @@ def info() -> None:
     with LayerKGBuilder(config) as builder:
         info_data = builder.info()
         click.echo(f"\nEntities in ChromaDB: {info_data.get('chroma_count', 'N/A')}")
+
+
+@main.command()
+@click.argument("repo_path", type=click.Path(exists=True))
+@click.option("--since", default="HEAD~1", help="Git ref 对比基准", show_default=True)
+@click.option("--dry-run", is_flag=True, help="只检测不执行")
+@click.option("--full-scan", is_flag=True, help="全量扫描替代 Git diff")
+def update(repo_path: str, since: str, dry_run: bool, full_scan: bool) -> None:
+    """增量更新知识图谱。"""
+    config = LayerKGConfig.from_env()
+    with IncrementalUpdater(config, repo_path=Path(repo_path)) as updater:
+        report = updater.update(since, dry_run=dry_run, full_scan=full_scan)
+        click.echo(f"Update complete: {report.to_dict()}")
