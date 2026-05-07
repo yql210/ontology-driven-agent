@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 # LayerKG - 基于本体驱动的可更新知识图谱引擎
+from layerkg.aligner import NO_MATCH, AlignResult, ConceptAligner
 from layerkg.builder import BuildResult, LayerKGBuilder
 from layerkg.chroma_store import ChromaStore, OllamaEmbeddingFunction
 from layerkg.config import LayerKGConfig
@@ -31,6 +32,10 @@ __all__ = [
     # chroma store
     "ChromaStore",
     "OllamaEmbeddingFunction",
+    # aligner
+    "ConceptAligner",
+    "AlignResult",
+    "NO_MATCH",
     # builder
     "LayerKGBuilder",
     "BuildResult",

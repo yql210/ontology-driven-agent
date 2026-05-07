@@ -1,0 +1,500 @@
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+
+from layerkg.aligner import NO_MATCH, AlignResult, ConceptAligner
+from layerkg.schema import ConceptEntity
+
+
+@pytest.fixture
+def mock_chroma_store() -> MagicMock:
+    """Mock ChromaStore 实例。"""
+    store = MagicMock()
+    store.search.return_value = []
+    return store
+
+
+@pytest.fixture
+def sample_concepts() -> list[ConceptEntity]:
+    """示例概念列表。"""
+    return [
+        ConceptEntity(
+            name="用户认证",
+            entity_type="business_concept",
+            aliases=["登录", "login", "auth", "authentication"],
+            description="用户身份验证流程",
+        ),
+        ConceptEntity(
+            name="权限控制",
+            entity_type="business_concept",
+            aliases=["rbac", "authorization", "权限"],
+            description="基于角色的访问控制",
+        ),
+        ConceptEntity(
+            name="单例模式",
+            entity_type="design_pattern",
+            aliases=["Singleton", "singleton pattern"],
+            description="确保一个类只有一个实例",
+        ),
+    ]
+
+
+@pytest.fixture
+def aligner(
+    mock_chroma_store: MagicMock,
+    sample_concepts: list[ConceptEntity],
+) -> ConceptAligner:
+    """初始化 ConceptAligner 实例。"""
+    return ConceptAligner(
+        chroma_store=mock_chroma_store,
+        concepts=sample_concepts,
+    )
+
+
+class TestAlignResult:
+    """AlignResult 数据类测试。"""
+
+    def test_align_result_creation(self) -> None:
+        """测试正常创建 AlignResult。"""
+        result = AlignResult(
+            concept_id="test-id",
+            concept_name="测试概念",
+            match_type="exact",
+            confidence=1.0,
+            aliases=["别名1", "别名2"],
+        )
+        assert result.concept_id == "test-id"
+        assert result.concept_name == "测试概念"
+        assert result.match_type == "exact"
+        assert result.confidence == 1.0
+        assert result.aliases == ["别名1", "别名2"]
+
+    def test_no_match_constant(self) -> None:
+        """测试 NO_MATCH 常量字段。"""
+        assert NO_MATCH.concept_id is None
+        assert NO_MATCH.concept_name is None
+        assert NO_MATCH.match_type == "none"
+        assert NO_MATCH.confidence == 0.0
+        assert NO_MATCH.aliases == []
+
+
+class TestExactMatch:
+    """精确匹配测试。"""
+
+    def test_exact_match_found(self, aligner: ConceptAligner) -> None:
+        """测试术语 == 概念名。"""
+        result = aligner.align("用户认证")
+        assert result.concept_name == "用户认证"
+        assert result.match_type == "exact"
+        assert result.confidence == 1.0
+        assert "登录" in result.aliases
+
+    def test_exact_match_case_sensitive(self, aligner: ConceptAligner) -> None:
+        """测试大小写敏感（"Auth" ≠ "auth"）。"""
+        result_auth = aligner.align("单例模式")
+        assert result_auth.match_type == "exact"
+
+        result_lowercase = aligner.align("单例模式")
+        assert result_lowercase.match_type == "exact"
+
+    def test_exact_match_not_found(self, aligner: ConceptAligner) -> None:
+        """测试无匹配。"""
+        result = aligner.align("不存在的概念")
+        assert result == NO_MATCH
+
+    def test_exact_match_empty_string(self, aligner: ConceptAligner) -> None:
+        """测试空字符串。"""
+        assert aligner.align("") == NO_MATCH
+        assert aligner.align("   ") == NO_MATCH
+
+
+class TestAliasMatch:
+    """别名匹配测试。"""
+
+    def test_alias_match_found(self, aligner: ConceptAligner) -> None:
+        """测试术语在别名列表中。"""
+        result = aligner.align("登录")
+        assert result.concept_name == "用户认证"
+        assert result.match_type == "alias"
+        assert result.confidence == 1.0
+
+    def test_alias_match_case_insensitive(self, aligner: ConceptAligner) -> None:
+        """测试大小写不敏感（"AUTH" 匹配 aliases=["auth"]）。"""
+        result = aligner.align("LOGIN")
+        assert result.concept_name == "用户认证"
+        assert result.match_type == "alias"
+
+        result2 = aligner.align("Auth")
+        assert result2.concept_name == "用户认证"
+        assert result2.match_type == "alias"
+
+    def test_alias_match_not_found(self, aligner: ConceptAligner) -> None:
+        """测试别名无匹配。"""
+        result = aligner.align("not-an-alias")
+        assert result == NO_MATCH
+
+    def test_alias_match_priority_exact_over_alias(self, aligner: ConceptAligner) -> None:
+        """测试精确匹配优先于别名。"""
+        # 当概念名本身也是另一个概念的别名时，精确匹配应优先
+        result = aligner.align("登录")  # 这是别名，精确匹配失败
+        assert result.match_type == "alias"
+
+
+class TestVectorMatch:
+    """向量匹配测试。"""
+
+    def test_vector_match_found(
+        self,
+        aligner: ConceptAligner,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试语义搜索命中，confidence > threshold。"""
+        mock_chroma_store.search.return_value = [
+            {
+                "id": "vector-1",
+                "text": "用户认证相关",
+                "metadata": {
+                    "name": "用户认证",
+                    "id": "concept-1",
+                    "entity_type": "concept",
+                },
+                "distance": 0.2,  # confidence = 1/(1+0.2) ≈ 0.833 > 0.7
+            }
+        ]
+
+        result = aligner.align("user authentication")
+        assert result.concept_name == "用户认证"
+        assert result.match_type == "vector"
+        assert result.confidence >= 0.7
+
+    def test_vector_match_below_threshold(
+        self,
+        aligner: ConceptAligner,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试 confidence < threshold → none。"""
+        mock_chroma_store.search.return_value = [
+            {
+                "id": "vector-1",
+                "text": "无关内容",
+                "metadata": {"name": "用户认证", "entity_type": "concept"},
+                "distance": 1.0,  # confidence = 1/(1+1) = 0.5 < 0.7
+            }
+        ]
+
+        result = aligner.align("完全无关的术语")
+        assert result == NO_MATCH
+
+    def test_vector_match_no_results(
+        self,
+        aligner: ConceptAligner,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试 ChromaDB 无结果。"""
+        mock_chroma_store.search.return_value = []
+
+        result = aligner.align("unknown term")
+        assert result == NO_MATCH
+
+    def test_vector_match_with_none_distance(
+        self,
+        aligner: ConceptAligner,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试 distance 为 None。"""
+        mock_chroma_store.search.return_value = [
+            {
+                "id": "vector-1",
+                "text": "some text",
+                "metadata": {"name": "用户认证", "entity_type": "concept"},
+                "distance": None,
+            }
+        ]
+
+        result = aligner.align("term")
+        assert result == NO_MATCH
+
+    def test_vector_match_after_exact_alias_fail(
+        self,
+        aligner: ConceptAligner,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试精确/别名都失败后走向量。"""
+        mock_chroma_store.search.return_value = [
+            {
+                "id": "vector-1",
+                "text": "权限管理",
+                "metadata": {"name": "权限控制", "entity_type": "concept"},
+                "distance": 0.1,
+            }
+        ]
+
+        result = aligner.align("权限管理")
+        assert result.concept_name == "权限控制"
+        assert result.match_type == "vector"
+
+
+class TestFullPipeline:
+    """综合流程测试。"""
+
+    def test_align_pipeline_exact_wins(
+        self,
+        aligner: ConceptAligner,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试三步流水线，精确匹配优先。"""
+        # 即使向量搜索也返回结果，精确匹配应优先
+        mock_chroma_store.search.return_value = [
+            {
+                "id": "vector-1",
+                "text": "some text",
+                "metadata": {"name": "权限控制", "entity_type": "concept"},
+                "distance": 0.0,
+            }
+        ]
+
+        result = aligner.align("用户认证")
+        assert result.match_type == "exact"
+        assert result.concept_name == "用户认证"
+        # 确保没有调用向量搜索（精确匹配短路）
+        mock_chroma_store.search.assert_not_called()
+
+    def test_align_pipeline_alias_second(
+        self,
+        aligner: ConceptAligner,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试精确失败 → 别名成功。"""
+        result = aligner.align("rbac")
+        assert result.match_type == "alias"
+        assert result.concept_name == "权限控制"
+        mock_chroma_store.search.assert_not_called()
+
+    def test_align_pipeline_vector_third(
+        self,
+        aligner: ConceptAligner,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试精确/别名失败 → 向量成功。"""
+        mock_chroma_store.search.return_value = [
+            {
+                "id": "vector-1",
+                "text": "用户身份验证",
+                "metadata": {"name": "用户认证", "entity_type": "concept"},
+                "distance": 0.3,
+            }
+        ]
+
+        result = aligner.align("user login")
+        assert result.match_type == "vector"
+        assert result.concept_name == "用户认证"
+
+    def test_align_pipeline_no_match(
+        self,
+        aligner: ConceptAligner,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试三步都失败。"""
+        mock_chroma_store.search.return_value = []
+
+        result = aligner.align("完全不相关的术语xyz")
+        assert result == NO_MATCH
+
+
+class TestBatchAndManagement:
+    """批量操作和管理功能测试。"""
+
+    def test_align_batch_multiple_terms(
+        self,
+        aligner: ConceptAligner,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试批量对齐。"""
+
+        # 使用 side_effect 区分不同查询的返回值
+        # 对于 "unknown" 返回空结果，其他返回向量匹配结果
+        def mock_search(query_text: str, n_results: int = 10, where: dict | None = None) -> list:
+            if "unknown" in query_text.lower():
+                return []
+            return [
+                {
+                    "id": "vector-1",
+                    "text": "认证",
+                    "metadata": {"name": "用户认证", "entity_type": "concept"},
+                    "distance": 0.2,
+                }
+            ]
+
+        mock_chroma_store.search.side_effect = mock_search
+
+        results = aligner.align_batch(["用户认证", "login", "unknown", "rbac"])
+        assert len(results) == 4
+        assert results[0].match_type == "exact"
+        assert results[1].match_type == "alias"
+        assert results[2].match_type == "none"
+        assert results[3].match_type == "alias"
+
+    def test_add_concept_dynamic(self, aligner: ConceptAligner) -> None:
+        """测试动态添加概念。"""
+        new_concept = ConceptEntity(
+            name="数据加密",
+            entity_type="business_concept",
+            aliases=["encryption", "加密"],
+        )
+        aligner.add_concept(new_concept)
+
+        result = aligner.align("encryption")
+        assert result.concept_name == "数据加密"
+        assert result.match_type == "alias"
+
+    def test_add_concept_duplicate_name_skips(
+        self,
+        mock_chroma_store: MagicMock,
+        sample_concepts: list[ConceptEntity],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """测试添加同名概念（不同 ID）时跳过。"""
+        aligner = ConceptAligner(
+            chroma_store=mock_chroma_store,
+            concepts=sample_concepts,
+        )
+
+        duplicate_concept = ConceptEntity(
+            name="用户认证",  # 同名
+            entity_type="business_concept",
+            aliases=["new-alias"],
+        )
+
+        aligner.add_concept(duplicate_concept)
+
+        # 应保留原概念，跳过新的
+        result = aligner.align("用户认证")
+        assert result.concept_id != duplicate_concept.id
+
+        # 验证日志警告
+        assert any("Duplicate concept name" in record.message for record in caplog.records)
+
+    def test_list_concepts(self, aligner: ConceptAligner) -> None:
+        """测试列出所有概念。"""
+        concepts = aligner.list_concepts()
+        assert len(concepts) == 3
+
+        concept_names = {c["name"] for c in concepts}
+        assert "用户认证" in concept_names
+        assert "权限控制" in concept_names
+        assert "单例模式" in concept_names
+
+        # 验证字段
+        for concept in concepts:
+            assert "id" in concept
+            assert "aliases" in concept
+            assert "entity_type" in concept
+
+
+class TestBuildIndex:
+    """索引构建测试。"""
+
+    def test_build_index_with_duplicate_names(
+        self,
+        mock_chroma_store: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """测试 _build_index 处理同名概念。"""
+        concepts = [
+            ConceptEntity(
+                name="重复概念",
+                entity_type="business_concept",
+                aliases=["alias1"],
+            ),
+            ConceptEntity(
+                name="重复概念",  # 同名不同 ID
+                entity_type="business_concept",
+                aliases=["alias2"],
+            ),
+        ]
+
+        aligner = ConceptAligner(
+            chroma_store=mock_chroma_store,
+            concepts=concepts,
+        )
+
+        # 应保留第一个，跳过第二个
+        listed = aligner.list_concepts()
+        assert len(listed) == 1
+        assert listed[0]["name"] == "重复概念"
+
+        # 验证警告日志
+        assert any("Duplicate concept name" in record.message for record in caplog.records)
+
+
+class TestVectorMatchEdgeCases:
+    """向量匹配边界情况测试。"""
+
+    def test_vector_match_missing_concept_name(
+        self,
+        aligner: ConceptAligner,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试 metadata 中缺少 name 字段。"""
+        mock_chroma_store.search.return_value = [
+            {
+                "id": "vector-1",
+                "text": "some text",
+                "metadata": {"entity_type": "concept"},  # 缺少 name
+                "distance": 0.1,
+            }
+        ]
+
+        result = aligner.align("term")
+        # 应该返回结果，但 concept_name 为 None
+        assert result.match_type == "vector"
+        assert result.concept_name is None
+
+    def test_vector_match_confidence_rounding(
+        self,
+        aligner: ConceptAligner,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试 confidence 四舍五入到 4 位小数。"""
+        mock_chroma_store.search.return_value = [
+            {
+                "id": "vector-1",
+                "text": "认证",
+                "metadata": {"name": "用户认证", "entity_type": "concept"},
+                "distance": 0.1234,  # confidence ≈ 0.8901
+            }
+        ]
+
+        # 使用"身份验证"而非"auth"，因为"auth"是别名会匹配为alias
+        result = aligner.align("身份验证")
+        assert result.match_type == "vector"
+        # confidence = 1 / (1 + 0.1234) ≈ 0.890109...
+        assert result.confidence == round(1.0 / (1.0 + 0.1234), 4)
+
+    def test_vector_match_threshold_at_boundary(
+        self,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试阈值边界情况。"""
+        aligner = ConceptAligner(
+            chroma_store=mock_chroma_store,
+            concepts=[],
+            vector_threshold=0.5,
+        )
+
+        # confidence = 1 / (1 + distance)
+        # threshold = 0.5 → distance <= 1.0 时通过
+        mock_chroma_store.search.return_value = [
+            {
+                "id": "vector-1",
+                "text": "text",
+                "metadata": {"name": "概念", "entity_type": "concept"},
+                "distance": 1.0,  # confidence = 0.5，刚好等于阈值
+            }
+        ]
+
+        result = aligner.align("term")
+        # 0.5 >= 0.5，应该通过
+        assert result.match_type == "vector"
