@@ -1,0 +1,390 @@
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from layerkg.builder import BuildResult, LayerKGBuilder
+from layerkg.config import LayerKGConfig
+from layerkg.schema import CodeEntity
+
+
+@pytest.fixture
+def temp_repo(tmp_path: Path) -> Path:
+    """创建临时测试仓库。"""
+    # 创建几个测试文件
+    (tmp_path / "module1.py").write_text("def foo():\n    pass\n\nclass Bar:\n    pass\n")
+    (tmp_path / "module2.py").write_text("def baz():\n    pass\n")
+    # 创建子目录
+    subdir = tmp_path / "subdir"
+    subdir.mkdir()
+    (subdir / "module3.py").write_text("class Qux:\n    pass\n")
+    # 创建应该跳过的隐藏目录
+    hidden_dir = tmp_path / ".venv"
+    hidden_dir.mkdir()
+    (hidden_dir / "hidden.py").write_text("# should be skipped\n")
+
+    # 创建 __pycache__ 目录
+    cache_dir = tmp_path / "__pycache__"
+    cache_dir.mkdir()
+    (cache_dir / "cached.py").write_text("# should be skipped\n")
+
+    return tmp_path
+
+
+@pytest.fixture
+def mock_config() -> LayerKGConfig:
+    """创建测试配置。"""
+    return LayerKGConfig(
+        neo4j_uri="bolt://localhost:7687",
+        neo4j_user="neo4j",
+        neo4j_password="test",
+        chroma_persist_dir=None,  # 内存模式
+        ollama_base_url="http://localhost:11434",
+        embedding_model="test-model",
+    )
+
+
+@pytest.fixture
+def builder(mock_config: LayerKGConfig) -> LayerKGBuilder:
+    """创建 Builder 实例。"""
+    return LayerKGBuilder(mock_config)
+
+
+class TestScanPythonFiles:
+    """测试 _scan_python_files 方法。"""
+
+    def test_scan_python_files_finds_py_files(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+        # Arrange
+        expected_files = 3  # module1.py, module2.py, module3.py
+
+        # Act
+        files = builder._scan_python_files(temp_repo)
+
+        # Assert
+        assert len(files) == expected_files
+        assert all(f.suffix == ".py" for f in files)
+
+    def test_scan_skips_hidden_dirs(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+        # Arrange
+        hidden_dir = temp_repo / ".venv"
+        cache_dir = temp_repo / "__pycache__"
+
+        # Act
+        files = builder._scan_python_files(temp_repo)
+
+        # Assert
+        file_strs = [str(f) for f in files]
+        assert not any(str(hidden_dir) in f for f in file_strs)
+        assert not any(str(cache_dir) in f for f in file_strs)
+
+    def test_scan_empty_dir_returns_empty(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+        # Arrange & Act
+        files = builder._scan_python_files(tmp_path)
+
+        # Assert
+        assert files == []
+
+    def test_scan_returns_sorted_files(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+        # Act
+        files = builder._scan_python_files(temp_repo)
+
+        # Assert - 检查是否已排序
+        assert files == sorted(files)
+
+
+class TestEntityToDict:
+    """测试 _entity_to_dict 方法。"""
+
+    def test_entity_to_dict_contains_required_fields(self, builder: LayerKGBuilder) -> None:
+        # Arrange
+        entity = CodeEntity(name="foo", entity_type="function")
+
+        # Act
+        result = builder._entity_to_dict(entity)
+
+        # Assert
+        assert result["id"] == entity.id
+        assert result["name"] == "foo"
+        assert result["entity_type"] == "function"
+
+    def test_entity_to_dict_with_optional_fields(self, builder: LayerKGBuilder) -> None:
+        # Arrange
+        entity = CodeEntity(
+            name="Bar",
+            entity_type="class",
+            file_path="/path/to/file.py",
+            start_line=10,
+            end_line=20,
+            language="python",
+        )
+
+        # Act
+        result = builder._entity_to_dict(entity)
+
+        # Assert
+        assert result["file_path"] == "/path/to/file.py"
+        assert result["start_line"] == 10
+        assert result["end_line"] == 20
+        assert result["language"] == "python"
+
+    def test_entity_to_dict_without_optional_fields(self, builder: LayerKGBuilder) -> None:
+        # Arrange
+        entity = CodeEntity(name="baz", entity_type="function")
+
+        # Act
+        result = builder._entity_to_dict(entity)
+
+        # Assert
+        assert "file_path" not in result
+        assert "start_line" not in result
+        assert "end_line" not in result
+        assert "language" not in result
+
+
+class TestEntityToText:
+    """测试 _entity_to_text 方法。"""
+
+    def test_entity_to_text_with_source(self, builder: LayerKGBuilder) -> None:
+        # Arrange
+        entity = CodeEntity(
+            name="foo",
+            entity_type="function",
+            source="def foo():\n    pass",
+        )
+
+        # Act
+        result = builder._entity_to_text(entity)
+
+        # Assert
+        assert result == "def foo():\n    pass"
+
+    def test_entity_to_text_without_source(self, builder: LayerKGBuilder) -> None:
+        # Arrange
+        entity = CodeEntity(
+            name="Bar",
+            entity_type="class",
+            file_path="/path/to/file.py",
+        )
+
+        # Act
+        result = builder._entity_to_text(entity)
+
+        # Assert
+        assert result == "class Bar in /path/to/file.py"
+
+    def test_entity_to_text_minimal(self, builder: LayerKGBuilder) -> None:
+        # Arrange
+        entity = CodeEntity(name="baz", entity_type="function")
+
+        # Act
+        result = builder._entity_to_text(entity)
+
+        # Assert
+        assert result == "function baz"
+
+
+class TestBuildResult:
+    """测试 BuildResult dataclass。"""
+
+    def test_build_result_creation(self) -> None:
+        # Arrange & Act
+        result = BuildResult(
+            files_scanned=10,
+            entities_created=100,
+            relations_created=50,
+        )
+
+        # Assert
+        assert result.files_scanned == 10
+        assert result.entities_created == 100
+        assert result.relations_created == 50
+
+
+class TestBuilderBuild:
+    """测试 build 方法。"""
+
+    def test_build_parses_all_files(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+        # Arrange
+        mock_graph = MagicMock()
+        mock_chroma = MagicMock()
+
+        with (
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+        ):
+            # Act
+            result = builder.build(temp_repo)
+
+            # Assert
+            assert result.files_scanned == 3
+            assert result.entities_created > 0
+            mock_graph.ensure_constraints.assert_called_once()
+
+    def test_build_writes_to_graph_store(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+        # Arrange
+        mock_graph = MagicMock()
+        mock_chroma = MagicMock()
+
+        with (
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+        ):
+            # Act
+            builder.build(temp_repo)
+
+            # Assert - 至少调用了 merge_node（每个实体至少一个 module）
+            assert mock_graph.merge_node.call_count > 0
+
+    def test_build_writes_to_chroma_store(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+        # Arrange
+        mock_graph = MagicMock()
+        mock_chroma = MagicMock()
+
+        with (
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+        ):
+            # Act
+            builder.build(temp_repo)
+
+            # Assert - 至少有一些实体被写入 ChromaDB
+            assert mock_chroma.put_entities_batch.call_count >= 1
+
+    def test_build_returns_correct_counts(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+        # Arrange
+        mock_graph = MagicMock()
+        mock_chroma = MagicMock()
+
+        with (
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+        ):
+            # Act
+            result = builder.build(temp_repo)
+
+            # Assert
+            assert result.files_scanned == 3
+            assert isinstance(result.entities_created, int)
+            assert isinstance(result.relations_created, int)
+
+    def test_build_empty_repository(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+        # Arrange
+        mock_graph = MagicMock()
+        mock_chroma = MagicMock()
+
+        with (
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+        ):
+            # Act
+            result = builder.build(tmp_path)
+
+            # Assert
+            assert result.files_scanned == 0
+            assert result.entities_created == 0
+            assert result.relations_created == 0
+
+
+class TestBuilderQuery:
+    """测试 query 方法。"""
+
+    def test_query_searches_chroma(self, builder: LayerKGBuilder) -> None:
+        # Arrange
+        mock_chroma = MagicMock()
+        mock_chroma.search.return_value = [
+            {
+                "id": "123",
+                "text": "def foo(): pass",
+                "metadata": {"entity_type": "function", "name": "foo"},
+                "distance": 0.123,
+            }
+        ]
+
+        with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
+            # Act
+            results = builder.query("foo", n_results=10)
+
+            # Assert
+            mock_chroma.search.assert_called_once_with("foo", n_results=10, where=None)
+            assert len(results) == 1
+
+    def test_query_with_type_filter(self, builder: LayerKGBuilder) -> None:
+        # Arrange
+        mock_chroma = MagicMock()
+        mock_chroma.search.return_value = []
+
+        with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
+            # Act
+            builder.query("foo", n_results=5, entity_type="function")
+
+            # Assert
+            mock_chroma.search.assert_called_once_with("foo", n_results=5, where={"entity_type": "function"})
+
+
+class TestBuilderInfo:
+    """测试 info 方法。"""
+
+    def test_info_returns_config(self, builder: LayerKGBuilder) -> None:
+        # Arrange
+        mock_chroma = MagicMock()
+        mock_chroma.count.return_value = 42
+
+        with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
+            # Act
+            info = builder.info()
+
+            # Assert
+            assert "config" in info
+            assert info["config"]["neo4j_uri"] == "bolt://localhost:7687"
+            assert info["config"]["ollama_url"] == "http://localhost:11434"
+            assert info["config"]["model"] == "test-model"
+
+    def test_info_returns_chroma_count(self, builder: LayerKGBuilder) -> None:
+        # Arrange
+        mock_chroma = MagicMock()
+        mock_chroma.count.return_value = 99
+
+        with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
+            # Act
+            info = builder.info()
+
+            # Assert
+            assert info["chroma_count"] == 99
+
+
+class TestContextManager:
+    """测试 context manager。"""
+
+    def test_context_manager_closes_stores(self, mock_config: LayerKGConfig) -> None:
+        # Arrange
+        with (
+            patch("layerkg.builder.Neo4jGraphStore") as mock_graph_cls,
+            patch("layerkg.builder.ChromaStore") as mock_chroma_cls,
+        ):
+            mock_graph = MagicMock()
+            mock_chroma = MagicMock()
+            mock_graph_cls.return_value = mock_graph
+            mock_chroma_cls.return_value = mock_chroma
+
+            builder = LayerKGBuilder(mock_config)
+
+            # Act
+            with builder:
+                # 触发 store 创建
+                builder._get_graph_store()
+                builder._get_chroma_store()
+
+            # Assert
+            mock_graph.close.assert_called_once()
+            mock_chroma.close.assert_called_once()
+
+    def test_context_manager_returns_self(self, mock_config: LayerKGConfig) -> None:
+        # Arrange
+        builder = LayerKGBuilder(mock_config)
+
+        # Act
+        with builder as b:
+            # Assert
+            assert b is builder

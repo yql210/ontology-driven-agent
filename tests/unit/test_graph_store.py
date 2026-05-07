@@ -19,9 +19,7 @@ class _DummyStore(GraphStore):
     def delete_node(self, node_id: str) -> bool:
         return False  # pragma: no cover
 
-    def merge_relation(
-        self, source_id: str, target_id: str, rel_type: str, properties: dict | None = None
-    ) -> dict:
+    def merge_relation(self, source_id: str, target_id: str, rel_type: str, properties: dict | None = None) -> dict:
         return {"source": source_id, "target": target_id}  # pragma: no cover
 
     def delete_relation(self, source_id: str, target_id: str, rel_type: str) -> bool:
@@ -55,8 +53,12 @@ def test_graph_store_subclass_instantiable():
 def test_graph_store_abstract_methods():
     """GraphStore 必须定义全部抽象方法。"""
     expected = {
-        "merge_node", "get_node", "delete_node",
-        "merge_relation", "delete_relation", "get_relations",
+        "merge_node",
+        "get_node",
+        "delete_node",
+        "merge_relation",
+        "delete_relation",
+        "get_relations",
         "query",
     }
     actual = {name for name in dir(GraphStore) if not name.startswith("_")}

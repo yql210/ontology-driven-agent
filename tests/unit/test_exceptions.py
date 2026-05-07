@@ -21,8 +21,8 @@ def test_store_error_inherits():
 
 
 def test_error_message():
-    err = LayerKGError('test message')
-    assert str(err) == 'test message'
+    err = LayerKGError("test message")
+    assert str(err) == "test message"
 
 
 def test_embedding_error_is_layerkg_error():

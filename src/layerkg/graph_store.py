@@ -64,9 +64,7 @@ class GraphStore(ABC):
         """
 
     @abstractmethod
-    def delete_relation(
-        self, source_id: str, target_id: str, rel_type: str
-    ) -> bool:
+    def delete_relation(self, source_id: str, target_id: str, rel_type: str) -> bool:
         """删除关系。
 
         Args:

@@ -31,9 +31,7 @@ class CodeEntity:
     end_line: int | None = None
     source: str | None = None
     language: str | None = None
-    created_at: str = field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     VALID_ENTITY_TYPES = {"function", "class", "interface", "module", "file"}
 
@@ -65,9 +63,7 @@ class ConceptEntity:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     description: str | None = None
     aliases: list[str] = field(default_factory=list)
-    created_at: str = field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     VALID_ENTITY_TYPES = {
         "business_concept",
@@ -107,9 +103,7 @@ class DocEntity:
     content: str | None = None
     file_path: str | None = None
     language: str | None = None
-    created_at: str = field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     VALID_ENTITY_TYPES = {
         "readme",
@@ -148,9 +142,7 @@ class ResourceEntity:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     file_path: str | None = None
     mime_type: str | None = None
-    created_at: str = field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     VALID_ENTITY_TYPES = {"image", "diagram", "pdf", "config", "schema_file", "log"}
 
@@ -178,9 +170,7 @@ class ModuleEntity:
     name: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     description: str | None = None
-    created_at: str = field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def __post_init__(self) -> None:
         """校验字段。"""
@@ -209,12 +199,8 @@ class ChangeSetEntity:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     branch: str = "main"
     files_changed: list[str] = field(default_factory=list)
-    committed_at: str = field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
-    created_at: str = field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
+    committed_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def __post_init__(self) -> None:
         """校验字段。"""
@@ -224,11 +210,21 @@ class ChangeSetEntity:
             raise SchemaValidationError("ChangeSetEntity.message cannot be empty")
 
 
-VALID_RELATION_TYPES = frozenset({
-    "calls", "extends", "implements", "imports", "contains",
-    "semantic_impact", "describes", "illustrates", "derived_from",
-    "changed_in", "affects",
-})
+VALID_RELATION_TYPES = frozenset(
+    {
+        "calls",
+        "extends",
+        "implements",
+        "imports",
+        "contains",
+        "semantic_impact",
+        "describes",
+        "illustrates",
+        "derived_from",
+        "changed_in",
+        "affects",
+    }
+)
 
 RELATION_TYPE_TO_NEO4J: dict[str, str] = {
     "calls": "CALLS",
@@ -265,18 +261,13 @@ class Relation:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     weight: float = 1.0
     metadata: dict[str, str] = field(default_factory=dict)
-    created_at: str = field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def __post_init__(self) -> None:
         """校验字段。"""
         if self.relation_type not in VALID_RELATION_TYPES:
             raise SchemaValidationError(
-                f"Relation.relation_type must be one of {VALID_RELATION_TYPES}, "
-                f"got '{self.relation_type}'"
+                f"Relation.relation_type must be one of {VALID_RELATION_TYPES}, got '{self.relation_type}'"
             )
         if not (0 <= self.weight <= 1):
-            raise SchemaValidationError(
-                f"Relation.weight must be in [0, 1], got {self.weight}"
-            )
+            raise SchemaValidationError(f"Relation.weight must be in [0, 1], got {self.weight}")

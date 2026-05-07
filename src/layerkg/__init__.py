@@ -1,5 +1,7 @@
-# LayerKG - 基于本体驱动的可更新知识图谱引擎
+from __future__ import annotations
 
+# LayerKG - 基于本体驱动的可更新知识图谱引擎
+from layerkg.builder import BuildResult, LayerKGBuilder
 from layerkg.chroma_store import ChromaStore, OllamaEmbeddingFunction
 from layerkg.config import LayerKGConfig
 from layerkg.exceptions import EmbeddingError, LayerKGError, SchemaValidationError, StoreError
@@ -29,6 +31,9 @@ __all__ = [
     # chroma store
     "ChromaStore",
     "OllamaEmbeddingFunction",
+    # builder
+    "LayerKGBuilder",
+    "BuildResult",
     # schema - entities
     "CodeEntity",
     "ConceptEntity",
