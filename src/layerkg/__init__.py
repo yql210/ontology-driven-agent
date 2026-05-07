@@ -3,6 +3,7 @@ from __future__ import annotations
 # LayerKG - 基于本体驱动的可更新知识图谱引擎
 from layerkg.aligner import NO_MATCH, AlignResult, ConceptAligner
 from layerkg.builder import BuildResult, LayerKGBuilder
+from layerkg.change_detector import ChangedFile, ChangeType, GitChangeDetector, GitStatus, SHA256Cache
 from layerkg.chroma_store import ChromaStore, OllamaEmbeddingFunction
 from layerkg.config import LayerKGConfig
 from layerkg.exceptions import EmbeddingError, LayerKGError, SchemaValidationError, StoreError
@@ -39,6 +40,12 @@ __all__ = [
     # builder
     "LayerKGBuilder",
     "BuildResult",
+    # change detector
+    "ChangeType",
+    "ChangedFile",
+    "GitStatus",
+    "SHA256Cache",
+    "GitChangeDetector",
     # schema - entities
     "CodeEntity",
     "ConceptEntity",
