@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from layerkg.aligner import NO_MATCH, AlignResult, ConceptAligner
+from layerkg.neo4j_store import Neo4jGraphStore
 from layerkg.schema import ConceptEntity
 
 
@@ -14,6 +15,28 @@ def mock_chroma_store() -> MagicMock:
     store = MagicMock()
     store.search.return_value = []
     return store
+
+
+@pytest.fixture
+def mock_neo4j_store() -> MagicMock:
+    """Mock Neo4jGraphStore 实例。"""
+    store = MagicMock(spec=Neo4jGraphStore)
+    return store
+
+
+@pytest.fixture
+def aligner_with_neo4j(
+    mock_chroma_store: MagicMock,
+    sample_concepts: list[ConceptEntity],
+    mock_neo4j_store: MagicMock,
+) -> ConceptAligner:
+    """带 Neo4j store 的 aligner 实例。"""
+    return ConceptAligner(
+        chroma_store=mock_chroma_store,
+        concepts=sample_concepts,
+        neo4j_store=mock_neo4j_store,
+        graph_overlap_threshold=0.8,
+    )
 
 
 @pytest.fixture
@@ -498,3 +521,256 @@ class TestVectorMatchEdgeCases:
         result = aligner.align("term")
         # 0.5 >= 0.5，应该通过
         assert result.match_type == "vector"
+
+
+class TestConceptAlignerConstructorExtension:
+    """Task 11: ConceptAligner 构造函数扩展测试。"""
+
+    def test_init_with_neo4j_store(
+        self,
+        mock_chroma_store: MagicMock,
+        sample_concepts: list[ConceptEntity],
+        mock_neo4j_store: MagicMock,
+    ) -> None:
+        """测试带 neo4j_store 的初始化。"""
+        aligner = ConceptAligner(
+            chroma_store=mock_chroma_store,
+            concepts=sample_concepts,
+            neo4j_store=mock_neo4j_store,
+            graph_overlap_threshold=0.7,
+        )
+
+        assert aligner._neo4j_store is mock_neo4j_store
+        assert aligner._graph_overlap_threshold == 0.7
+
+    def test_init_without_neo4j_store_backward_compatible(
+        self,
+        mock_chroma_store: MagicMock,
+        sample_concepts: list[ConceptEntity],
+    ) -> None:
+        """测试 neo4j_store=None 时向后兼容，现有行为不受影响。"""
+        aligner = ConceptAligner(
+            chroma_store=mock_chroma_store,
+            concepts=sample_concepts,
+        )
+
+        assert aligner._neo4j_store is None
+        assert aligner._graph_overlap_threshold == 0.8  # 默认值
+
+        # 验证基本功能仍然工作
+        result = aligner.align("用户认证")
+        assert result.match_type == "exact"
+
+
+class TestGraphStructureMatchCoreLogic:
+    """Task 12: _graph_structure_match 核心逻辑测试。"""
+
+    def test_graph_structure_match_jaccard_above_threshold(
+        self,
+        aligner_with_neo4j: ConceptAligner,
+        mock_neo4j_store: MagicMock,
+    ) -> None:
+        """测试 Jaccard > 0.8 时匹配成功。"""
+        # Mock 概念-代码关系查询
+        mock_neo4j_store.query.return_value = [
+            {"name": "用户认证", "code_ids": ["code1", "code2", "code3"]},
+            {"name": "权限控制", "code_ids": ["code4", "code5"]},
+        ]
+
+        # Mock term 关联的 CodeEntity 查询
+        # 用户认证: {code1, code2, code3} ∩ {code1, code2, code3, code6} = {code1, code2, code3}
+        # union = {code1, code2, code3, code6}, jaccard = 3/4 = 0.75 < 0.8
+        # 让我们调整数据使 Jaccard > 0.8
+        def mock_query_side_effect(cypher: str, params: dict | None = None) -> list[dict]:
+            if "ConceptEntity" in cypher:
+                # 概念-代码关系
+                return [
+                    {"name": "用户认证", "code_ids": ["code1", "code2", "code3", "code4"]},
+                    {"name": "权限控制", "code_ids": ["code10", "code11"]},
+                ]
+            elif "CodeEntity {name" in cypher:
+                # term 关联的 CodeEntity
+                return [{"id": "code1"}, {"id": "code2"}, {"id": "code3"}, {"id": "code4"}]
+            return []
+
+        mock_neo4j_store.query.side_effect = mock_query_side_effect
+
+        result = aligner_with_neo4j._graph_structure_match("AuthService")
+
+        assert result is not None
+        assert result.match_type == "graph_structure"
+        assert result.concept_name == "用户认证"
+        # Jaccard = |{code1,code2,code3,code4}| / |{code1,code2,code3,code4}| = 1.0 > 0.8
+
+    def test_graph_structure_match_jaccard_below_threshold(
+        self,
+        aligner_with_neo4j: ConceptAligner,
+        mock_neo4j_store: MagicMock,
+    ) -> None:
+        """测试 Jaccard < 0.8 时返回 None。"""
+        def mock_query_side_effect(cypher: str, params: dict | None = None) -> list[dict]:
+            if "ConceptEntity" in cypher:
+                return [
+                    {"name": "用户认证", "code_ids": ["code1", "code2", "code3"]},
+                    {"name": "权限控制", "code_ids": ["code4", "code5"]},
+                ]
+            elif "CodeEntity {name" in cypher:
+                # term 关联的 CodeEntity 只有 code1
+                return [{"id": "code1"}]
+            return []
+
+        mock_neo4j_store.query.side_effect = mock_query_side_effect
+
+        result = aligner_with_neo4j._graph_structure_match("AuthService")
+
+        # Jaccard = |{code1}| / |{code1,code2,code3}| = 1/3 ≈ 0.33 < 0.8
+        assert result is None
+
+    def test_graph_structure_match_neo4j_store_none(
+        self,
+        mock_chroma_store: MagicMock,
+        sample_concepts: list[ConceptEntity],
+    ) -> None:
+        """测试 neo4j_store=None 时返回 None（降级）。"""
+        aligner = ConceptAligner(
+            chroma_store=mock_chroma_store,
+            concepts=sample_concepts,
+            neo4j_store=None,
+        )
+
+        result = aligner._graph_structure_match("AuthService")
+
+        assert result is None
+
+
+class TestAlignIntegrationStep4:
+    """Task 13: align() 集成 Step 4 测试。"""
+
+    def test_align_step4_match_after_step1_3_fail(
+        self,
+        aligner_with_neo4j: ConceptAligner,
+        mock_neo4j_store: MagicMock,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试 Step 1-3 未匹配 + Step 4 匹配 → match_type='graph_structure'。"""
+        # Step 3 (vector) 返回空
+        mock_chroma_store.search.return_value = []
+
+        def mock_query_side_effect(cypher: str, params: dict | None = None) -> list[dict]:
+            if "ConceptEntity" in cypher:
+                return [
+                    {"name": "用户认证", "code_ids": ["code1", "code2", "code3", "code4"]},
+                ]
+            elif "CodeEntity {name" in cypher:
+                return [{"id": "code1"}, {"id": "code2"}, {"id": "code3"}, {"id": "code4"}]
+            return []
+
+        mock_neo4j_store.query.side_effect = mock_query_side_effect
+
+        result = aligner_with_neo4j.align("AuthService")
+
+        assert result.match_type == "graph_structure"
+        assert result.concept_name == "用户认证"
+
+    def test_align_exact_match_skips_step4(
+        self,
+        aligner_with_neo4j: ConceptAligner,
+        mock_neo4j_store: MagicMock,
+    ) -> None:
+        """测试 Step 1 精确匹配成功 → 不调用 _graph_structure_match。"""
+        # 直接使用精确匹配 "用户认证"
+        result = aligner_with_neo4j.align("用户认证")
+
+        assert result.match_type == "exact"
+        assert result.concept_name == "用户认证"
+        # 验证没有调用 Neo4j 查询
+        mock_neo4j_store.query.assert_not_called()
+
+
+class TestValidMatchTypesUpdate:
+    """Task 14: VALID_MATCH_TYPES 更新测试。"""
+
+    def test_graph_structure_in_valid_match_types(self) -> None:
+        """测试 'graph_structure' 在 VALID_MATCH_TYPES 中。"""
+        assert "graph_structure" in ConceptAligner.VALID_MATCH_TYPES
+
+
+class TestGraphStructureMatchEdgeCases:
+    """Task 15: Step 4 边界情况测试。"""
+
+    def test_term_no_associated_code_entities(
+        self,
+        aligner_with_neo4j: ConceptAligner,
+        mock_neo4j_store: MagicMock,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试 term 无关联 CodeEntity → NO_MATCH。"""
+        mock_chroma_store.search.return_value = []
+
+        def mock_query_side_effect(cypher: str, params: dict | None = None) -> list[dict]:
+            if "ConceptEntity" in cypher:
+                return [
+                    {"name": "用户认证", "code_ids": ["code1", "code2"]},
+                ]
+            elif "CodeEntity {name" in cypher:
+                # term 无关联 CodeEntity
+                return []
+            return []
+
+        mock_neo4j_store.query.side_effect = mock_query_side_effect
+
+        result = aligner_with_neo4j.align("UnknownTerm")
+
+        assert result == NO_MATCH
+
+    def test_multiple_concepts_match_select_highest_jaccard(
+        self,
+        aligner_with_neo4j: ConceptAligner,
+        mock_neo4j_store: MagicMock,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试两个 concept 都匹配，取 Jaccard 更高的那个。"""
+        mock_chroma_store.search.return_value = []
+
+        def mock_query_side_effect(cypher: str, params: dict | None = None) -> list[dict]:
+            if "ConceptEntity" in cypher:
+                return [
+                    {"name": "用户认证", "code_ids": ["code1", "code2", "code3", "code4"]},  # Jaccard = 4/4 = 1.0
+                    {"name": "权限控制", "code_ids": ["code1", "code2"]},  # Jaccard = 2/4 = 0.5
+                ]
+            elif "CodeEntity {name" in cypher:
+                # term 关联 code1, code2, code3, code4
+                return [{"id": "code1"}, {"id": "code2"}, {"id": "code3"}, {"id": "code4"}]
+            return []
+
+        mock_neo4j_store.query.side_effect = mock_query_side_effect
+
+        result = aligner_with_neo4j.align("AuthService")
+
+        # 用户认证的 Jaccard 更高，应该被选中
+        assert result.match_type == "graph_structure"
+        assert result.concept_name == "用户认证"
+
+    def test_empty_union_skip_concept(
+        self,
+        aligner_with_neo4j: ConceptAligner,
+        mock_neo4j_store: MagicMock,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """测试 union 为空时跳过（除零保护）。"""
+        mock_chroma_store.search.return_value = []
+
+        def mock_query_side_effect(cypher: str, params: dict | None = None) -> list[dict]:
+            if "ConceptEntity" in cypher:
+                return [
+                    {"name": "用户认证", "code_ids": []},  # 空列表
+                ]
+            elif "CodeEntity {name" in cypher:
+                return []  # term 也无关联
+            return []
+
+        mock_neo4j_store.query.side_effect = mock_query_side_effect
+
+        result = aligner_with_neo4j.align("UnknownTerm")
+
+        assert result == NO_MATCH
