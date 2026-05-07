@@ -89,3 +89,24 @@ def update(repo_path: str, since: str, dry_run: bool, full_scan: bool) -> None:
     with IncrementalUpdater(config, repo_path=Path(repo_path)) as updater:
         report = updater.update(since, dry_run=dry_run, full_scan=full_scan)
         click.echo(f"Update complete: {report.to_dict()}")
+
+
+@main.command()
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "http"]),
+    default="stdio",
+    help="MCP 传输协议",
+    show_default=True,
+)
+@click.option("--port", default=8000, type=int, help="HTTP 模式端口", show_default=True)
+def serve(transport: str, port: int) -> None:
+    """启动 LayerKG MCP Server。"""
+    from layerkg.mcp_server import mcp
+
+    if transport == "http":
+        click.echo(f"Starting MCP server on http://localhost:{port}")
+        mcp.run(transport="http", port=port)
+    else:
+        click.echo("Starting MCP server on stdio")
+        mcp.run()

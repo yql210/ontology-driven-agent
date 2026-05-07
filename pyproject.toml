@@ -12,6 +12,7 @@ dependencies = [
     "pydantic>=2.0",
     "tree-sitter-python>=0.25.0",
     "httpx>=0.28.1",
+    "fastmcp>=3.2.4",
 ]
 
 [project.optional-dependencies]
