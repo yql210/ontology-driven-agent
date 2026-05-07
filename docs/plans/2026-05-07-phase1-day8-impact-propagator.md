@@ -38,7 +38,7 @@
 | severity | ImpactSeverity | 严重程度分类 |
 | depth | int | 距离变更源的跳数 |
 | direction | PropagationDirection | 传播方向 |
-| relation_path | list[str] | 经过的关系类型路径 |
+| relation_path | list[str] | 从变更源到当前节点的完整关系类型路径（如 ["calls", "imports"]） |
 | source_node_id | str | 变更源节点 ID |
 
 ### WeightMatrix 类
@@ -47,21 +47,25 @@
 
 ```python
 DEFAULT_WEIGHT_MATRIX: dict[str, dict[str, float]] = {
-    # relation_type: {SIGNATURE, BODY, DOC_ONLY}
-    "calls":           {"SIGNATURE": 0.9, "BODY": 0.7, "DOC_ONLY": 0.1},
-    "implements":      {"SIGNATURE": 0.8, "BODY": 0.5, "DOC_ONLY": 0.1},
-    "extends":         {"SIGNATURE": 0.9, "BODY": 0.6, "DOC_ONLY": 0.1},
-    "imports":         {"SIGNATURE": 0.5, "BODY": 0.3, "DOC_ONLY": 0.0},
-    "semantic_impact": {"SIGNATURE": 0.5, "BODY": 0.4, "DOC_ONLY": 0.2},
-    "describes":       {"SIGNATURE": 0.3, "BODY": 0.2, "DOC_ONLY": 0.3},
+    # relation_type: {ADDED, DELETED, SIGNATURE, BODY, DOC_ONLY}
+    "calls":           {"ADDED": 0.9, "DELETED": 1.0, "SIGNATURE": 0.9, "BODY": 0.7, "DOC_ONLY": 0.1},
+    "implements":      {"ADDED": 0.8, "DELETED": 1.0, "SIGNATURE": 0.8, "BODY": 0.5, "DOC_ONLY": 0.1},
+    "extends":         {"ADDED": 0.8, "DELETED": 0.9, "SIGNATURE": 0.9, "BODY": 0.6, "DOC_ONLY": 0.1},
+    "imports":         {"ADDED": 0.5, "DELETED": 0.6, "SIGNATURE": 0.5, "BODY": 0.3, "DOC_ONLY": 0.0},
+    "semantic_impact": {"ADDED": 0.4, "DELETED": 0.5, "SIGNATURE": 0.5, "BODY": 0.4, "DOC_ONLY": 0.2},
+    "describes":       {"ADDED": 0.3, "DELETED": 0.3, "SIGNATURE": 0.3, "BODY": 0.2, "DOC_ONLY": 0.3},
+    # 占位：当前阶段不参与传播，Phase 1+ 可能启用
+    "derived_from":    {"ADDED": 0.0, "DELETED": 0.0, "SIGNATURE": 0.0, "BODY": 0.0, "DOC_ONLY": 0.0},
+    "affects":         {"ADDED": 0.0, "DELETED": 0.0, "SIGNATURE": 0.0, "BODY": 0.0, "DOC_ONLY": 0.0},
 }
 ```
 
 **说明**（基于技术调研结论）：
-- `calls` SIGNATURE=0.9（调用方对签名变化敏感）
+- `calls` DELETED=1.0（删除调用关系影响最大），ADDED=0.9（新增调用方影响也很大）
 - `imports` DOC_ONLY=0.0（导入关系不受文档变化影响）
 - `semantic_impact` 权重适中（语义关系传播力弱于结构关系）
-- 未在矩阵中的关系类型（contains, illustrates 等）权重为 0，不参与传播
+- `derived_from` 和 `affects` 设为 0.0 占位，明确标注"不参与传播"
+- `contains`/`illustrates` 等关系不在矩阵中，默认权重 0.0
 
 ### DecaySchedule
 
@@ -179,18 +183,26 @@ def compute_impact(self, node_ids, change_type):
     return self._merge_impacts(all_impacts)
 
 def _bidirectional_bfs(self, source_id, change_type, direction):
-    """单方向 BFS，带深度衰减和权重矩阵。"""
-    frontier = {source_id}
-    visited = {source_id}
-    impacts = []
+    """单方向 BFS，带深度衰减和权重矩阵。
+    
+    visited 策略：使用 dict[str, float] 记录 node_id → best_score，
+    允许高分路径覆盖低分的已访问节点。
+    """
+    # frontier: 当前层的 {node_id: (best_score, relation_path)}
+    frontier: dict[str, tuple[float, list[str]]] = {
+        source_id: (1.0, [])
+    }
+    # visited: node_id → best_score（允许高分路径更新）
+    visited: dict[str, float] = {source_id: 1.0}
+    impacts: list[ImpactedNode] = []
     
     for depth in range(1, self._max_depth + 1):
         decay = self._decay_schedule.get(depth, 0.0)
         if decay == 0.0:
             break
         
-        next_frontier = set()
-        for node_id in frontier:
+        next_frontier: dict[str, tuple[float, list[str]]] = {}
+        for node_id, (_, path_so_far) in frontier.items():
             # 根据 direction 查询邻居
             if direction == PropagationDirection.FORWARD:
                 relations = self._graph_store.get_relations(target_id=node_id)
@@ -200,45 +212,55 @@ def _bidirectional_bfs(self, source_id, change_type, direction):
             for rel in relations:
                 # 确定邻居节点 ID
                 neighbor_id = rel["source_id"] if direction == PropagationDirection.FORWARD else rel["target_id"]
-                if neighbor_id in visited:
-                    continue
+                if neighbor_id == source_id:
+                    continue  # 跳过变更源自身
                 
                 rel_type = rel["rel_type"].lower()
                 score = self._compute_score(rel_type, change_type, depth)
                 
-                if score >= self._impact_threshold:
-                    node = self._graph_store.get_node(neighbor_id)
-                    if node:
-                        impacts.append(ImpactedNode(
-                            node_id=neighbor_id,
-                            node_label=node.get("label", "Unknown"),
-                            name=node.get("name", ""),
-                            file_path=node.get("file_path"),
-                            impact_score=score,
-                            severity=self._classify_severity(score),
-                            depth=depth,
-                            direction=direction,
-                            relation_path=[rel_type],
-                            source_node_id=source_id,
-                        ))
-                        next_frontier.add(neighbor_id)
+                if score < self._impact_threshold:
+                    continue
+                
+                # 允许高分路径更新已访问节点（MAX 策略）
+                if neighbor_id in visited and score <= visited[neighbor_id]:
+                    continue  # 已有更高或相等分数的路径
+                
+                visited[neighbor_id] = score
+                new_path = path_so_far + [rel_type]
+                
+                node = self._graph_store.get_node(neighbor_id)
+                if node:
+                    impacts.append(ImpactedNode(
+                        node_id=neighbor_id,
+                        node_label=node.get("label", "Unknown"),
+                        name=node.get("name", ""),
+                        file_path=node.get("file_path"),
+                        impact_score=score,
+                        severity=self._classify_severity(score),
+                        depth=depth,
+                        direction=direction,
+                        relation_path=new_path,
+                        source_node_id=source_id,
+                    ))
+                    next_frontier[neighbor_id] = (score, new_path)
         
-        visited |= next_frontier
         frontier = next_frontier
         
-        # 早停：如果 frontier 为空或 decay × 最大权重 < threshold
+        # 早停：如果 frontier 为空
         if not frontier:
             break
+        # 早停：如果 decay × 最大权重 < threshold
         max_weight = max(
             max(weights.values()) for weights in self._weight_matrix.values()
         )
-        if decay * max_weight < self._impact_threshold:
+        next_decay = self._decay_schedule.get(depth + 1, 0.0)
+        if next_decay * max_weight < self._impact_threshold:
             break
     
     return impacts
 
 def _merge_impacts(self, impacts):
-    """同节点取 MAX score。"""
+    """同节点同方向取 MAX score。不同方向独立保留。"""
     merged = {}
     for imp in impacts:
         key = (imp.node_id, imp.direction)
@@ -255,8 +277,13 @@ ChangedFile.file_path → GraphStore 节点 ID 的映射：
 
 ```python
 def map_files_to_nodes(self, changes):
-    """将 ChangedFile 映射为图谱节点。"""
+    """将 ChangedFile 映射为图谱节点。
+    
+    file_path 规范：ChangedFile.path 为相对路径（相对于仓库根目录），
+    Neo4j 中 file_path 统一存储为相对路径（由 builder.py 保证）。
+    """
     result = {}
+    skipped = []
     for change in changes:
         # Cypher: MATCH (n {file_path: $fp}) RETURN n.id, n.name, labels(n)
         nodes = self._graph_store.query(
@@ -266,17 +293,27 @@ def map_files_to_nodes(self, changes):
         node_ids = [n["id"] for n in nodes]
         if node_ids:
             result[change.path] = node_ids
+        else:
+            skipped.append(change.path)
+            self._logger.debug("No graph nodes found for file: %s", change.path)
+    
+    if skipped:
+        self._logger.info("Skipped %d files (no graph nodes): %s", len(skipped), skipped)
     return result
 ```
 
 **边界处理**：
-- file_path 在图谱中不存在（新文件或未构建）→ 跳过，不报错
+- file_path 在图谱中不存在（新文件或未构建）→ 跳过，记日志，不报错
 - 一个 file_path 对应多个节点（文件含多个函数/类）→ 全部收录
-- DELETED 文件 → 仍尝试查询（图谱可能有残留节点）
+- DELETED 文件特殊处理：
+  - 图谱中有节点 → **产生 DELETED 影响传播**（权重矩阵中 DELETED 列权重最高）
+  - 图谱中无节点 → 跳过（文件从未被解析过）
+  - Day 8 阶段不删除图谱中的节点（节点删除由 Day 9 IncrementalUpdater 负责）
+- ADDED 文件：图谱中无节点 → 跳过（新文件尚未构建入图谱，等 Day 9 处理）
 
 ---
 
-## 六、TDD 任务列表（~40 tests）
+## 六、TDD 任务列表（~45 tests）
 
 > 每个任务 = 2-5 分钟。严格 RED-GREEN-REFACTOR。
 
@@ -297,12 +334,13 @@ def map_files_to_nodes(self, changes):
 - source_node_id 不能为空
 - to_dict() 输出正确
 
-### Task 3: WeightMatrix 默认值 + 查询 (4 tests)
+### Task 3: WeightMatrix 默认值 + 查询 (5 tests)
 
-- DEFAULT_WEIGHT_MATRIX 包含 6 种关系类型
-- 每种关系有 SIGNATURE/BODY/DOC_ONLY 三个键
+- DEFAULT_WEIGHT_MATRIX 包含 8 种关系类型（6 活跃 + 2 占位）
+- 每种关系有 ADDED/DELETED/SIGNATURE/BODY/DOC_ONLY 五个键
 - 所有权重值在 [0, 1] 范围
-- 未收录的关系类型返回 0.0
+- 未收录的关系类型（如 contains）返回 0.0
+- **ADDED/DELETED 权重**：calls DELETED=1.0（最高），imports DOC_ONLY=0.0
 
 ### Task 4: DecaySchedule 默认值 (3 tests)
 
@@ -318,7 +356,7 @@ def map_files_to_nodes(self, changes):
 - nodes_by_severity 分组正确
 - to_dict() 序列化完整
 
-### Task 6: _compute_score 内部方法 (6 tests)
+### Task 6: _compute_score 内部方法 (7 tests)
 
 - calls+SIGNATURE+depth=1 → 0.9 × 1.0 = 0.9
 - imports+BODY+depth=2 → 0.3 × 0.6 = 0.18
@@ -326,6 +364,7 @@ def map_files_to_nodes(self, changes):
 - describes+DOC_ONLY+depth=3 → 0.3 × 0.3 = 0.09
 - 未知关系类型 → 0.0
 - depth=4 → 0.0（超出 schedule）
+- calls+DELETED+depth=1 → 1.0 × 1.0 = 1.0
 
 ### Task 7: _classify_severity (4 tests)
 
@@ -346,19 +385,21 @@ def map_files_to_nodes(self, changes):
 - 文件不存在于图谱 → 返回空 dict（不报错）
 - 多文件批量映射
 
-### Task 10: _merge_impacts (4 tests)
+### Task 10: _merge_impacts (5 tests)
 
 - 同节点同方向取 MAX score
 - 不同节点各自保留
 - 同节点不同方向各自保留（因为方向不同代表不同的影响语义）
 - 空列表 → 空列表
+- **多源变更**：两个 source_node_id 影响同一节点，各自产生独立 ImpactedNode
 
-### Task 11: 正向 BFS — 单跳传播 (4 tests)
+### Task 11: 正向 BFS — 单跳传播 (5 tests)
 
 - mock GraphStore 返回邻居，验证 ImpactedNode 字段
 - weight × decay = 0 的关系不收录
 - score < threshold 的节点不收录
 - 循环引用不会无限遍历（visited 集合）
+- **score 正好等于 threshold** → 收录（>= 语义）
 
 ### Task 12: 反向 BFS — 单跳传播 (3 tests)
 
@@ -366,25 +407,29 @@ def map_files_to_nodes(self, changes):
 - 邻居是 rel 的 target_id
 - ImpactedNode.direction = BACKWARD
 
-### Task 13: 多跳 BFS — 深度衰减 (4 tests)
+### Task 13: 多跳 BFS — 深度衰减 (5 tests)
 
 - depth=1 score > depth=2 score（衰减生效）
 - depth=3 仍可传播（decay=0.3）
 - depth=4 停止传播
 - 早停：frontier 为空时终止
+- **relation_path 多跳累积**：depth=2 的 relation_path 长度为 2
 
-### Task 14: compute_impact 完整流程 (4 tests)
+### Task 14: compute_impact 完整流程 (5 tests)
 
 - 双向传播合并结果
 - 变更源节点本身不在结果中
 - ADDED 类型文件（图谱无节点）→ 空结果
 - SIGNATURE 变更比 DOC_ONLY 传播更广
+- **DELETED 变更**：图谱有节点时，产生 DELETED 传播（权重最高）
 
-### Task 15: propagate 主入口集成 (3 tests)
+### Task 15: propagate 主入口集成 (5 tests)
 
 - 完整流程：ChangedFile → map → BFS → ImpactReport
 - propagation_time_ms > 0
 - total_analyzed 正确计数
+- **空图谱**：GraphStore 返回空 → ImpactReport.impacted_nodes 为空
+- **空变更列表**：传入 [] → ImpactReport 所有计数为 0
 
 ### Task 16: __init__.py 导出更新 + ruff + commit
 
@@ -417,8 +462,8 @@ mock_store = Mock(spec=GraphStore)
 ```
 
 ### 验证清单
-- [ ] `uv run pytest tests/unit/test_impact_propagator.py -v` → ~40 tests PASSED
-- [ ] `uv run pytest tests/ -v` → 310 tests PASSED（270 + 40，不破坏现有）
+- [ ] `uv run pytest tests/unit/test_impact_propagator.py -v` → ~45 tests PASSED
+- [ ] `uv run pytest tests/ -v` → 315 tests PASSED（270 + 45，不破坏现有）
 - [ ] `uv run ruff check src/ tests/` → 无错误
 - [ ] `uv run ruff format src/ tests/` → 格式化通过
 
@@ -447,4 +492,10 @@ from layerkg.impact_propagator import (
 | threshold=0.05 早停 | 过滤噪声节点，减少无效遍历 |
 | 关系类型大小写处理 | Neo4j 存储 UPPER_SNAKE（CALLS），查询时 .lower() 匹配矩阵 |
 | 未收录关系类型权重 0 | contains/illustrates 等关系不参与影响传播（Day 8 阶段） |
-| map_files_to_nodes 静默跳过 | 新文件未入图谱是正常情况，不应中断流程 |
+| map_files_to_nodes 静默跳过+日志 | 新文件未入图谱是正常情况，不应中断流程，但需记录便于调试 |
+| file_path 统一使用相对路径 | ChangedFile.path 和 Neo4j 中 file_path 都使用相对路径（builder.py 保证） |
+| visited 使用 dict[str, float] 而非 set | 允许高分路径更新已访问节点，避免丢失高分路径（审核修复） |
+| relation_path 记录完整路径 | 多跳时累积关系类型列表，如 ["calls", "imports"]（审核修复） |
+| 权重矩阵包含 ADDED/DELETED 列 | ChangeType 全部 5 种类型都有对应权重（审核修复） |
+| DELETED 产生最强传播 | DELETED 权重最高（calls DELETED=1.0），节点删除由 Day 9 负责 |
+| derived_from/affects 占位为 0.0 | 明确标注"Phase 1+ 可能启用"，避免遗漏 |
