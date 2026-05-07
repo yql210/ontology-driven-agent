@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from layerkg.exceptions import LayerKGError, SchemaValidationError, StoreError
+from layerkg.exceptions import (
+    EmbeddingError,
+    LayerKGError,
+    SchemaValidationError,
+    StoreError,
+)
 
 
 def test_base_error_is_exception():
@@ -18,3 +23,7 @@ def test_store_error_inherits():
 def test_error_message():
     err = LayerKGError('test message')
     assert str(err) == 'test message'
+
+
+def test_embedding_error_is_layerkg_error():
+    assert issubclass(EmbeddingError, LayerKGError)

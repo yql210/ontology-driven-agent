@@ -605,6 +605,7 @@ source = { editable = "." }
 dependencies = [
     { name = "chromadb" },
     { name = "click" },
+    { name = "httpx" },
     { name = "neo4j" },
     { name = "pydantic" },
     { name = "tree-sitter" },
@@ -623,6 +624,7 @@ dev = [
 requires-dist = [
     { name = "chromadb", specifier = ">=1.0" },
     { name = "click", specifier = ">=8.1" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "neo4j", specifier = ">=6.2.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1" },

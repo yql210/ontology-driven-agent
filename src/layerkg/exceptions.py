@@ -11,3 +11,7 @@ class SchemaValidationError(LayerKGError):
 
 class StoreError(LayerKGError):
     """存储操作失败。"""
+
+
+class EmbeddingError(LayerKGError):
+    """嵌入向量生成失败。"""
