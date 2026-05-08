@@ -513,9 +513,7 @@ class TestCreateBatches:
         from layerkg.schema import CodeEntity
 
         extractor = SemanticExtractor(batch_size=3)
-        entities = [
-            CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(5)
-        ]
+        entities = [CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(5)]
 
         batches = extractor._create_batches(entities)
 
@@ -540,9 +538,7 @@ class TestCreateBatches:
         from layerkg.schema import CodeEntity
 
         extractor = SemanticExtractor(batch_size=10)
-        entities = [
-            CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(3)
-        ]
+        entities = [CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(3)]
 
         batches = extractor._create_batches(entities)
 
@@ -565,28 +561,30 @@ class TestExtractBatch:
             CodeEntity(name="AuthModule", entity_type="class", file_path="/src/auth.py"),
         ]
 
-        mock_response = json.dumps({
-            "relations": [
-                {
-                    "source": "UserService",
-                    "source_type": "class",
-                    "target": "AuthModule",
-                    "target_type": "class",
-                    "relation_type": "semantic_impact",
-                    "confidence": 0.8,
-                    "reasoning": "test",
-                },
-                {
-                    "source": "AuthModule",
-                    "source_type": "class",
-                    "target": "UserService",
-                    "target_type": "class",
-                    "relation_type": "semantic_impact",
-                    "confidence": 0.7,
-                    "reasoning": "test2",
-                },
-            ]
-        })
+        mock_response = json.dumps(
+            {
+                "relations": [
+                    {
+                        "source": "UserService",
+                        "source_type": "class",
+                        "target": "AuthModule",
+                        "target_type": "class",
+                        "relation_type": "semantic_impact",
+                        "confidence": 0.8,
+                        "reasoning": "test",
+                    },
+                    {
+                        "source": "AuthModule",
+                        "source_type": "class",
+                        "target": "UserService",
+                        "target_type": "class",
+                        "relation_type": "semantic_impact",
+                        "confidence": 0.7,
+                        "reasoning": "test2",
+                    },
+                ]
+            }
+        )
 
         mocker.patch.object(extractor, "_call_llm", return_value=(mock_response, 100))
 
@@ -622,17 +620,19 @@ class TestExtractBatch:
             CodeEntity(name="AuthModule", entity_type="class", file_path="/src/auth.py"),
         ]
 
-        mock_response = json.dumps({
-            "relations": [
-                {
-                    "source": "UserService",
-                    "source_type": "class",
-                    "target": "AuthModule",
-                    "target_type": "class",
-                    "relation_type": "semantic_impact",
-                },
-            ]
-        })
+        mock_response = json.dumps(
+            {
+                "relations": [
+                    {
+                        "source": "UserService",
+                        "source_type": "class",
+                        "target": "AuthModule",
+                        "target_type": "class",
+                        "relation_type": "semantic_impact",
+                    },
+                ]
+            }
+        )
 
         mocker.patch.object(extractor, "_call_llm", return_value=(mock_response, 50))
 
@@ -704,9 +704,7 @@ class TestExtractMultiBatch:
 
         extractor = SemanticExtractor(batch_size=3)
 
-        entities = [
-            CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(7)
-        ]
+        entities = [CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(7)]
 
         mock_response = json.dumps({"relations": []})
 
@@ -725,9 +723,7 @@ class TestExtractMultiBatch:
 
         extractor = SemanticExtractor(batch_size=5)
 
-        entities = [
-            CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(7)
-        ]
+        entities = [CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(7)]
 
         mock_response = json.dumps({"relations": []})
 
@@ -744,9 +740,7 @@ class TestExtractMultiBatch:
 
         extractor = SemanticExtractor(batch_size=5)
 
-        entities = [
-            CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(7)
-        ]
+        entities = [CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(7)]
 
         mock_response = json.dumps({"relations": []})
 
@@ -764,21 +758,21 @@ class TestExtractMultiBatch:
 
         extractor = SemanticExtractor(batch_size=3)
 
-        entities = [
-            CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(7)
-        ]
+        entities = [CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(7)]
 
-        mock_response = json.dumps({
-            "relations": [
-                {
-                    "source": "Entity0",
-                    "source_type": "function",
-                    "target": "Entity1",
-                    "target_type": "function",
-                    "relation_type": "semantic_impact",
-                },
-            ]
-        })
+        mock_response = json.dumps(
+            {
+                "relations": [
+                    {
+                        "source": "Entity0",
+                        "source_type": "function",
+                        "target": "Entity1",
+                        "target_type": "function",
+                        "relation_type": "semantic_impact",
+                    },
+                ]
+            }
+        )
 
         # 第 2 批失败（包含 Entity3）
         def mock_call(prompt):
@@ -817,18 +811,20 @@ class TestExtractComplete:
             for i in range(5)
         ]
 
-        mock_response = json.dumps({
-            "relations": [
-                {
-                    "source": "Func0",
-                    "source_type": "function",
-                    "target": "Func1",
-                    "target_type": "function",
-                    "relation_type": "semantic_impact",
-                    "confidence": 0.8,
-                },
-            ]
-        })
+        mock_response = json.dumps(
+            {
+                "relations": [
+                    {
+                        "source": "Func0",
+                        "source_type": "function",
+                        "target": "Func1",
+                        "target_type": "function",
+                        "relation_type": "semantic_impact",
+                        "confidence": 0.8,
+                    },
+                ]
+            }
+        )
 
         mocker.patch.object(extractor, "_call_llm", return_value=(mock_response, 100))
 
@@ -939,9 +935,7 @@ class TestExtractCrossTypeRelations:
             DocEntity(name="README", entity_type="readme"),
         ]
 
-        relations = extractor._extract_cross_type_relations(
-            code_entities, doc_entities, "describes"
-        )
+        relations = extractor._extract_cross_type_relations(code_entities, doc_entities, "describes")
 
         assert len(relations) == 1
         assert relations[0].source_name == "README"
@@ -969,9 +963,7 @@ class TestExtractCrossTypeRelations:
             DocEntity(name="APIDoc", entity_type="api_doc"),
         ]
 
-        relations = extractor._extract_cross_type_relations(
-            code_entities, doc_entities, "describes"
-        )
+        relations = extractor._extract_cross_type_relations(code_entities, doc_entities, "describes")
 
         assert relations == []
 
@@ -994,9 +986,7 @@ class TestExtractCrossTypeRelations:
             ConceptEntity(name="Repository", entity_type="design_pattern"),
         ]
 
-        relations = extractor._extract_cross_type_relations(
-            code_entities, concept_entities, "derived_from"
-        )
+        relations = extractor._extract_cross_type_relations(code_entities, concept_entities, "derived_from")
 
         assert len(relations) == 1
         assert relations[0].source_name == "UserRepository"
@@ -1016,9 +1006,7 @@ class TestExtractBoundary:
 
         extractor = SemanticExtractor(batch_size=5)
 
-        entities = [
-            CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(20)
-        ]
+        entities = [CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(20)]
 
         mock_response = json.dumps({"relations": []})
 
@@ -1066,26 +1054,28 @@ class TestExtractBoundary:
             CodeEntity(name="Func1", entity_type="function"),
         ]
 
-        mock_response = json.dumps({
-            "relations": [
-                {
-                    "source": "Func1",
-                    "source_type": "function",
-                    "target": "Func2",
-                    "target_type": "function",
-                    "relation_type": "semantic_impact",
-                    "confidence": 0.8,
-                },
-                {
-                    "source": "Func1",
-                    "source_type": "function",
-                    "target": "Func3",
-                    "target_type": "function",
-                    "relation_type": "semantic_impact",
-                    "confidence": 0.3,
-                },
-            ]
-        })
+        mock_response = json.dumps(
+            {
+                "relations": [
+                    {
+                        "source": "Func1",
+                        "source_type": "function",
+                        "target": "Func2",
+                        "target_type": "function",
+                        "relation_type": "semantic_impact",
+                        "confidence": 0.8,
+                    },
+                    {
+                        "source": "Func1",
+                        "source_type": "function",
+                        "target": "Func3",
+                        "target_type": "function",
+                        "relation_type": "semantic_impact",
+                        "confidence": 0.3,
+                    },
+                ]
+            }
+        )
 
         mocker.patch.object(extractor, "_call_llm", return_value=(mock_response, 50))
 
@@ -1094,5 +1084,3 @@ class TestExtractBoundary:
         # 只有 confidence >= 0.5 的关系被保留
         assert len(result.relations) == 1
         assert result.relations[0].confidence == 0.8
-
-

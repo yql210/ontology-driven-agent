@@ -631,8 +631,10 @@ class TestMapFilesToNodes:
             if fp == "src/a.py":
                 return [{"id": "node-a", "name": "a", "labels": ["CodeEntity"]}]
             if fp == "src/b.py":
-                return [{"id": "node-b1", "name": "b1", "labels": ["CodeEntity"]},
-                        {"id": "node-b2", "name": "b2", "labels": ["CodeEntity"]}]
+                return [
+                    {"id": "node-b1", "name": "b1", "labels": ["CodeEntity"]},
+                    {"id": "node-b2", "name": "b2", "labels": ["CodeEntity"]},
+                ]
             return []
 
         mock_store.query.side_effect = mock_query
@@ -763,8 +765,7 @@ class TestMergeImpacts:
 
         assert len(result) == 2
         directions = {(n.node_id, n.direction) for n in result}
-        assert directions == {("node-1", PropagationDirection.FORWARD),
-                             ("node-1", PropagationDirection.BACKWARD)}
+        assert directions == {("node-1", PropagationDirection.FORWARD), ("node-1", PropagationDirection.BACKWARD)}
 
     def test_empty_list_returns_empty(self) -> None:
         """Empty list → empty list."""
@@ -826,7 +827,12 @@ class TestForwardBFS:
         ]
         mock_store.get_node.side_effect = lambda nid: {
             "caller-1": {"id": "caller-1", "name": "caller_func", "file_path": "src/caller.py", "label": "CodeEntity"},
-            "caller-2": {"id": "caller-2", "name": "another_caller", "file_path": "src/another.py", "label": "CodeEntity"},
+            "caller-2": {
+                "id": "caller-2",
+                "name": "another_caller",
+                "file_path": "src/another.py",
+                "label": "CodeEntity",
+            },
         }.get(nid)
 
         propagator = ImpactPropagator(mock_store)
@@ -853,7 +859,10 @@ class TestForwardBFS:
             {"source_id": "node-1", "target_id": "source-1", "rel_type": "IMPORTS", "properties": {}},
         ]
         mock_store.get_node.return_value = {
-            "id": "node-1", "name": "importer", "file_path": "src/importer.py", "label": "CodeEntity",
+            "id": "node-1",
+            "name": "importer",
+            "file_path": "src/importer.py",
+            "label": "CodeEntity",
         }
 
         propagator = ImpactPropagator(mock_store)
@@ -874,7 +883,10 @@ class TestForwardBFS:
             {"source_id": "node-1", "target_id": "source-1", "rel_type": "CALLS", "properties": {}},
         ]
         mock_store.get_node.return_value = {
-            "id": "node-1", "name": "callee", "file_path": "src/callee.py", "label": "CodeEntity",
+            "id": "node-1",
+            "name": "callee",
+            "file_path": "src/callee.py",
+            "label": "CodeEntity",
         }
 
         # Set threshold to 0.95, but calls+SIGNATURE+depth=1 = 0.9
@@ -907,7 +919,10 @@ class TestForwardBFS:
 
         mock_store.get_relations.side_effect = mock_get_relations
         mock_store.get_node.return_value = {
-            "id": "caller-1", "name": "caller_func", "file_path": "src/caller.py", "label": "CodeEntity",
+            "id": "caller-1",
+            "name": "caller_func",
+            "file_path": "src/caller.py",
+            "label": "CodeEntity",
         }
 
         propagator = ImpactPropagator(mock_store)
@@ -928,7 +943,10 @@ class TestForwardBFS:
             {"source_id": "node-1", "target_id": "source-1", "rel_type": "CALLS", "properties": {}},
         ]
         mock_store.get_node.return_value = {
-            "id": "node-1", "name": "caller", "file_path": "src/caller.py", "label": "CodeEntity",
+            "id": "node-1",
+            "name": "caller",
+            "file_path": "src/caller.py",
+            "label": "CodeEntity",
         }
 
         # calls+SIGNATURE+depth=1 = 0.9, set threshold to 0.9
@@ -954,7 +972,10 @@ class TestBackwardBFS:
             {"source_id": "source-1", "target_id": "dep-1", "rel_type": "CALLS", "properties": {}},
         ]
         mock_store.get_node.return_value = {
-            "id": "dep-1", "name": "dependency", "file_path": "src/dep.py", "label": "CodeEntity",
+            "id": "dep-1",
+            "name": "dependency",
+            "file_path": "src/dep.py",
+            "label": "CodeEntity",
         }
 
         propagator = ImpactPropagator(mock_store)
@@ -1002,7 +1023,10 @@ class TestBackwardBFS:
             {"source_id": "source-1", "target_id": "dep-1", "rel_type": "CALLS", "properties": {}},
         ]
         mock_store.get_node.return_value = {
-            "id": "dep-1", "name": "dep", "file_path": "src/dep.py", "label": "CodeEntity",
+            "id": "dep-1",
+            "name": "dep",
+            "file_path": "src/dep.py",
+            "label": "CodeEntity",
         }
 
         propagator = ImpactPropagator(mock_store)
@@ -1244,7 +1268,10 @@ class TestComputeImpact:
 
         mock_store.get_relations.side_effect = mock_get_relations
         mock_store.get_node.return_value = {
-            "id": "caller", "name": "caller", "file_path": "caller.py", "label": "CodeEntity",
+            "id": "caller",
+            "name": "caller",
+            "file_path": "caller.py",
+            "label": "CodeEntity",
         }
 
         propagator = ImpactPropagator(mock_store)
@@ -1270,7 +1297,10 @@ class TestComputeImpact:
 
         mock_store.get_relations.side_effect = mock_get_relations
         mock_store.get_node.return_value = {
-            "id": "caller", "name": "caller", "file_path": "caller.py", "label": "CodeEntity",
+            "id": "caller",
+            "name": "caller",
+            "file_path": "caller.py",
+            "label": "CodeEntity",
         }
 
         propagator = ImpactPropagator(mock_store)
@@ -1305,7 +1335,10 @@ class TestPropagate:
 
         mock_store.get_relations.side_effect = mock_get_relations
         mock_store.get_node.return_value = {
-            "id": "caller", "name": "caller_func", "file_path": "src/caller.py", "label": "CodeEntity",
+            "id": "caller",
+            "name": "caller_func",
+            "file_path": "src/caller.py",
+            "label": "CodeEntity",
         }
 
         propagator = ImpactPropagator(mock_store)
@@ -1347,8 +1380,10 @@ class TestPropagate:
         def mock_query(cypher: str, params: dict | None = None) -> list[dict]:
             fp = params.get("fp") if params else ""
             if fp == "src/a.py":
-                return [{"id": "node-a1", "name": "a1", "labels": ["CodeEntity"]},
-                        {"id": "node-a2", "name": "a2", "labels": ["CodeEntity"]}]
+                return [
+                    {"id": "node-a1", "name": "a1", "labels": ["CodeEntity"]},
+                    {"id": "node-a2", "name": "a2", "labels": ["CodeEntity"]},
+                ]
             if fp == "src/b.py":
                 return [{"id": "node-b", "name": "b", "labels": ["CodeEntity"]}]
             return []
@@ -1399,3 +1434,177 @@ class TestPropagate:
         assert result.impacted_nodes == []
         assert result.total_analyzed == 0
         assert result.propagation_time_ms >= 0
+
+
+class TestPropagationAlgorithmE2E:
+    """Task 7: ImpactPropagator 算法流程验证（端到端）。"""
+
+    def test_linear_chain_propagation_e2e(self) -> None:
+        """A→B→C→D 链式传播，验证影响范围和深度衰减。"""
+        from layerkg.change_detector import ChangedFile, GitStatus
+
+        # Arrange: 构建链式图 A -> B -> C -> D
+        mock_store = Mock()
+
+        # map_files_to_nodes 阶段：返回 A 节点
+        mock_store.query.return_value = [{"id": "node-a", "name": "A", "labels": ["CodeEntity"]}]
+
+        # BFS 阶段：构建链式关系
+        def mock_get_relations(**kwargs) -> list[dict]:
+            target_id = kwargs.get("target_id")
+            kwargs.get("source_id")  # consumed by interface
+
+            if target_id == "node-a":
+                # A 的 callers（反向）：谁调用 A
+                return [{"source_id": "node-b", "target_id": "node-a", "rel_type": "CALLS", "properties": {}}]
+            if target_id == "node-b":
+                return [{"source_id": "node-c", "target_id": "node-b", "rel_type": "CALLS", "properties": {}}]
+            if target_id == "node-c":
+                return [{"source_id": "node-d", "target_id": "node-c", "rel_type": "CALLS", "properties": {}}]
+            # 其他情况返回空
+            return []
+
+        mock_store.get_relations.side_effect = mock_get_relations
+
+        def mock_get_node(node_id: str) -> dict | None:
+            return {
+                "node-b": {"id": "node-b", "name": "B", "file_path": "b.py", "label": "CodeEntity"},
+                "node-c": {"id": "node-c", "name": "C", "file_path": "c.py", "label": "CodeEntity"},
+                "node-d": {"id": "node-d", "name": "D", "file_path": "d.py", "label": "CodeEntity"},
+            }.get(node_id)
+
+        mock_store.get_node.side_effect = mock_get_node
+
+        propagator = ImpactPropagator(mock_store)
+        changes = [
+            ChangedFile(path="a.py", change_type=ChangeType.SIGNATURE, git_status=GitStatus.MODIFIED)
+        ]
+
+        # Act
+        result = propagator.propagate(changes)
+
+        # Assert
+        # depth=1 (B): 0.9 * 1.0 = 0.9
+        # depth=2 (C): 0.9 * 0.6 = 0.54
+        # depth=3 (D): 0.9 * 0.3 = 0.27
+        assert len(result.impacted_nodes) == 3
+        assert result.changed_node_ids == ["node-a"]
+
+        # 验证深度衰减：depth 1 分数 > depth 2 > depth 3
+        nodes_by_depth = {n.depth: n for n in result.impacted_nodes}
+        assert nodes_by_depth[1].impact_score == pytest.approx(0.9)
+        assert nodes_by_depth[2].impact_score == pytest.approx(0.54)
+        assert nodes_by_depth[3].impact_score == pytest.approx(0.27)
+
+    def test_diamond_propagation_e2e(self) -> None:
+        """菱形依赖 A→B, A→C, B→D, C→D，验证 D 不被重复计算。"""
+        from layerkg.change_detector import ChangedFile, GitStatus
+
+        # Arrange: 构建菱形图
+        #     A
+        #    / \
+        #   B   C
+        #    \ /
+        #     D
+        mock_store = Mock()
+
+        mock_store.query.return_value = [{"id": "node-a", "name": "A", "labels": ["CodeEntity"]}]
+
+        def mock_get_relations(**kwargs) -> list[dict]:
+            target_id = kwargs.get("target_id")
+
+            if target_id == "node-a":
+                # A 的 callers
+                return [
+                    {"source_id": "node-b", "target_id": "node-a", "rel_type": "CALLS", "properties": {}},
+                    {"source_id": "node-c", "target_id": "node-a", "rel_type": "CALLS", "properties": {}},
+                ]
+            if target_id == "node-b":
+                return [{"source_id": "node-d", "target_id": "node-b", "rel_type": "CALLS", "properties": {}}]
+            if target_id == "node-c":
+                return [{"source_id": "node-d", "target_id": "node-c", "rel_type": "CALLS", "properties": {}}]
+            return []
+
+        mock_store.get_relations.side_effect = mock_get_relations
+
+        def mock_get_node(node_id: str) -> dict | None:
+            return {
+                "node-b": {"id": "node-b", "name": "B", "file_path": "b.py", "label": "CodeEntity"},
+                "node-c": {"id": "node-c", "name": "C", "file_path": "c.py", "label": "CodeEntity"},
+                "node-d": {"id": "node-d", "name": "D", "file_path": "d.py", "label": "CodeEntity"},
+            }.get(node_id)
+
+        mock_store.get_node.side_effect = mock_get_node
+
+        propagator = ImpactPropagator(mock_store)
+        changes = [
+            ChangedFile(path="a.py", change_type=ChangeType.SIGNATURE, git_status=GitStatus.MODIFIED)
+        ]
+
+        # Act
+        result = propagator.propagate(changes)
+
+        # Assert
+        # 应该有 3 个受影响节点: B, C, D（D 只出现一次）
+        assert len(result.impacted_nodes) == 3
+
+        # D 只应该出现一次，且分数取两条路径的最大值
+        d_nodes = [n for n in result.impacted_nodes if n.name == "D"]
+        assert len(d_nodes) == 1
+        # D 的分数是 depth=2: 0.9 * 0.6 = 0.54
+        assert d_nodes[0].impact_score == pytest.approx(0.54)
+
+    def test_max_depth_cutoff_e2e(self) -> None:
+        """构建深度 > max_depth 的链，验证传播在 max_depth 处停止。"""
+        from layerkg.change_detector import ChangedFile, GitStatus
+
+        # Arrange: 构建超长链 A -> B -> C -> D -> E (depth 4 超过 max_depth=3)
+        mock_store = Mock()
+
+        mock_store.query.return_value = [{"id": "node-a", "name": "A", "labels": ["CodeEntity"]}]
+
+        def mock_get_relations(**kwargs) -> list[dict]:
+            target_id = kwargs.get("target_id")
+
+            if target_id == "node-a":
+                return [{"source_id": "node-b", "target_id": "node-a", "rel_type": "CALLS", "properties": {}}]
+            if target_id == "node-b":
+                return [{"source_id": "node-c", "target_id": "node-b", "rel_type": "CALLS", "properties": {}}]
+            if target_id == "node-c":
+                return [{"source_id": "node-d", "target_id": "node-c", "rel_type": "CALLS", "properties": {}}]
+            if target_id == "node-d":
+                # 这个关系会导致 depth=4，应该被 cutoff
+                return [{"source_id": "node-e", "target_id": "node-d", "rel_type": "CALLS", "properties": {}}]
+            return []
+
+        mock_store.get_relations.side_effect = mock_get_relations
+
+        def mock_get_node(node_id: str) -> dict | None:
+            return {
+                "node-b": {"id": "node-b", "name": "B", "file_path": "b.py", "label": "CodeEntity"},
+                "node-c": {"id": "node-c", "name": "C", "file_path": "c.py", "label": "CodeEntity"},
+                "node-d": {"id": "node-d", "name": "D", "file_path": "d.py", "label": "CodeEntity"},
+                "node-e": {"id": "node-e", "name": "E", "file_path": "e.py", "label": "CodeEntity"},
+            }.get(node_id)
+
+        mock_store.get_node.side_effect = mock_get_node
+
+        propagator = ImpactPropagator(mock_store, max_depth=3)
+        changes = [
+            ChangedFile(path="a.py", change_type=ChangeType.SIGNATURE, git_status=GitStatus.MODIFIED)
+        ]
+
+        # Act
+        result = propagator.propagate(changes)
+
+        # Assert
+        # 只应传播到 depth=3 (D)，E (depth=4) 不应被包含
+        impacted_names = {n.name for n in result.impacted_nodes}
+        assert "B" in impacted_names
+        assert "C" in impacted_names
+        assert "D" in impacted_names
+        assert "E" not in impacted_names  # E 应该被 cutoff
+
+        # 验证最大深度
+        max_depth_reached = max(n.depth for n in result.impacted_nodes)
+        assert max_depth_reached == 3

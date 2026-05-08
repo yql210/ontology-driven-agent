@@ -388,3 +388,114 @@ class TestContextManager:
         with builder as b:
             # Assert
             assert b is builder
+
+
+class TestBuilderEndToEnd:
+    """Task 6: Builder 端到端测试（使用真实 PythonParser + RelationExtractor）。"""
+
+    def test_parse_and_extract_sample_file(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+        """解析简单 Python 文件，验证实体和关系正确。"""
+        # Arrange
+        sample_code = """def foo():
+    pass
+
+def bar():
+    foo()
+"""
+        test_file = tmp_path / "sample.py"
+        test_file.write_text(sample_code)
+
+        # Act
+        parse_result = builder._parser.parse_file(test_file)
+
+        # Assert
+        assert parse_result.error is None
+        # 应有 1 个 module + 2 个 function
+        assert len(parse_result.entities) == 3
+        entity_types = {e.entity_type for e in parse_result.entities}
+        assert entity_types == {"module", "function"}
+        entity_names = {e.name for e in parse_result.entities}
+        assert "foo" in entity_names
+        assert "bar" in entity_names
+
+        # 验证关系提取
+        builder._extractor.add_parse_result(parse_result.entities, parse_result.relations)
+        relations = builder._extractor.resolve(parse_result.entities)
+        # module contains foo, bar (2 contains relations)
+        # 注：PythonParser 不提取 calls 关系（需要更复杂的语义分析）
+        contains_rels = [r for r in relations if r.relation_type == "contains"]
+        assert len(contains_rels) == 2
+
+    def test_parse_class_with_methods(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+        """解析含类+方法的文件，验证 contains 关系被正确提取。"""
+        # Arrange
+        sample_code = """class MyClass:
+    def method1(self):
+        pass
+
+    def method2(self):
+        self.method1()
+"""
+        test_file = tmp_path / "class_sample.py"
+        test_file.write_text(sample_code)
+
+        # Act
+        parse_result = builder._parser.parse_file(test_file)
+
+        # Assert
+        assert parse_result.error is None
+        # 1 module + 1 class + 2 methods
+        assert len(parse_result.entities) == 4
+        entity_types = {e.entity_type for e in parse_result.entities}
+        assert entity_types == {"module", "class", "function"}
+
+        entity_names = {e.name for e in parse_result.entities}
+        assert "MyClass" in entity_names
+        # 类内方法名使用 ClassName.method_name 格式
+        assert "MyClass.method1" in entity_names
+        assert "MyClass.method2" in entity_names
+
+        # 验证 contains 关系
+        builder._extractor.add_parse_result(parse_result.entities, parse_result.relations)
+        relations = builder._extractor.resolve(parse_result.entities)
+
+        # module contains MyClass, MyClass contains method1, method2
+        contains_rels = [r for r in relations if r.relation_type == "contains"]
+        assert len(contains_rels) == 3  # module->MyClass, MyClass->method1, MyClass->method2
+
+    def test_parse_imports(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+        """解析含 import 语句的文件，验证 imports 关系被正确提取。"""
+        # Arrange
+        sample_code = """import os
+import sys
+from pathlib import Path
+
+def my_func():
+    pass
+"""
+        test_file = tmp_path / "import_sample.py"
+        test_file.write_text(sample_code)
+
+        # Act
+        parse_result = builder._parser.parse_file(test_file)
+
+        # Assert
+        assert parse_result.error is None
+        # 1 module + 1 function
+        assert len(parse_result.entities) >= 2
+
+        entity_names = {e.name for e in parse_result.entities}
+        assert "my_func" in entity_names
+
+        # 验证 imports 关系
+        builder._extractor.add_parse_result(parse_result.entities, parse_result.relations)
+        relations = builder._extractor.resolve(parse_result.entities)
+
+        # 应有 imports 关系（module imports os, sys, Path）
+        _ = [r for r in relations if r.relation_type == "imports"]
+        # 注意：import 关系的源是 module，目标是导入的模块名
+        # 这些关系可能无法完全解析，因为 os/sys/Path 不在实体列表中
+        # 但可以验证解析器确实提取了这些关系
+        # 解析结果中的 imports 关系数量
+        raw_imports = [r for r in parse_result.relations if r.relation_type == "imports"]
+        assert len(raw_imports) >= 2

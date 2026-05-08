@@ -12,6 +12,7 @@ from layerkg.schema import ModuleEntity
 # Task 1: ModuleCluster dataclass (2 tests)
 # =============================================================================
 
+
 class TestModuleCluster:
     """测试 ModuleCluster dataclass。"""
 
@@ -50,6 +51,7 @@ class TestModuleCluster:
 # Task 2: ModuleClustering 构造函数 (2 tests)
 # =============================================================================
 
+
 class TestModuleClusteringInit:
     """测试 ModuleClustering 构造函数。"""
 
@@ -72,6 +74,7 @@ class TestModuleClusteringInit:
 # =============================================================================
 # Task 3: _load_graph (3 tests)
 # =============================================================================
+
 
 class TestLoadGraph:
     """测试 _load_graph 方法。"""
@@ -149,6 +152,7 @@ class TestLoadGraph:
 # =============================================================================
 # Task 4: _label_propagation (5 tests)
 # =============================================================================
+
 
 class TestLabelPropagation:
     """测试 _label_propagation 算法。"""
@@ -229,6 +233,7 @@ class TestLabelPropagation:
 # Task 5: _compute_cohesion (3 tests)
 # =============================================================================
 
+
 class TestComputeCohesion:
     """测试 _compute_cohesion 方法。"""
 
@@ -286,6 +291,7 @@ class TestComputeCohesion:
 # =============================================================================
 # Task 6: _generate_module_name (3 tests)
 # =============================================================================
+
 
 class TestGenerateModuleName:
     """测试 _generate_module_name 方法。"""

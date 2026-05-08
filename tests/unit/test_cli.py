@@ -263,6 +263,136 @@ class TestInfoCommand:
             assert "123" in result.output
 
 
+class TestServeCommand:
+    """测试 serve 命令。"""
+
+    def test_serve_stdio_calls_mcp_run(self, runner: CliRunner) -> None:
+        """测试 stdio 模式调用 mcp.run()。"""
+        # Arrange
+        mock_run = MagicMock()
+
+        with patch("layerkg.mcp_server.mcp.run", mock_run):
+            # Act
+            result = runner.invoke(main, ["serve"])
+
+            # Assert
+            assert result.exit_code == 0
+            assert "Starting MCP server on stdio" in result.output
+            mock_run.assert_called_once_with()
+
+    def test_serve_http_calls_mcp_run_with_params(self, runner: CliRunner) -> None:
+        """测试 http 模式调用 mcp.run() 并传递参数。"""
+        # Arrange
+        mock_run = MagicMock()
+
+        with patch("layerkg.mcp_server.mcp.run", mock_run):
+            # Act
+            result = runner.invoke(main, ["serve", "--transport", "http", "--port", "9000"])
+
+            # Assert
+            assert result.exit_code == 0
+            assert "Starting MCP server on http://localhost:9000" in result.output
+            mock_run.assert_called_once_with(transport="http", port=9000)
+
+
+class TestUpdateCommand:
+    """测试 update 命令。"""
+
+    def test_update_command_success(self, runner: CliRunner, tmp_path: Path) -> None:
+        """测试 update 命令成功执行。"""
+        # Arrange
+        mock_updater = MagicMock()
+        mock_report = MagicMock()
+        mock_report.to_dict.return_value = {"files": 5, "entities": 42}
+        mock_updater.update.return_value = mock_report
+        mock_updater.__enter__ = MagicMock(return_value=mock_updater)
+        mock_updater.__exit__ = MagicMock(return_value=False)
+
+        with patch("layerkg.cli.IncrementalUpdater", return_value=mock_updater):
+            # Act
+            result = runner.invoke(main, ["update", str(tmp_path)])
+
+            # Assert
+            assert result.exit_code == 0
+            assert "Update complete" in result.output
+            mock_updater.update.assert_called_once_with("HEAD~1", dry_run=False, full_scan=False)
+
+    def test_update_command_dry_run(self, runner: CliRunner, tmp_path: Path) -> None:
+        """测试 update 命令 dry-run 模式。"""
+        # Arrange
+        mock_updater = MagicMock()
+        mock_report = MagicMock()
+        mock_report.to_dict.return_value = {"files": 3, "dry_run": True}
+        mock_updater.update.return_value = mock_report
+        mock_updater.__enter__ = MagicMock(return_value=mock_updater)
+        mock_updater.__exit__ = MagicMock(return_value=False)
+
+        with patch("layerkg.cli.IncrementalUpdater", return_value=mock_updater):
+            # Act
+            result = runner.invoke(main, ["update", str(tmp_path), "--dry-run"])
+
+            # Assert
+            assert result.exit_code == 0
+            mock_updater.update.assert_called_once_with("HEAD~1", dry_run=True, full_scan=False)
+
+
+class TestHelpContent:
+    """测试 help 内容完整性。"""
+
+    def test_main_help_includes_update_and_serve(self, runner: CliRunner) -> None:
+        """测试 --help 包含 update 和 serve 命令。"""
+        # Act
+        result = runner.invoke(main, ["--help"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "update" in result.output
+        assert "serve" in result.output
+
+
+class TestErrorHandling:
+    """测试错误处理。"""
+
+    def test_build_command_missing_path_argument(self, runner: CliRunner) -> None:
+        """测试 build 命令缺少路径参数。"""
+        # Act
+        result = runner.invoke(main, ["build"])
+
+        # Assert
+        assert result.exit_code != 0
+        assert "Missing argument" in result.output or "requires" in result.output.lower()
+
+    def test_query_command_without_limit_shows_results(self, runner: CliRunner) -> None:
+        """测试 query 命令不传 --limit 时正常返回结果。"""
+        # Arrange
+        mock_builder = MagicMock()
+        mock_builder.query.return_value = [
+            {
+                "id": "456",
+                "text": "def bar(): pass",
+                "metadata": {"entity_type": "function", "name": "bar"},
+                "distance": 0.5678,
+            }
+        ]
+        mock_builder.__enter__ = MagicMock(return_value=mock_builder)
+        mock_builder.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("layerkg.cli.LayerKGConfig") as mock_config_cls,
+            patch("layerkg.cli.LayerKGBuilder", return_value=mock_builder),
+        ):
+            mock_config_cls.from_env.return_value = MagicMock()
+
+            # Act - 不传 --limit 选项
+            result = runner.invoke(main, ["query", "bar"])
+
+            # Assert
+            assert result.exit_code == 0
+            assert "bar" in result.output
+            # 验证传递了默认的 limit 值 (10)
+            mock_builder.query.assert_called_once_with("bar", n_results=10, entity_type=None)
+
+
 class TestVerboseFlag:
     """测试 verbose 标志。"""
 

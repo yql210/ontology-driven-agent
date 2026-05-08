@@ -36,9 +36,7 @@ def _get_neo4j() -> Neo4jGraphStore:
     """
     if "neo4j" not in _components:
         config = _get_config()
-        _components["neo4j"] = Neo4jGraphStore(
-            config.neo4j_uri, config.neo4j_user, config.neo4j_password
-        )
+        _components["neo4j"] = Neo4jGraphStore(config.neo4j_uri, config.neo4j_user, config.neo4j_password)
     return _components["neo4j"]  # type: ignore[return-value]
 
 
@@ -76,9 +74,7 @@ def _get_aligner() -> ConceptAligner:
         ConceptAligner 实例。
     """
     if "aligner" not in _components:
-        _components["aligner"] = ConceptAligner(
-            _get_chroma(), neo4j_store=_get_neo4j()
-        )
+        _components["aligner"] = ConceptAligner(_get_chroma(), neo4j_store=_get_neo4j())
     return _components["aligner"]  # type: ignore[return-value]
 
 
@@ -187,9 +183,7 @@ def get_context(entity_id: str) -> dict:
     node = neo4j.get_node(entity_id)
 
     # 获取关系（incoming + outgoing）
-    relations = neo4j.get_relations(source_id=entity_id) + neo4j.get_relations(
-        target_id=entity_id
-    )
+    relations = neo4j.get_relations(source_id=entity_id) + neo4j.get_relations(target_id=entity_id)
 
     # 获取相似实体
     similar = []
@@ -351,10 +345,7 @@ def _to_dot(nodes: list[dict], edges: list[dict]) -> str:
 def _to_cytoscape(nodes: list[dict], edges: list[dict]) -> dict:
     """转换为 Cytoscape.js 格式。"""
     return {
-        "nodes": [
-            {"data": {"id": n["id"], "label": n.get("label", n["id"]), **n.get("labels", {})}}
-            for n in nodes
-        ],
+        "nodes": [{"data": {"id": n["id"], "label": n.get("label", n["id"]), **n.get("labels", {})}} for n in nodes],
         "edges": [
             {
                 "data": {

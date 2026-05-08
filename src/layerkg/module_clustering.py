@@ -216,9 +216,7 @@ class ModuleClustering:
         """
         # 收集所有非 None 的 file_path
         file_paths = [
-            entity_data[eid]["file_path"]
-            for eid in entity_ids
-            if entity_data.get(eid, {}).get("file_path") is not None
+            entity_data[eid]["file_path"] for eid in entity_ids if entity_data.get(eid, {}).get("file_path") is not None
         ]
 
         if not file_paths:

@@ -608,6 +608,7 @@ class TestGraphStructureMatchCoreLogic:
         mock_neo4j_store: MagicMock,
     ) -> None:
         """测试 Jaccard < 0.8 时返回 None。"""
+
         def mock_query_side_effect(cypher: str, params: dict | None = None) -> list[dict]:
             if "ConceptEntity" in cypher:
                 return [
@@ -774,3 +775,136 @@ class TestGraphStructureMatchEdgeCases:
         result = aligner_with_neo4j.align("UnknownTerm")
 
         assert result == NO_MATCH
+
+
+class TestAlignPipelineE2E:
+    """Task 8: ConceptAligner 匹配流程验证（端到端）。"""
+
+    def test_align_pipeline_vector_fallback(
+        self,
+        aligner: ConceptAligner,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """精确和别名匹配都失败，向量匹配成功。"""
+        # Arrange: 向量搜索返回匹配结果
+        mock_chroma_store.search.return_value = [
+            {
+                "id": "vector-1",
+                "text": "权限管理相关",
+                "metadata": {
+                    "name": "权限控制",
+                    "id": "concept-2",
+                    "entity_type": "concept",
+                },
+                "distance": 0.2,  # confidence = 1/(1+0.2) ≈ 0.833 > 0.7
+            }
+        ]
+
+        # Act: 对齐一个不在精确/别名列表中的术语
+        result = aligner.align("权限管理")
+
+        # Assert
+        assert result.match_type == "vector"
+        assert result.concept_name == "权限控制"
+        assert result.confidence >= 0.7
+        # 验证向量搜索被调用
+        mock_chroma_store.search.assert_called_once()
+
+    def test_align_with_graph_structure(
+        self,
+        aligner_with_neo4j: ConceptAligner,
+        mock_neo4j_store: MagicMock,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """通过图结构 Jaccard 重叠度匹配。"""
+        # Arrange: 向量搜索失败，图结构匹配成功
+        mock_chroma_store.search.return_value = []
+
+        # mock: term 关联的代码节点与概念重叠
+        def mock_query_side_effect(cypher: str, params: dict | None = None) -> list[dict]:
+            if "ConceptEntity" in cypher:
+                # 概念关联的代码节点
+                return [
+                    {
+                        "name": "用户认证",
+                        "code_ids": ["code-1", "code-2", "code-3", "code-4"],
+                    },
+                    {
+                        "name": "权限控制",
+                        "code_ids": ["code-10", "code-11"],
+                    },
+                ]
+            elif "CodeEntity {name" in cypher:
+                # term "AuthService" 关联的代码节点
+                return [
+                    {"id": "code-1"},
+                    {"id": "code-2"},
+                    {"id": "code-3"},
+                    {"id": "code-4"},
+                ]
+            return []
+
+        mock_neo4j_store.query.side_effect = mock_query_side_effect
+
+        # Act
+        result = aligner_with_neo4j.align("AuthService")
+
+        # Assert
+        # Jaccard = |{code-1,2,3,4}| / |{code-1,2,3,4}| = 1.0 > 0.8
+        assert result.match_type == "graph_structure"
+        assert result.concept_name == "用户认证"
+        assert result.confidence == 1.0
+
+    def test_align_batch_terms_extended(
+        self,
+        aligner: ConceptAligner,
+        mock_chroma_store: MagicMock,
+    ) -> None:
+        """批量对齐多术语，验证各策略降级。"""
+        # Arrange: 不同术语走不同匹配路径
+        def mock_search(query_text: str, n_results: int = 10, where: dict | None = None) -> list:
+            if "权限" in query_text:
+                return [
+                    {
+                        "id": "v1",
+                        "text": "权限",
+                        "metadata": {"name": "权限控制", "id": "c2", "entity_type": "concept"},
+                        "distance": 0.1,
+                    }
+                ]
+            if "Singleton" in query_text:
+                return [
+                    {
+                        "id": "v2",
+                        "text": "单例",
+                        "metadata": {"name": "单例模式", "id": "c3", "entity_type": "concept"},
+                        "distance": 0.2,
+                    }
+                ]
+            return []  # "unknown_term" 无匹配
+
+        mock_chroma_store.search.side_effect = mock_search
+
+        # Act
+        results = aligner.align_batch(["用户认证", "权限管理", "rbac", "Singleton", "unknown_term"])
+
+        # Assert
+        assert len(results) == 5
+        # "用户认证" → 精确匹配
+        assert results[0].match_type == "exact"
+        assert results[0].concept_name == "用户认证"
+
+        # "权限管理" → 向量匹配
+        assert results[1].match_type == "vector"
+        assert results[1].concept_name == "权限控制"
+
+        # "rbac" → 别名匹配
+        assert results[2].match_type == "alias"
+        assert results[2].concept_name == "权限控制"
+
+        # "Singleton" → 别名匹配（大小写不敏感）
+        assert results[3].match_type == "alias"
+        assert results[3].concept_name == "单例模式"
+
+        # "unknown_term" → 无匹配
+        assert results[4] == NO_MATCH

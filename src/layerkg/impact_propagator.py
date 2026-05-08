@@ -244,8 +244,7 @@ class ImpactPropagator:
 
         for change in changes:
             nodes = self._graph_store.query(
-                "MATCH (n {file_path: $fp}) RETURN n.id AS id, n.name AS name, labels(n) AS labels",
-                {"fp": change.path}
+                "MATCH (n {file_path: $fp}) RETURN n.id AS id, n.name AS name, labels(n) AS labels", {"fp": change.path}
             )
             node_ids = [n["id"] for n in nodes] if nodes else []
             if node_ids:
@@ -336,18 +335,20 @@ class ImpactPropagator:
 
                     node = self._graph_store.get_node(neighbor_id)
                     if node:
-                        impacts.append(ImpactedNode(
-                            node_id=neighbor_id,
-                            node_label=node.get("label", "Unknown"),
-                            name=node.get("name", ""),
-                            file_path=node.get("file_path"),
-                            impact_score=score,
-                            severity=self._classify_severity(score),
-                            depth=depth,
-                            direction=direction,
-                            relation_path=new_path,
-                            source_node_id=source_id,
-                        ))
+                        impacts.append(
+                            ImpactedNode(
+                                node_id=neighbor_id,
+                                node_label=node.get("label", "Unknown"),
+                                name=node.get("name", ""),
+                                file_path=node.get("file_path"),
+                                impact_score=score,
+                                severity=self._classify_severity(score),
+                                depth=depth,
+                                direction=direction,
+                                relation_path=new_path,
+                                source_node_id=source_id,
+                            )
+                        )
                         next_frontier[neighbor_id] = (score, new_path)
 
             frontier = next_frontier
@@ -380,13 +381,9 @@ class ImpactPropagator:
 
         for source_id in node_ids:
             # 正向：谁依赖了我
-            forward_impacts = self._bidirectional_bfs(
-                source_id, change_type, PropagationDirection.FORWARD
-            )
+            forward_impacts = self._bidirectional_bfs(source_id, change_type, PropagationDirection.FORWARD)
             # 反向：我依赖了谁
-            backward_impacts = self._bidirectional_bfs(
-                source_id, change_type, PropagationDirection.BACKWARD
-            )
+            backward_impacts = self._bidirectional_bfs(source_id, change_type, PropagationDirection.BACKWARD)
             all_impacts.extend(forward_impacts)
             all_impacts.extend(backward_impacts)
 

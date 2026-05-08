@@ -9,24 +9,26 @@ import httpx
 from layerkg.exceptions import ExtractionError
 from layerkg.schema import CodeEntity, ConceptEntity, DocEntity
 
-VALID_SOURCE_TYPES = frozenset({
-    "function",
-    "class",
-    "interface",
-    "module",
-    "file",
-    "readme",
-    "module_doc",
-    "api_doc",
-    "comment",
-    "wiki",
-    "architecture_doc",
-    "business_concept",
-    "design_pattern",
-    "api_contract",
-    "data_model",
-    "process",
-})
+VALID_SOURCE_TYPES = frozenset(
+    {
+        "function",
+        "class",
+        "interface",
+        "module",
+        "file",
+        "readme",
+        "module_doc",
+        "api_doc",
+        "comment",
+        "wiki",
+        "architecture_doc",
+        "business_concept",
+        "design_pattern",
+        "api_contract",
+        "data_model",
+        "process",
+    }
+)
 
 
 @dataclass
@@ -42,12 +44,14 @@ class SemanticRelation:
     reasoning: str = ""
     source_file_path: str = ""
 
-    VALID_SEMANTIC_RELATION_TYPES = frozenset({
-        "semantic_impact",
-        "describes",
-        "illustrates",
-        "derived_from",
-    })
+    VALID_SEMANTIC_RELATION_TYPES = frozenset(
+        {
+            "semantic_impact",
+            "describes",
+            "illustrates",
+            "derived_from",
+        }
+    )
 
     def __post_init__(self) -> None:
         """校验字段。"""
@@ -91,12 +95,14 @@ class ExtractionResult:
 class SemanticExtractor:
     """语义关系提取器。"""
 
-    VALID_SEMANTIC_RELATIONS = frozenset({
-        "semantic_impact",
-        "describes",
-        "illustrates",
-        "derived_from",
-    })
+    VALID_SEMANTIC_RELATIONS = frozenset(
+        {
+            "semantic_impact",
+            "describes",
+            "illustrates",
+            "derived_from",
+        }
+    )
 
     def __init__(
         self,
@@ -222,7 +228,7 @@ class SemanticExtractor:
         """
         if not entities:
             return []
-        return [entities[i:i + self._batch_size] for i in range(0, len(entities), self._batch_size)]
+        return [entities[i : i + self._batch_size] for i in range(0, len(entities), self._batch_size)]
 
     def extract_batch(self, entities: list[CodeEntity]) -> tuple[list[SemanticRelation], int]:
         """处理单个批次，调用 LLM 提取语义关系。
@@ -254,7 +260,8 @@ class SemanticExtractor:
                 if attempt == self._max_retries - 1:
                     raise
                 import time
-                time.sleep(2 ** attempt)
+
+                time.sleep(2**attempt)
 
         return [], 0
 

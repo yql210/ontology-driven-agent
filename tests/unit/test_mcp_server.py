@@ -302,9 +302,7 @@ def test_get_context_basic():
     mock_neo4j.get_relations.side_effect = mock_get_relations
 
     mock_chroma = unittest.mock.MagicMock()
-    mock_chroma.search.return_value = [
-        {"id": "func2", "text": "similar code", "metadata": {}, "distance": 0.3}
-    ]
+    mock_chroma.search.return_value = [{"id": "func2", "text": "similar code", "metadata": {}, "distance": 0.3}]
 
     with (
         unittest.mock.patch("layerkg.mcp_server._get_neo4j", return_value=mock_neo4j),
@@ -367,9 +365,7 @@ def test_list_concepts():
         },
     ]
 
-    with unittest.mock.patch(
-        "layerkg.mcp_server._get_aligner", return_value=mock_aligner
-    ):
+    with unittest.mock.patch("layerkg.mcp_server._get_aligner", return_value=mock_aligner):
         result = mcp_server.list_concepts()
 
         mock_aligner.list_concepts.assert_called_once()
@@ -398,9 +394,7 @@ def test_get_module_tree():
         },
     }
 
-    with unittest.mock.patch(
-        "layerkg.mcp_server._get_clustering", return_value=mock_clustering
-    ):
+    with unittest.mock.patch("layerkg.mcp_server._get_clustering", return_value=mock_clustering):
         result = mcp_server.get_module_tree()
 
         mock_clustering.get_module_tree.assert_called_once()
@@ -538,3 +532,62 @@ def test_serve_options():
     assert result.exit_code == 0
     assert "--transport" in result.output
     assert "--port" in result.output
+
+
+class TestToolRegistration:
+    """测试 MCP 工具注册。"""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        """每个测试前重置组件。"""
+        from layerkg import mcp_server
+
+        mcp_server._reset_components()
+        yield
+        mcp_server._reset_components()
+
+    def test_all_tools_registered(self):
+        """验证 8 个工具都注册在 mcp 实例中。"""
+        import asyncio
+
+        from layerkg.mcp_server import mcp
+
+        expected_tools = {
+            "semantic_search",
+            "graph_query",
+            "impact_analysis",
+            "get_context",
+            "list_concepts",
+            "get_module_tree",
+            "detect_changes",
+            "export_graph",
+        }
+
+        tools = asyncio.run(mcp._local_provider.list_tools())
+        tool_names = {t.name for t in tools}
+
+        assert tool_names == expected_tools
+
+    def test_tool_has_docstring(self):
+        """验证每个工具函数都有 docstring。"""
+        import asyncio
+
+        from layerkg.mcp_server import mcp
+
+        tools = asyncio.run(mcp._local_provider.list_tools())
+
+        for tool in tools:
+            assert tool.fn.__doc__ is not None, f"Tool {tool.name} missing docstring"
+            assert len(tool.fn.__doc__.strip()) > 0, f"Tool {tool.name} has empty docstring"
+
+    def test_tool_decorator_applied(self):
+        """验证工具函数有 FastMCP tool 标记。"""
+        import asyncio
+
+        from layerkg.mcp_server import mcp
+
+        tools = asyncio.run(mcp._local_provider.list_tools())
+
+        for tool in tools:
+            # FastMCP 装饰器会添加 __fastmcp__ 属性
+            assert hasattr(tool.fn, "__fastmcp__"), f"Tool {tool.name} missing __fastmcp__ marker"

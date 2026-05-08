@@ -95,6 +95,7 @@ class IncrementalUpdater:
         # Eager init parser and extractor
         from layerkg.extractor.relation import RelationExtractor
         from layerkg.parser.python_parser import PythonParser
+
         self._parser = PythonParser()
         self._extractor = RelationExtractor()
         self._logger = _logger
@@ -126,6 +127,7 @@ class IncrementalUpdater:
         """
         if self._change_detector is None:
             from layerkg.change_detector import GitChangeDetector
+
             self._change_detector = GitChangeDetector(repo_path=self._repo_path)
         return self._change_detector
 
@@ -137,6 +139,7 @@ class IncrementalUpdater:
         """
         if self._graph_store is None:
             from layerkg.neo4j_store import Neo4jGraphStore
+
             self._graph_store = Neo4jGraphStore(
                 uri=self._config.neo4j_uri,
                 user=self._config.neo4j_user,
@@ -152,6 +155,7 @@ class IncrementalUpdater:
         """
         if self._chroma_store is None:
             from layerkg.chroma_store import ChromaStore
+
             self._chroma_store = ChromaStore(
                 persist_dir=self._config.chroma_persist_dir,
                 ollama_url=self._config.ollama_base_url,
@@ -182,6 +186,7 @@ class IncrementalUpdater:
         """
         if self._impact_propagator is None:
             from layerkg.impact_propagator import ImpactPropagator
+
             self._impact_propagator = ImpactPropagator(self._get_graph_store())
         return self._impact_propagator
 

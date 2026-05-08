@@ -285,6 +285,7 @@ class TestApplyAdded:
         """mock parser returns 2 entities + 1 relation → nodes_added=2, relations_rebuilt=1, vectors_updated=2."""
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("def func1(): pass\ndef func2(): pass")
             temp_path = f.name
@@ -349,6 +350,7 @@ class TestApplyAdded:
         """parse_result.error → return all zeros."""
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("invalid syntax")
             temp_path = f.name
@@ -381,6 +383,7 @@ class TestApplyAdded:
         """Empty entity list → vectors_updated=0."""
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("def func1(): pass")
             temp_path = f.name
@@ -527,6 +530,7 @@ class TestApplyModifiedSignature:
         """SIGNATURE change → query old nodes, delete old relations, rebuild → nodes_updated+relations_rebuilt correct."""
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("def func1(): pass\ndef func2(): pass")
             temp_path = f.name
@@ -586,6 +590,7 @@ class TestApplyModifiedSignature:
         """verify merge_node is called for SIGNATURE change."""
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("def func1(): pass")
             temp_path = f.name
@@ -654,6 +659,7 @@ class TestApplyModifiedSignature:
         """parse_result.error → return all zeros for SIGNATURE change."""
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("invalid syntax")
             temp_path = f.name
@@ -702,6 +708,7 @@ class TestApplyModifiedBody:
         """BODY change → nodes_updated>0, relations_rebuilt>0 (relations are rebuilt for SIGNATURE/BODY)."""
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("def func1(): pass")
             temp_path = f.name
@@ -753,6 +760,7 @@ class TestApplyModifiedBody:
         """BODY change → put_entities_batch is called."""
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("def func1(): pass")
             temp_path = f.name
@@ -804,6 +812,7 @@ class TestApplyModifiedBody:
         """BODY change → old relations are deleted before being rebuilt (delete_relation is called)."""
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("def func1(): pass")
             temp_path = f.name
@@ -865,6 +874,7 @@ class TestApplyModifiedDocOnly:
         """DOC_ONLY change → _update_vectors_only is called."""
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("def func1(): pass")
             temp_path = f.name
@@ -907,6 +917,7 @@ class TestApplyModifiedDocOnly:
         """DOC_ONLY change → merge_node and merge_relation are NOT called."""
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("def func1(): pass")
             temp_path = f.name
@@ -952,6 +963,7 @@ class TestApplyModifiedDocOnly:
         """DOC_ONLY change → put_entities_batch is called to update vectors."""
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("def func1(): pass")
             temp_path = f.name
@@ -995,6 +1007,7 @@ class TestRecordChangeset:
     def test_changeset_id_format(self):
         """changeset_id format should be 'cs-{12hex}'."""
         import re
+
         config = LayerKGConfig()
         updater = IncrementalUpdater(config)
 
@@ -1132,6 +1145,7 @@ class TestUpdateFlow:
 
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("def func1(): pass")
             temp_path = f.name
@@ -1239,9 +1253,10 @@ class TestCLIUpdate:
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
 
-        with patch("layerkg.cli.IncrementalUpdater") as mock_updater_class, \
-             patch("layerkg.cli.LayerKGConfig") as mock_config_class:
-
+        with (
+            patch("layerkg.cli.IncrementalUpdater") as mock_updater_class,
+            patch("layerkg.cli.LayerKGConfig") as mock_config_class,
+        ):
             # Setup mocks
             mock_config = MagicMock()
             mock_config_class.from_env.return_value = mock_config
@@ -1272,18 +1287,17 @@ class TestCLIUpdate:
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
 
-        with patch("layerkg.cli.IncrementalUpdater") as mock_updater_class, \
-             patch("layerkg.cli.LayerKGConfig") as mock_config_class:
-
+        with (
+            patch("layerkg.cli.IncrementalUpdater") as mock_updater_class,
+            patch("layerkg.cli.LayerKGConfig") as mock_config_class,
+        ):
             mock_config = MagicMock()
             mock_config_class.from_env.return_value = mock_config
 
             mock_updater_instance = MagicMock()
             mock_updater_instance.__enter__ = MagicMock(return_value=mock_updater_instance)
             mock_updater_instance.__exit__ = MagicMock(return_value=False)
-            mock_updater_instance.update.return_value = MagicMock(
-                to_dict=lambda: {"changes_detected": 1}
-            )
+            mock_updater_instance.update.return_value = MagicMock(to_dict=lambda: {"changes_detected": 1})
             mock_updater_class.return_value = mock_updater_instance
 
             result = runner.invoke(main, ["update", str(repo_dir), "--dry-run"])
@@ -1306,18 +1320,17 @@ class TestCLIUpdate:
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
 
-        with patch("layerkg.cli.IncrementalUpdater") as mock_updater_class, \
-             patch("layerkg.cli.LayerKGConfig") as mock_config_class:
-
+        with (
+            patch("layerkg.cli.IncrementalUpdater") as mock_updater_class,
+            patch("layerkg.cli.LayerKGConfig") as mock_config_class,
+        ):
             mock_config = MagicMock()
             mock_config_class.from_env.return_value = mock_config
 
             mock_updater_instance = MagicMock()
             mock_updater_instance.__enter__ = MagicMock(return_value=mock_updater_instance)
             mock_updater_instance.__exit__ = MagicMock(return_value=False)
-            mock_updater_instance.update.return_value = MagicMock(
-                to_dict=lambda: {"changes_detected": 2}
-            )
+            mock_updater_instance.update.return_value = MagicMock(to_dict=lambda: {"changes_detected": 2})
             mock_updater_class.return_value = mock_updater_instance
 
             result = runner.invoke(main, ["update", str(repo_dir), "--full-scan"])
@@ -1340,9 +1353,10 @@ class TestCLIUpdate:
         repo_dir = tmp_path / "repo"
         repo_dir.mkdir()
 
-        with patch("layerkg.cli.IncrementalUpdater") as mock_updater_class, \
-             patch("layerkg.cli.LayerKGConfig") as mock_config_class:
-
+        with (
+            patch("layerkg.cli.IncrementalUpdater") as mock_updater_class,
+            patch("layerkg.cli.LayerKGConfig") as mock_config_class,
+        ):
             mock_config = MagicMock()
             mock_config_class.from_env.return_value = mock_config
 
@@ -1373,6 +1387,7 @@ class TestMixedScenarios:
         mock_detector = MagicMock()
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("def func1(): pass")
             temp_path = f.name
@@ -1486,6 +1501,7 @@ class TestMixedScenarios:
 
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("def func1(): pass")
             temp_path = f.name
@@ -1544,6 +1560,7 @@ class TestMixedScenarios:
 
         import os
         import tempfile
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write("invalid syntax here")
             temp_path = f.name
@@ -1566,3 +1583,205 @@ class TestMixedScenarios:
         # Verify repo_path defaults to Path.cwd()
         assert updater._repo_path is not None
 
+
+class TestIncrementalUpdateE2E:
+    """Task 9: IncrementalUpdater 四阶段流水线测试（端到端）。"""
+
+    def test_incremental_update_add_file_e2e(self) -> None:
+        """模拟新增文件，验证 detect→propagate→update→validate 完整流程。"""
+        import os
+        import tempfile
+
+        # Arrange
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # 创建临时文件
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write("def new_func():\n    pass\n")
+            temp_path = f.name
+
+        try:
+            # Mock change detector
+            mock_detector = MagicMock()
+            mock_changes = [
+                ChangedFile(path=temp_path, change_type=ChangeType.ADDED, git_status=GitStatus.ADDED)
+            ]
+            mock_detector.detect_changes.return_value = mock_changes
+            mock_detector.update_cache = MagicMock()
+            updater._change_detector = mock_detector
+
+            # Mock impact propagator - 返回空影响
+            mock_propagator = MagicMock()
+            mock_report = ImpactReport(
+                changed_files=[temp_path],
+                changed_node_ids=[],
+                impacted_nodes=[],
+                total_analyzed=0,
+                propagation_time_ms=5.0,
+            )
+            mock_propagator.propagate.return_value = mock_report
+            updater._impact_propagator = mock_propagator
+
+            # Mock graph_store 和 chroma_store
+            mock_graph_store = MagicMock()
+            mock_graph_store.query.return_value = []
+            updater._graph_store = mock_graph_store
+
+            mock_chroma_store = MagicMock()
+            updater._chroma_store = mock_chroma_store
+
+            # Act
+            result = updater.update("HEAD~1")
+
+            # Assert - Stage 1: 变更检测
+            assert result.changes_detected == 1
+
+            # Assert - Stage 2: 影响传播
+            assert result.impacted_nodes_count == 0
+            mock_propagator.propagate.assert_called_once_with(mock_changes)
+
+            # Assert - Stage 3: 应用变更（新增文件）
+            assert result.nodes_added >= 1  # 至少有 module
+            assert result.nodes_deleted == 0
+
+            # Assert - Stage 4: 变更集记录
+            assert result.changeset_id != ""
+            assert result.changeset_id.startswith("cs-")
+            mock_detector.update_cache.assert_called_once_with(mock_changes)
+
+        finally:
+            os.unlink(temp_path)
+
+    def test_incremental_update_modify_file_e2e(self) -> None:
+        """模拟修改文件，验证变更传播。"""
+        import os
+        import tempfile
+
+        # Arrange
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # 创建临时文件
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write("def modified_func():\n    pass\n")
+            temp_path = f.name
+
+        try:
+            # Mock change detector
+            mock_detector = MagicMock()
+            mock_changes = [
+                ChangedFile(path=temp_path, change_type=ChangeType.BODY, git_status=GitStatus.MODIFIED)
+            ]
+            mock_detector.detect_changes.return_value = mock_changes
+            mock_detector.update_cache = MagicMock()
+            updater._change_detector = mock_detector
+
+            # Mock impact propagator - 返回有影响的节点
+            mock_propagator = MagicMock()
+            impacted_nodes = [
+                ImpactedNode(
+                    node_id="caller-1",
+                    node_label="CodeEntity",
+                    name="caller_func",
+                    impact_score=0.7,
+                    severity=ImpactSeverity.HIGH,
+                    depth=1,
+                    direction=PropagationDirection.FORWARD,
+                    relation_path=["calls"],
+                    source_node_id="modified_func",
+                )
+            ]
+            mock_report = ImpactReport(
+                changed_files=[temp_path],
+                changed_node_ids=["modified_func"],
+                impacted_nodes=impacted_nodes,
+                total_analyzed=1,
+                propagation_time_ms=10.0,
+            )
+            mock_propagator.propagate.return_value = mock_report
+            updater._impact_propagator = mock_propagator
+
+            # Mock graph_store - 模拟文件已存在节点
+            mock_graph_store = MagicMock()
+            mock_graph_store.query.return_value = [{"id": "old-node"}]
+            mock_graph_store.get_relations.return_value = []
+            updater._graph_store = mock_graph_store
+
+            mock_chroma_store = MagicMock()
+            updater._chroma_store = mock_chroma_store
+
+            # Act
+            result = updater.update("HEAD~1")
+
+            # Assert - 验证变更传播
+            assert result.changes_detected == 1
+            assert result.impacted_nodes_count == 1  # 有 1 个受影响节点
+            assert result.nodes_updated >= 1
+            assert result.changeset_id != ""
+
+        finally:
+            os.unlink(temp_path)
+
+    def test_incremental_update_dry_run_e2e(self) -> None:
+        """dry-run 模式不修改任何存储。"""
+        import os
+        import tempfile
+
+        # Arrange
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # 创建临时文件
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write("def test_func():\n    pass\n")
+            temp_path = f.name
+
+        try:
+            # Mock change detector
+            mock_detector = MagicMock()
+            mock_changes = [
+                ChangedFile(path=temp_path, change_type=ChangeType.ADDED, git_status=GitStatus.ADDED)
+            ]
+            mock_detector.detect_changes.return_value = mock_changes
+            updater._change_detector = mock_detector
+
+            # Mock impact propagator
+            mock_propagator = MagicMock()
+            mock_report = ImpactReport(
+                changed_files=[temp_path],
+                changed_node_ids=[],
+                impacted_nodes=[],
+                total_analyzed=0,
+                propagation_time_ms=5.0,
+            )
+            mock_propagator.propagate.return_value = mock_report
+            updater._impact_propagator = mock_propagator
+
+            # Mock stores
+            mock_graph_store = MagicMock()
+            updater._graph_store = mock_graph_store
+
+            mock_chroma_store = MagicMock()
+            updater._chroma_store = mock_chroma_store
+
+            # Act - dry_run=True
+            result = updater.update("HEAD~1", dry_run=True)
+
+            # Assert - dry_run 只检测不执行
+            assert result.changes_detected == 1
+            assert result.impacted_nodes_count == 0
+            # Stage 3/4 被跳过
+            assert result.nodes_added == 0
+            assert result.nodes_updated == 0
+            assert result.nodes_deleted == 0
+            assert result.relations_rebuilt == 0
+            assert result.vectors_updated == 0
+            assert result.changeset_id == ""  # dry_run 不生成 changeset
+
+            # 验证没有调用存储写入
+            mock_graph_store.merge_node.assert_not_called()
+            mock_chroma_store.put_entities_batch.assert_not_called()
+
+        finally:
+            os.unlink(temp_path)

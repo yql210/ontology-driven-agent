@@ -304,9 +304,7 @@ class ConceptAligner:
             RETURN concept.name AS name, collect(DISTINCT code.id) AS code_ids
             """
             results = self._neo4j_store.query(cypher)
-            self._concept_code_map = {
-                row["name"]: set(row["code_ids"]) for row in results
-            }
+            self._concept_code_map = {row["name"]: set(row["code_ids"]) for row in results}
 
         # 查询 term（作为 CodeEntity name）关联的 CodeEntity
         term_cypher = """
