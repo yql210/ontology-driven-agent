@@ -625,17 +625,11 @@ class IncrementalUpdater:
                 stage3["failed_files"].append(change.path)
 
         # 标记受影响的 ConceptEntity 需要重提取
-        concept_ids = [
-            n.node_id for n in impact_report.impacted_nodes
-            if n.node_label == "ConceptEntity"
-        ]
+        concept_ids = [n.node_id for n in impact_report.impacted_nodes if n.node_label == "ConceptEntity"]
         concepts_flagged = self._flag_concept_reextraction(concept_ids) if concept_ids else 0
 
         # 标记受影响的 DocEntity 需要重生成
-        doc_ids = [
-            n.node_id for n in impact_report.impacted_nodes
-            if n.node_label == "DocEntity"
-        ]
+        doc_ids = [n.node_id for n in impact_report.impacted_nodes if n.node_label == "DocEntity"]
         docs_flagged = self._flag_doc_regeneration(doc_ids) if doc_ids else 0
 
         # Stage 4: 验证持久化

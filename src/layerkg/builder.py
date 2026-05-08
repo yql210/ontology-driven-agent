@@ -13,6 +13,7 @@ from layerkg.chroma_store import ChromaStore
 from layerkg.config import LayerKGConfig
 from layerkg.extractor.relation import RelationExtractor
 from layerkg.extractor.semantic import SemanticExtractor, SemanticRelation
+from layerkg.module_clustering import ModuleCluster, ModuleClustering
 from layerkg.neo4j_store import Neo4jGraphStore
 from layerkg.parser.python_parser import PythonParser
 from layerkg.schema import CodeEntity, ConceptEntity, DocEntity, Relation
@@ -88,6 +89,7 @@ class LayerKGBuilder:
         self._chroma_store: ChromaStore | None = None
         self._semantic_extractor: SemanticExtractor | None = None
         self._aligner: ConceptAligner | None = None
+        self._clustering: ModuleClustering | None = None
         self._logger = logging.getLogger(__name__)
         self._repo_root: Path | None = None
 
@@ -163,22 +165,12 @@ class LayerKGBuilder:
         for rel in relations:
             graph_store.merge_relation(rel.source_id, rel.target_id, rel.relation_type)
 
-        # 5. 写 ChromaDB（有文本内容的实体）
-        chroma_store = self._get_chroma_store()
-        items = []
-        for entity in all_entities:
-            text = self._entity_to_text(entity)
-            if text:
-                items.append((entity.id, text, {"entity_type": entity.entity_type, "name": entity.name}))
-
-        if items:
-            chroma_store.put_entities_batch(items)
-
-        # 5.5. Stage 3a: 语义提取（Ollama 可用时）
+        # Stage 3a: 语义提取（Ollama 可用时）
         concepts_created = 0
         semantic_relations_created = 0
         skipped_semantic = False
         errors: list[str] = []
+        new_concepts: list[ConceptEntity] = []
 
         if self._check_ollama():
             try:
@@ -226,6 +218,16 @@ class LayerKGBuilder:
             skipped_semantic = True
             self._logger.info("Ollama unavailable, skipping semantic extraction")
 
+        # Stage 4: 模块聚类
+        clusters_count, clusters = self._detect_and_write_modules(graph_store)
+
+        # Stage 5: 向量写入统一
+        try:
+            self._write_all_vectors(all_entities, new_concepts, clusters)
+        except Exception as e:
+            self._logger.warning("Vector write failed: %s", e)
+            errors.append(f"Vector write error: {e}")
+
         # 6. 返回结果
         return BuildResult(
             files_scanned=len(py_files),
@@ -233,6 +235,7 @@ class LayerKGBuilder:
             relations_created=len(relations),
             concepts_created=concepts_created,
             semantic_relations_created=semantic_relations_created,
+            modules_created=clusters_count,
             skipped_semantic=skipped_semantic,
             errors=errors,
         )
@@ -387,6 +390,74 @@ class LayerKGBuilder:
             )
         return self._aligner
 
+    def _init_clustering(self) -> ModuleClustering:
+        """Lazy init ModuleClustering。
+
+        Returns:
+            ModuleClustering 实例。
+        """
+        if self._clustering is None:
+            self._clustering = ModuleClustering(
+                neo4j_store=self._get_graph_store(),
+            )
+        return self._clustering
+
+    def _detect_and_write_modules(self, graph_store: Neo4jGraphStore) -> tuple[int, list[ModuleCluster]]:
+        """Stage 4: 检测模块聚类并写入 Neo4j.
+
+        Args:
+            graph_store: Neo4j 存储实例。
+
+        Returns:
+            (clusters_count, clusters) 元组。
+        """
+        try:
+            clustering = self._init_clustering()
+            clusters = clustering.detect_modules()
+            if clusters:
+                clustering.save_modules(clusters)
+            return len(clusters), clusters
+        except Exception as e:
+            self._logger.warning("Module clustering failed: %s", e)
+            return 0, []
+
+    def _write_all_vectors(
+        self,
+        all_entities: list[CodeEntity],
+        new_concepts: list[ConceptEntity],
+        clusters: list[ModuleCluster],
+    ) -> None:
+        """Stage 5: 统一向量写入 ChromaDB.
+
+        Args:
+            all_entities: 所有代码实体。
+            new_concepts: 新创建的概念实体。
+            clusters: 模块聚类列表。
+        """
+        chroma_store = self._get_chroma_store()
+        items: list[tuple[str, str, dict[str, str]]] = []
+
+        # CodeEntity
+        for entity in all_entities:
+            text = self._entity_to_text(entity)
+            if text:
+                items.append((entity.id, text, {"entity_type": entity.entity_type, "name": entity.name}))
+
+        # ConceptEntity
+        for concept in new_concepts:
+            text = concept.description or concept.name
+            items.append((concept.id, text, {"entity_type": concept.entity_type, "name": concept.name}))
+
+        # ModuleCluster → cluster.module
+        for cluster in clusters:
+            module = cluster.module
+            text = module.description or module.name
+            # ModuleEntity 无 entity_type 字段，硬编码
+            items.append((module.id, text, {"entity_type": "module", "name": module.name}))
+
+        if items:
+            chroma_store.put_entities_batch(items)
+
     def _process_semantic_relations(
         self,
         relations: list[SemanticRelation],
@@ -438,21 +509,6 @@ class LayerKGBuilder:
                     new_concepts.append(concept)
                     concept_id_map[target_name] = concept.id
                     aligner.add_concept(concept)
-
-                    # 写入 ChromaDB
-                    try:
-                        chroma = self._get_chroma_store()
-                        chroma.put_entities_batch(
-                            [
-                                (
-                                    concept.id,
-                                    concept.description or concept.name,
-                                    {"entity_type": concept.entity_type, "name": concept.name},
-                                )
-                            ]
-                        )
-                    except Exception as e:
-                        self._logger.warning("Failed to write concept %s to ChromaDB: %s", concept.name, e)
                 else:
                     concept_id_map[target_name] = align_result.concept_id
 

@@ -1647,9 +1647,7 @@ class TestIncrementalUpdateE2E:
         try:
             # Mock change detector
             mock_detector = MagicMock()
-            mock_changes = [
-                ChangedFile(path=temp_path, change_type=ChangeType.ADDED, git_status=GitStatus.ADDED)
-            ]
+            mock_changes = [ChangedFile(path=temp_path, change_type=ChangeType.ADDED, git_status=GitStatus.ADDED)]
             mock_detector.detect_changes.return_value = mock_changes
             mock_detector.update_cache = MagicMock()
             updater._change_detector = mock_detector
@@ -1713,9 +1711,7 @@ class TestIncrementalUpdateE2E:
         try:
             # Mock change detector
             mock_detector = MagicMock()
-            mock_changes = [
-                ChangedFile(path=temp_path, change_type=ChangeType.BODY, git_status=GitStatus.MODIFIED)
-            ]
+            mock_changes = [ChangedFile(path=temp_path, change_type=ChangeType.BODY, git_status=GitStatus.MODIFIED)]
             mock_detector.detect_changes.return_value = mock_changes
             mock_detector.update_cache = MagicMock()
             updater._change_detector = mock_detector
@@ -1783,9 +1779,7 @@ class TestIncrementalUpdateE2E:
         try:
             # Mock change detector
             mock_detector = MagicMock()
-            mock_changes = [
-                ChangedFile(path=temp_path, change_type=ChangeType.ADDED, git_status=GitStatus.ADDED)
-            ]
+            mock_changes = [ChangedFile(path=temp_path, change_type=ChangeType.ADDED, git_status=GitStatus.ADDED)]
             mock_detector.detect_changes.return_value = mock_changes
             updater._change_detector = mock_detector
 
@@ -1926,7 +1920,8 @@ class TestConceptEntityHandling:
             mock_graph_store.query.assert_called()
             # 查找包含 ConceptEntity 的 query 调用
             concept_query_calls = [
-                call for call in mock_graph_store.query.call_args_list
+                call
+                for call in mock_graph_store.query.call_args_list
                 if "ConceptEntity" in str(call) and "needs_reextraction" in str(call)
             ]
             assert len(concept_query_calls) == 1
@@ -2013,7 +2008,8 @@ class TestConceptEntityHandling:
 
             # Assert - 验证没有调用 ConceptEntity 相关的 query
             concept_query_calls = [
-                call for call in mock_graph_store.query.call_args_list
+                call
+                for call in mock_graph_store.query.call_args_list
                 if "ConceptEntity" in str(call) and "needs_reextraction" in str(call)
             ]
             assert len(concept_query_calls) == 0
@@ -2149,7 +2145,8 @@ class TestDocEntityHandling:
             mock_graph_store.query.assert_called()
             # 查找包含 DocEntity 的 query 调用
             doc_query_calls = [
-                call for call in mock_graph_store.query.call_args_list
+                call
+                for call in mock_graph_store.query.call_args_list
                 if "DocEntity" in str(call) and "needs_regeneration" in str(call)
             ]
             assert len(doc_query_calls) == 1
@@ -2236,7 +2233,8 @@ class TestDocEntityHandling:
 
             # Assert - 验证没有调用 DocEntity 相关的 query
             doc_query_calls = [
-                call for call in mock_graph_store.query.call_args_list
+                call
+                for call in mock_graph_store.query.call_args_list
                 if "DocEntity" in str(call) and "needs_regeneration" in str(call)
             ]
             assert len(doc_query_calls) == 0

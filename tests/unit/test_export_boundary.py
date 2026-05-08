@@ -22,9 +22,7 @@ def test_export_graph_dot_format():
                 {"id": "func2", "name": "func2", "labels": ["CodeEntity"]},
             ]
         elif "MATCH ()-[r]->()" in cypher:
-            return [
-                {"source": "func1", "target": "func2", "rel_type": "CALLS", "properties": {}}
-            ]
+            return [{"source": "func1", "target": "func2", "rel_type": "CALLS", "properties": {}}]
         return []
 
     mock_neo4j.query.side_effect = mock_query
@@ -40,8 +38,8 @@ def test_export_graph_dot_format():
         assert "digraph" in content
         assert "graph {" in content or content.startswith("digraph")
         assert "->" in content
-        assert 'func1' in content
-        assert 'func2' in content
+        assert "func1" in content
+        assert "func2" in content
 
 
 @pytest.mark.unit
@@ -56,15 +54,13 @@ def test_export_graph_cytoscape_format():
     def mock_query(cypher: str, params: dict | None = None):
         if "MATCH (n)" in cypher:
             # 返回 labels 为 dict 类型以配合 _to_cytoscape 的 ** 解包
-            #（源码中 labels(n) 返回 list，但 _to_cytoscape 期望 dict）
+            # （源码中 labels(n) 返回 list，但 _to_cytoscape 期望 dict）
             return [
                 {"id": "node1", "name": "Node1", "labels": {"type": "CodeEntity"}},
                 {"id": "node2", "name": "Node2", "labels": {"type": "ConceptEntity"}},
             ]
         elif "MATCH ()-[r]->()" in cypher:
-            return [
-                {"source": "node1", "target": "node2", "rel_type": "DESCRIBES", "properties": {}}
-            ]
+            return [{"source": "node1", "target": "node2", "rel_type": "DESCRIBES", "properties": {}}]
         return []
 
     mock_neo4j.query.side_effect = mock_query

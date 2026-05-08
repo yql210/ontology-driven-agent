@@ -16,11 +16,7 @@ def test_all_source_modules_importable():
     py_files = sorted(src_dir.rglob("*.py"))
     # 过滤掉 __init__.py 之外的文件，并跳过测试目录
     source_files = [
-        f
-        for f in py_files
-        if "__pycache__" not in f.parts
-        and ".pytest_cache" not in f.parts
-        and "test_" not in f.name
+        f for f in py_files if "__pycache__" not in f.parts and ".pytest_cache" not in f.parts and "test_" not in f.name
     ]
 
     failed = []
@@ -51,9 +47,7 @@ def test_all_test_modules_importable():
     test_files = [
         f
         for f in test_files
-        if "__pycache__" not in f.parts
-        and ".pytest_cache" not in f.parts
-        and "conftest.py" not in f.name
+        if "__pycache__" not in f.parts and ".pytest_cache" not in f.parts and "conftest.py" not in f.name
     ]
 
     failed = []

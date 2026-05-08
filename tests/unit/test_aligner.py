@@ -861,6 +861,7 @@ class TestAlignPipelineE2E:
         mock_chroma_store: MagicMock,
     ) -> None:
         """批量对齐多术语，验证各策略降级。"""
+
         # Arrange: 不同术语走不同匹配路径
         def mock_search(query_text: str, n_results: int = 10, where: dict | None = None) -> list:
             if "权限" in query_text:

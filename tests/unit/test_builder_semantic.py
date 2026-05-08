@@ -199,10 +199,10 @@ class TestProcessSemanticRelations:
         target_ids = {rel.target_id for rel in resolved}
         assert len(target_ids) == 1
 
-    def test_process_semantic_chroma_write(
+    def test_process_semantic_no_direct_chroma_write(
         self, builder: LayerKGBuilder, repo_root: Path, mock_entity_index: dict
     ) -> None:
-        """路径 A：新概念写入 ChromaDB。"""
+        """_process_semantic_relations 不再直接写入 ChromaDB（由 Stage 5 _write_all_vectors 统一处理）。"""
         relations = [
             SemanticRelation(
                 source_name="parse_file",
@@ -221,13 +221,8 @@ class TestProcessSemanticRelations:
             new_concepts, _, _ = builder._process_semantic_relations(relations, mock_entity_index, repo_root)
 
         assert len(new_concepts) == 1
-        mock_put.assert_called_once()
-        call_args = mock_put.call_args[0][0]
-        assert len(call_args) == 1
-        entity_id, _text, metadata = call_args[0]
-        assert entity_id == new_concepts[0].id
-        assert metadata["entity_type"] == "business_concept"
-        assert metadata["name"] == "Parser"
+        # 验证不再直接调用 ChromaDB 写入
+        mock_put.assert_not_called()
 
     def test_process_semantic_code_target(
         self, builder: LayerKGBuilder, repo_root: Path, mock_entity_index: dict

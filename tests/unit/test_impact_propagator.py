@@ -1476,9 +1476,7 @@ class TestPropagationAlgorithmE2E:
         mock_store.get_node.side_effect = mock_get_node
 
         propagator = ImpactPropagator(mock_store)
-        changes = [
-            ChangedFile(path="a.py", change_type=ChangeType.SIGNATURE, git_status=GitStatus.MODIFIED)
-        ]
+        changes = [ChangedFile(path="a.py", change_type=ChangeType.SIGNATURE, git_status=GitStatus.MODIFIED)]
 
         # Act
         result = propagator.propagate(changes)
@@ -1537,9 +1535,7 @@ class TestPropagationAlgorithmE2E:
         mock_store.get_node.side_effect = mock_get_node
 
         propagator = ImpactPropagator(mock_store)
-        changes = [
-            ChangedFile(path="a.py", change_type=ChangeType.SIGNATURE, git_status=GitStatus.MODIFIED)
-        ]
+        changes = [ChangedFile(path="a.py", change_type=ChangeType.SIGNATURE, git_status=GitStatus.MODIFIED)]
 
         # Act
         result = propagator.propagate(changes)
@@ -1590,9 +1586,7 @@ class TestPropagationAlgorithmE2E:
         mock_store.get_node.side_effect = mock_get_node
 
         propagator = ImpactPropagator(mock_store, max_depth=3)
-        changes = [
-            ChangedFile(path="a.py", change_type=ChangeType.SIGNATURE, git_status=GitStatus.MODIFIED)
-        ]
+        changes = [ChangedFile(path="a.py", change_type=ChangeType.SIGNATURE, git_status=GitStatus.MODIFIED)]
 
         # Act
         result = propagator.propagate(changes)
