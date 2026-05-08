@@ -34,6 +34,9 @@ class UpdateReport:
         elapsed_ms: 总耗时（毫秒）。
         parse_errors: 解析失败的文件数。
         failed_files: 解析失败的文件路径列表。
+        concepts_flagged: 被标记重提取的概念数。
+        docs_flagged: 被标记重生成的文档数。
+        integrity_warnings: 完整性检查警告数。
     """
 
     changes_detected: int
@@ -48,6 +51,9 @@ class UpdateReport:
     elapsed_ms: float
     parse_errors: int = 0
     failed_files: list[str] | None = None
+    concepts_flagged: int = 0
+    docs_flagged: int = 0
+    integrity_warnings: int = 0
 
     def __post_init__(self) -> None:
         """设置默认值。"""
@@ -69,6 +75,9 @@ class UpdateReport:
             "elapsed_ms": round(self.elapsed_ms, 2),
             "parse_errors": self.parse_errors,
             "failed_files": self.failed_files,
+            "concepts_flagged": self.concepts_flagged,
+            "docs_flagged": self.docs_flagged,
+            "integrity_warnings": self.integrity_warnings,
         }
 
 
@@ -447,6 +456,75 @@ class IncrementalUpdater:
             "vectors_updated": len(items),
         }
 
+    def _flag_concept_reextraction(self, impacted_concept_ids: list[str]) -> int:
+        """标记受影响的 ConceptEntity 需要重提取。
+
+        Args:
+            impacted_concept_ids: 需要标记的 ConceptEntity ID 列表。
+
+        Returns:
+            标记的节点数量。
+        """
+        if not impacted_concept_ids:
+            return 0
+
+        graph_store = self._get_graph_store()
+        cypher = "MATCH (n:ConceptEntity) WHERE n.id IN $ids SET n.needs_reextraction = true RETURN count(n) AS count"
+        result = graph_store.query(cypher, {"ids": impacted_concept_ids})
+        return result[0]["count"] if result else 0
+
+    def _flag_doc_regeneration(self, impacted_doc_ids: list[str]) -> int:
+        """标记受影响的 DocEntity 需要重生成。
+
+        Args:
+            impacted_doc_ids: 需要标记的 DocEntity ID 列表。
+
+        Returns:
+            标记的节点数量。
+        """
+        if not impacted_doc_ids:
+            return 0
+
+        graph_store = self._get_graph_store()
+        cypher = "MATCH (n:DocEntity) WHERE n.id IN $ids SET n.needs_regeneration = true RETURN count(n) AS count"
+        result = graph_store.query(cypher, {"ids": impacted_doc_ids})
+        return result[0]["count"] if result else 0
+
+    def _validate_graph_integrity(self) -> dict:
+        """检查图谱完整性（软检查，只记录警告不阻断更新）。
+
+        查询没有关系的孤立 CodeEntity 节点，用于监控图谱健康度。
+
+        Returns:
+            dict: {"warnings": int, "orphan_code_entities": list[str]}。
+                查询失败时返回 {"warnings": 0, "orphan_code_entities": []}。
+        """
+        try:
+            graph_store = self._get_graph_store()
+            # Cypher: 查找没有任何关系的孤立 CodeEntity
+            cypher = """
+                MATCH (n:CodeEntity)
+                WHERE NOT (n)--()
+                RETURN n.id AS id, n.name AS name
+                LIMIT 100
+            """
+            orphan_nodes = graph_store.query(cypher)
+
+            warnings = len(orphan_nodes)
+            orphan_ids = [node["id"] for node in orphan_nodes if node.get("id")]
+
+            if warnings > 0:
+                self._logger.warning(
+                    "检测到 %d 个孤立 CodeEntity 节点 (无任何关系)",
+                    warnings,
+                )
+
+            return {"warnings": warnings, "orphan_code_entities": orphan_ids}
+        except Exception as e:
+            # 完整性检查失败不影响主流程，记录错误后返回安全值
+            self._logger.warning("完整性检查失败: %s", e)
+            return {"warnings": 0, "orphan_code_entities": []}
+
     def _record_changeset(self, changes: list, impact_report, stage3: dict) -> str:
         """记录 ChangeSetEntity 到 Neo4j。
 
@@ -515,6 +593,9 @@ class IncrementalUpdater:
                 orphans_removed=0,
                 changeset_id="",
                 elapsed_ms=elapsed,
+                concepts_flagged=0,
+                docs_flagged=0,
+                integrity_warnings=0,
             )
 
         # Stage 3: 选择性重生成
@@ -543,8 +624,27 @@ class IncrementalUpdater:
                 stage3["parse_errors"] += 1
                 stage3["failed_files"].append(change.path)
 
+        # 标记受影响的 ConceptEntity 需要重提取
+        concept_ids = [
+            n.node_id for n in impact_report.impacted_nodes
+            if n.node_label == "ConceptEntity"
+        ]
+        concepts_flagged = self._flag_concept_reextraction(concept_ids) if concept_ids else 0
+
+        # 标记受影响的 DocEntity 需要重生成
+        doc_ids = [
+            n.node_id for n in impact_report.impacted_nodes
+            if n.node_label == "DocEntity"
+        ]
+        docs_flagged = self._flag_doc_regeneration(doc_ids) if doc_ids else 0
+
         # Stage 4: 验证持久化
         changeset_id = self._record_changeset(changes, impact_report, stage3)
+
+        # 完整性检查（软检查，不影响主流程）
+        integrity = self._validate_graph_integrity()
+        integrity_warnings = integrity["warnings"]
+
         detector = self._get_change_detector()
         detector.update_cache(changes)
 
@@ -562,4 +662,7 @@ class IncrementalUpdater:
             elapsed_ms=elapsed,
             parse_errors=stage3["parse_errors"],
             failed_files=stage3["failed_files"],
+            concepts_flagged=concepts_flagged,
+            docs_flagged=docs_flagged,
+            integrity_warnings=integrity_warnings,
         )

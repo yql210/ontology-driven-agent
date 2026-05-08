@@ -96,6 +96,49 @@ class TestUpdateReport:
         )
         assert report.elapsed_ms >= 0
 
+    def test_new_fields_default_to_zero(self):
+        """新增字段 concepts_flagged、docs_flagged、integrity_warnings 默认值应为 0。"""
+        report = UpdateReport(
+            changes_detected=1,
+            nodes_added=0,
+            nodes_updated=0,
+            nodes_deleted=0,
+            relations_rebuilt=0,
+            vectors_updated=0,
+            impacted_nodes_count=0,
+            orphans_removed=0,
+            changeset_id="",
+            elapsed_ms=0.0,
+        )
+        assert report.concepts_flagged == 0
+        assert report.docs_flagged == 0
+        assert report.integrity_warnings == 0
+
+    def test_to_dict_includes_new_fields(self):
+        """to_dict() 应包含 concepts_flagged、docs_flagged、integrity_warnings 三个新字段。"""
+        report = UpdateReport(
+            changes_detected=1,
+            nodes_added=1,
+            nodes_updated=0,
+            nodes_deleted=0,
+            relations_rebuilt=0,
+            vectors_updated=1,
+            impacted_nodes_count=1,
+            orphans_removed=0,
+            changeset_id="cs-abc123",
+            elapsed_ms=123.456,
+            concepts_flagged=5,
+            docs_flagged=3,
+            integrity_warnings=2,
+        )
+        d = report.to_dict()
+        assert "concepts_flagged" in d
+        assert "docs_flagged" in d
+        assert "integrity_warnings" in d
+        assert d["concepts_flagged"] == 5
+        assert d["docs_flagged"] == 3
+        assert d["integrity_warnings"] == 2
+
 
 class TestIncrementalUpdaterConstructor:
     """Tests for IncrementalUpdater constructor."""
@@ -1782,6 +1825,608 @@ class TestIncrementalUpdateE2E:
             # 验证没有调用存储写入
             mock_graph_store.merge_node.assert_not_called()
             mock_chroma_store.put_entities_batch.assert_not_called()
+
+        finally:
+            os.unlink(temp_path)
+
+
+class TestConceptEntityHandling:
+    """Tests for ConceptEntity 处理分支。"""
+
+    def test_concept_reextraction_flagged_when_concept_impacted(self):
+        """mock impact_report 包含 2 个 ConceptEntity 的 ImpactedNode，验证 concepts_flagged=2。"""
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # Mock change detector
+        mock_detector = MagicMock()
+        mock_changes = [
+            ChangedFile(path="a.py", change_type=ChangeType.ADDED, git_status=GitStatus.ADDED),
+        ]
+        mock_detector.detect_changes.return_value = mock_changes
+        mock_detector.update_cache = MagicMock()
+        updater._change_detector = mock_detector
+
+        # Mock impact propagator - 返回包含 ConceptEntity 的受影响节点
+        mock_propagator = MagicMock()
+        impacted_nodes = [
+            ImpactedNode(
+                node_id="concept-1",
+                node_label="ConceptEntity",
+                name="BusinessConcept1",
+                impact_score=0.9,
+                severity=ImpactSeverity.CRITICAL,
+                depth=1,
+                direction=PropagationDirection.FORWARD,
+                relation_path=["describes"],
+                source_node_id="code-1",
+            ),
+            ImpactedNode(
+                node_id="concept-2",
+                node_label="ConceptEntity",
+                name="BusinessConcept2",
+                impact_score=0.8,
+                severity=ImpactSeverity.HIGH,
+                depth=1,
+                direction=PropagationDirection.FORWARD,
+                relation_path=["describes"],
+                source_node_id="code-2",
+            ),
+        ]
+        mock_report = ImpactReport(
+            changed_files=["a.py"],
+            changed_node_ids=["code-1"],
+            impacted_nodes=impacted_nodes,
+            total_analyzed=2,
+            propagation_time_ms=10.0,
+        )
+        mock_propagator.propagate.return_value = mock_report
+        updater._impact_propagator = mock_propagator
+
+        # Mock graph_store - 模拟 concept flagging 查询返回 count=2
+        mock_graph_store = MagicMock()
+        mock_graph_store.query.return_value = [{"count": 2}]
+        updater._graph_store = mock_graph_store
+
+        # Mock chroma_store
+        mock_chroma_store = MagicMock()
+        updater._chroma_store = mock_chroma_store
+
+        # Mock parser
+        mock_parser = MagicMock()
+        entity = CodeEntity(name="func1", entity_type="function", source="def func1(): pass")
+        mock_parser.parse_file.return_value = ParseResult(
+            file_path="a.py",
+            entities=[entity],
+            relations=[],
+            error=None,
+        )
+        updater._parser = mock_parser
+
+        # Mock extractor
+        mock_extractor = MagicMock()
+        mock_extractor.resolve.return_value = []
+        updater._extractor = mock_extractor
+
+        import os
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write("def func1(): pass")
+            temp_path = f.name
+
+        try:
+            mock_changes[0].path = temp_path
+            report = updater.update("HEAD~1")
+
+            # Assert - 验证 concepts_flagged = 2
+            assert report.concepts_flagged == 2
+
+            # Assert - 验证 graph_store.query 被调用了正确的 Cypher
+            mock_graph_store.query.assert_called()
+            # 查找包含 ConceptEntity 的 query 调用
+            concept_query_calls = [
+                call for call in mock_graph_store.query.call_args_list
+                if "ConceptEntity" in str(call) and "needs_reextraction" in str(call)
+            ]
+            assert len(concept_query_calls) == 1
+        finally:
+            os.unlink(temp_path)
+
+    def test_concept_reextraction_not_called_for_code_only_impacts(self):
+        """mock impact_report 只包含 CodeEntity 的 ImpactedNode，验证 concepts_flagged=0。"""
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # Mock change detector
+        mock_detector = MagicMock()
+        mock_changes = [
+            ChangedFile(path="a.py", change_type=ChangeType.ADDED, git_status=GitStatus.ADDED),
+        ]
+        mock_detector.detect_changes.return_value = mock_changes
+        mock_detector.update_cache = MagicMock()
+        updater._change_detector = mock_detector
+
+        # Mock impact propagator - 只返回 CodeEntity 的受影响节点
+        mock_propagator = MagicMock()
+        impacted_nodes = [
+            ImpactedNode(
+                node_id="code-1",
+                node_label="CodeEntity",
+                name="func1",
+                impact_score=0.9,
+                severity=ImpactSeverity.CRITICAL,
+                depth=1,
+                direction=PropagationDirection.FORWARD,
+                relation_path=["calls"],
+                source_node_id="code-2",
+            ),
+        ]
+        mock_report = ImpactReport(
+            changed_files=["a.py"],
+            changed_node_ids=["code-1"],
+            impacted_nodes=impacted_nodes,
+            total_analyzed=1,
+            propagation_time_ms=10.0,
+        )
+        mock_propagator.propagate.return_value = mock_report
+        updater._impact_propagator = mock_propagator
+
+        # Mock graph_store
+        mock_graph_store = MagicMock()
+        mock_graph_store.query.return_value = []
+        updater._graph_store = mock_graph_store
+
+        # Mock chroma_store
+        mock_chroma_store = MagicMock()
+        updater._chroma_store = mock_chroma_store
+
+        # Mock parser
+        mock_parser = MagicMock()
+        entity = CodeEntity(name="func1", entity_type="function", source="def func1(): pass")
+        mock_parser.parse_file.return_value = ParseResult(
+            file_path="a.py",
+            entities=[entity],
+            relations=[],
+            error=None,
+        )
+        updater._parser = mock_parser
+
+        # Mock extractor
+        mock_extractor = MagicMock()
+        mock_extractor.resolve.return_value = []
+        updater._extractor = mock_extractor
+
+        import os
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write("def func1(): pass")
+            temp_path = f.name
+
+        try:
+            mock_changes[0].path = temp_path
+            report = updater.update("HEAD~1")
+
+            # Assert - 验证 concepts_flagged = 0
+            assert report.concepts_flagged == 0
+
+            # Assert - 验证没有调用 ConceptEntity 相关的 query
+            concept_query_calls = [
+                call for call in mock_graph_store.query.call_args_list
+                if "ConceptEntity" in str(call) and "needs_reextraction" in str(call)
+            ]
+            assert len(concept_query_calls) == 0
+        finally:
+            os.unlink(temp_path)
+
+    def test_flag_concept_reextraction_direct(self):
+        """直接调用 _flag_concept_reextraction，验证返回值和 Cypher 正确。"""
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # Mock graph_store
+        mock_graph_store = MagicMock()
+        mock_graph_store.query.return_value = [{"count": 2}]
+        updater._graph_store = mock_graph_store
+
+        # Act - 直接调用
+        result = updater._flag_concept_reextraction(["id1", "id2"])
+
+        # Assert - 验证返回值
+        assert result == 2
+
+        # Assert - 验证 Cypher 正确
+        mock_graph_store.query.assert_called_once()
+        call_args = mock_graph_store.query.call_args
+        cypher = call_args[0][0]
+        params = call_args[0][1]  # 参数是位置传递的，不是关键字参数
+
+        assert "ConceptEntity" in cypher
+        assert "needs_reextraction" in cypher
+        assert "IN $ids" in cypher
+        assert params == {"ids": ["id1", "id2"]}
+
+    def test_flag_concept_reextraction_empty_list(self):
+        """空列表调用 _flag_concept_reextraction，返回 0 且不调用 query。"""
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # Mock graph_store
+        mock_graph_store = MagicMock()
+        updater._graph_store = mock_graph_store
+
+        # Act - 空列表调用
+        result = updater._flag_concept_reextraction([])
+
+        # Assert - 验证返回 0 且未调用 query
+        assert result == 0
+        mock_graph_store.query.assert_not_called()
+
+
+class TestDocEntityHandling:
+    """Tests for DocEntity 处理分支。"""
+
+    def test_doc_regeneration_flagged_when_doc_impacted(self):
+        """mock impact_report 包含 1 个 DocEntity 的 ImpactedNode，验证 docs_flagged=1。"""
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # Mock change detector
+        mock_detector = MagicMock()
+        mock_changes = [
+            ChangedFile(path="a.py", change_type=ChangeType.ADDED, git_status=GitStatus.ADDED),
+        ]
+        mock_detector.detect_changes.return_value = mock_changes
+        mock_detector.update_cache = MagicMock()
+        updater._change_detector = mock_detector
+
+        # Mock impact propagator - 返回包含 DocEntity 的受影响节点
+        mock_propagator = MagicMock()
+        impacted_nodes = [
+            ImpactedNode(
+                node_id="doc-1",
+                node_label="DocEntity",
+                name="README",
+                impact_score=0.9,
+                severity=ImpactSeverity.CRITICAL,
+                depth=1,
+                direction=PropagationDirection.FORWARD,
+                relation_path=["describes"],
+                source_node_id="code-1",
+            ),
+        ]
+        mock_report = ImpactReport(
+            changed_files=["a.py"],
+            changed_node_ids=["code-1"],
+            impacted_nodes=impacted_nodes,
+            total_analyzed=1,
+            propagation_time_ms=10.0,
+        )
+        mock_propagator.propagate.return_value = mock_report
+        updater._impact_propagator = mock_propagator
+
+        # Mock graph_store - 模拟 doc flagging 查询返回 count=1
+        mock_graph_store = MagicMock()
+        mock_graph_store.query.return_value = [{"count": 1}]
+        updater._graph_store = mock_graph_store
+
+        # Mock chroma_store
+        mock_chroma_store = MagicMock()
+        updater._chroma_store = mock_chroma_store
+
+        # Mock parser
+        mock_parser = MagicMock()
+        entity = CodeEntity(name="func1", entity_type="function", source="def func1(): pass")
+        mock_parser.parse_file.return_value = ParseResult(
+            file_path="a.py",
+            entities=[entity],
+            relations=[],
+            error=None,
+        )
+        updater._parser = mock_parser
+
+        # Mock extractor
+        mock_extractor = MagicMock()
+        mock_extractor.resolve.return_value = []
+        updater._extractor = mock_extractor
+
+        import os
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write("def func1(): pass")
+            temp_path = f.name
+
+        try:
+            mock_changes[0].path = temp_path
+            report = updater.update("HEAD~1")
+
+            # Assert - 验证 docs_flagged = 1
+            assert report.docs_flagged == 1
+
+            # Assert - 验证 graph_store.query 被调用了正确的 Cypher
+            mock_graph_store.query.assert_called()
+            # 查找包含 DocEntity 的 query 调用
+            doc_query_calls = [
+                call for call in mock_graph_store.query.call_args_list
+                if "DocEntity" in str(call) and "needs_regeneration" in str(call)
+            ]
+            assert len(doc_query_calls) == 1
+        finally:
+            os.unlink(temp_path)
+
+    def test_doc_regeneration_not_called_for_code_only_impacts(self):
+        """mock impact_report 只包含 CodeEntity 的 ImpactedNode，验证 docs_flagged=0。"""
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # Mock change detector
+        mock_detector = MagicMock()
+        mock_changes = [
+            ChangedFile(path="a.py", change_type=ChangeType.ADDED, git_status=GitStatus.ADDED),
+        ]
+        mock_detector.detect_changes.return_value = mock_changes
+        mock_detector.update_cache = MagicMock()
+        updater._change_detector = mock_detector
+
+        # Mock impact propagator - 只返回 CodeEntity 的受影响节点
+        mock_propagator = MagicMock()
+        impacted_nodes = [
+            ImpactedNode(
+                node_id="code-1",
+                node_label="CodeEntity",
+                name="func1",
+                impact_score=0.9,
+                severity=ImpactSeverity.CRITICAL,
+                depth=1,
+                direction=PropagationDirection.FORWARD,
+                relation_path=["calls"],
+                source_node_id="code-2",
+            ),
+        ]
+        mock_report = ImpactReport(
+            changed_files=["a.py"],
+            changed_node_ids=["code-1"],
+            impacted_nodes=impacted_nodes,
+            total_analyzed=1,
+            propagation_time_ms=10.0,
+        )
+        mock_propagator.propagate.return_value = mock_report
+        updater._impact_propagator = mock_propagator
+
+        # Mock graph_store
+        mock_graph_store = MagicMock()
+        mock_graph_store.query.return_value = []
+        updater._graph_store = mock_graph_store
+
+        # Mock chroma_store
+        mock_chroma_store = MagicMock()
+        updater._chroma_store = mock_chroma_store
+
+        # Mock parser
+        mock_parser = MagicMock()
+        entity = CodeEntity(name="func1", entity_type="function", source="def func1(): pass")
+        mock_parser.parse_file.return_value = ParseResult(
+            file_path="a.py",
+            entities=[entity],
+            relations=[],
+            error=None,
+        )
+        updater._parser = mock_parser
+
+        # Mock extractor
+        mock_extractor = MagicMock()
+        mock_extractor.resolve.return_value = []
+        updater._extractor = mock_extractor
+
+        import os
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write("def func1(): pass")
+            temp_path = f.name
+
+        try:
+            mock_changes[0].path = temp_path
+            report = updater.update("HEAD~1")
+
+            # Assert - 验证 docs_flagged = 0
+            assert report.docs_flagged == 0
+
+            # Assert - 验证没有调用 DocEntity 相关的 query
+            doc_query_calls = [
+                call for call in mock_graph_store.query.call_args_list
+                if "DocEntity" in str(call) and "needs_regeneration" in str(call)
+            ]
+            assert len(doc_query_calls) == 0
+        finally:
+            os.unlink(temp_path)
+
+    def test_flag_doc_regeneration_direct(self):
+        """直接调用 _flag_doc_regeneration，验证返回值和 Cypher 正确。"""
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # Mock graph_store
+        mock_graph_store = MagicMock()
+        mock_graph_store.query.return_value = [{"count": 1}]
+        updater._graph_store = mock_graph_store
+
+        # Act - 直接调用
+        result = updater._flag_doc_regeneration(["id1"])
+
+        # Assert - 验证返回值
+        assert result == 1
+
+        # Assert - 验证 Cypher 正确
+        mock_graph_store.query.assert_called_once()
+        call_args = mock_graph_store.query.call_args
+        cypher = call_args[0][0]
+        params = call_args[0][1]  # 参数是位置传递的
+
+        assert "DocEntity" in cypher
+        assert "needs_regeneration" in cypher
+        assert "IN $ids" in cypher
+        assert params == {"ids": ["id1"]}
+
+    def test_flag_doc_regeneration_empty_list(self):
+        """空列表调用 _flag_doc_regeneration，返回 0 且不调用 query。"""
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # Mock graph_store
+        mock_graph_store = MagicMock()
+        updater._graph_store = mock_graph_store
+
+        # Act - 空列表调用
+        result = updater._flag_doc_regeneration([])
+
+        # Assert - 验证返回 0 且未调用 query
+        assert result == 0
+        mock_graph_store.query.assert_not_called()
+
+
+class TestGraphIntegrityValidation:
+    """Tests for 图谱完整性检查功能。"""
+
+    def test_validate_returns_warnings_for_orphan_nodes(self):
+        """mock graph_store.query 返回 2 个孤立 CodeEntity，验证 warnings=2。"""
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # Mock graph_store 返回孤立节点
+        mock_graph_store = MagicMock()
+        mock_graph_store.query.return_value = [
+            {"id": "orphan-1", "name": "orphan_func1"},
+            {"id": "orphan-2", "name": "orphan_func2"},
+        ]
+        updater._graph_store = mock_graph_store
+
+        # Act - 直接调用完整性检查
+        result = updater._validate_graph_integrity()
+
+        # Assert - 验证返回值
+        assert result["warnings"] == 2
+        assert len(result["orphan_code_entities"]) == 2
+        assert "orphan-1" in result["orphan_code_entities"]
+        assert "orphan-2" in result["orphan_code_entities"]
+
+        # Assert - 验证 Cypher 查询正确
+        mock_graph_store.query.assert_called_once()
+        call_args = mock_graph_store.query.call_args
+        cypher = call_args[0][0]
+        assert "CodeEntity" in cypher
+        assert "NOT" in cypher
+        assert "--()" in cypher
+
+    def test_validate_returns_zero_for_healthy_graph(self):
+        """mock graph_store.query 返回空列表，验证 warnings=0。"""
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # Mock graph_store 返回健康图谱（无孤立节点）
+        mock_graph_store = MagicMock()
+        mock_graph_store.query.return_value = []
+        updater._graph_store = mock_graph_store
+
+        # Act
+        result = updater._validate_graph_integrity()
+
+        # Assert
+        assert result["warnings"] == 0
+        assert result["orphan_code_entities"] == []
+
+    def test_validate_handles_query_error_gracefully(self):
+        """mock graph_store.query 抛异常，验证返回空结果而不抛异常。"""
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # Mock graph_store 抛异常
+        mock_graph_store = MagicMock()
+        mock_graph_store.query.side_effect = Exception("Connection failed")
+        updater._graph_store = mock_graph_store
+
+        # Act - 不应该抛异常
+        result = updater._validate_graph_integrity()
+
+        # Assert - 返回安全的默认值
+        assert result["warnings"] == 0
+        assert result["orphan_code_entities"] == []
+
+    def test_integrity_warnings_in_update_report(self):
+        """完整调用 update()，验证 integrity_warnings > 0 当有孤立节点时。"""
+        import os
+        import tempfile
+
+        config = LayerKGConfig()
+        updater = IncrementalUpdater(config)
+
+        # 创建临时文件
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write("def func1(): pass")
+            temp_path = f.name
+
+        try:
+            # Mock change detector
+            mock_detector = MagicMock()
+            mock_changes = [
+                ChangedFile(path=temp_path, change_type=ChangeType.ADDED, git_status=GitStatus.ADDED),
+            ]
+            mock_detector.detect_changes.return_value = mock_changes
+            mock_detector.update_cache = MagicMock()
+            updater._change_detector = mock_detector
+
+            # Mock impact propagator
+            mock_propagator = MagicMock()
+            mock_report = ImpactReport(
+                changed_files=[temp_path],
+                changed_node_ids=[],
+                impacted_nodes=[],
+                total_analyzed=0,
+                propagation_time_ms=5.0,
+            )
+            mock_propagator.propagate.return_value = mock_report
+            updater._impact_propagator = mock_propagator
+
+            # Mock graph_store - 根据 Cypher 内容返回不同结果
+            mock_graph_store = MagicMock()
+
+            def mock_query_side_effect(cypher, *args, **kwargs):
+                # 完整性检查的 Cypher 包含特定特征
+                if "CodeEntity" in cypher and "NOT" in cypher and "--()" in cypher:
+                    return [{"id": "orphan-1", "name": "orphan_func"}]
+                # 其他查询返回空结果
+                return []
+
+            mock_graph_store.query.side_effect = mock_query_side_effect
+            updater._graph_store = mock_graph_store
+
+            # Mock chroma_store
+            mock_chroma_store = MagicMock()
+            updater._chroma_store = mock_chroma_store
+
+            # Mock parser
+            mock_parser = MagicMock()
+            entity = CodeEntity(name="func1", entity_type="function", source="def func1(): pass")
+            mock_parser.parse_file.return_value = ParseResult(
+                file_path=temp_path,
+                entities=[entity],
+                relations=[],
+                error=None,
+            )
+            updater._parser = mock_parser
+
+            # Mock extractor
+            mock_extractor = MagicMock()
+            mock_extractor.resolve.return_value = []
+            updater._extractor = mock_extractor
+
+            # Act
+            report = updater.update("HEAD~1")
+
+            # Assert - 验证 integrity_warnings > 0
+            assert report.integrity_warnings == 1
 
         finally:
             os.unlink(temp_path)
