@@ -4,17 +4,40 @@ import dataclasses
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+import httpx
+
+from layerkg.aligner import ConceptAligner
 from layerkg.chroma_store import ChromaStore
 from layerkg.config import LayerKGConfig
 from layerkg.extractor.relation import RelationExtractor
+from layerkg.extractor.semantic import SemanticExtractor, SemanticRelation
 from layerkg.neo4j_store import Neo4jGraphStore
 from layerkg.parser.python_parser import PythonParser
 from layerkg.schema import CodeEntity, ConceptEntity, DocEntity, Relation
 
-if TYPE_CHECKING:
-    from layerkg.extractor.semantic import SemanticRelation
+# 概念类型的 entity_type 集合
+_CONCEPT_ENTITY_TYPES = frozenset(
+    {
+        "business_concept",
+        "design_pattern",
+        "api_contract",
+        "data_model",
+        "process",
+    }
+)
+
+# 代码类型的 entity_type 集合（路径 B 可处理的）
+_CODE_ENTITY_TYPES = frozenset(
+    {
+        "function",
+        "class",
+        "interface",
+        "module",
+        "file",
+    }
+)
 
 
 @dataclass
@@ -63,6 +86,8 @@ class LayerKGBuilder:
         self._extractor = RelationExtractor()
         self._graph_store: Neo4jGraphStore | None = None
         self._chroma_store: ChromaStore | None = None
+        self._semantic_extractor: SemanticExtractor | None = None
+        self._aligner: ConceptAligner | None = None
         self._logger = logging.getLogger(__name__)
         self._repo_root: Path | None = None
 
@@ -149,11 +174,67 @@ class LayerKGBuilder:
         if items:
             chroma_store.put_entities_batch(items)
 
+        # 5.5. Stage 3a: 语义提取（Ollama 可用时）
+        concepts_created = 0
+        semantic_relations_created = 0
+        skipped_semantic = False
+        errors: list[str] = []
+
+        if self._check_ollama():
+            try:
+                extractor = self._init_semantic_extractor()
+                extraction = extractor.extract(all_entities)
+
+                if extraction.relations:
+                    entity_index = self._build_entity_index(all_entities, repo_path)
+                    new_concepts, semantic_rels, _sem_skipped = self._process_semantic_relations(
+                        extraction.relations, entity_index, repo_root=repo_path
+                    )
+
+                    # 写入新概念到 Neo4j
+                    if new_concepts:
+                        for concept in new_concepts:
+                            try:
+                                graph_store.merge_node(
+                                    "ConceptEntity",
+                                    {
+                                        "id": concept.id,
+                                        "name": concept.name,
+                                        "entity_type": concept.entity_type,
+                                        "description": concept.description or "",
+                                    },
+                                )
+                            except Exception as e:
+                                self._logger.warning("Failed to write concept %s to Neo4j: %s", concept.name, e)
+                                errors.append(f"Neo4j concept write error: {e}")
+
+                    # 写入语义关系到 Neo4j
+                    for rel in semantic_rels:
+                        try:
+                            graph_store.merge_relation(rel.source_id, rel.target_id, rel.relation_type)
+                        except Exception as e:
+                            self._logger.warning("Failed to write semantic relation: %s", e)
+                            errors.append(f"Neo4j relation write error: {e}")
+
+                    concepts_created = len(new_concepts)
+                    semantic_relations_created = len(semantic_rels)
+
+            except Exception as e:
+                self._logger.error("Semantic extraction failed: %s", e)
+                errors.append(f"Semantic extraction error: {e}")
+        else:
+            skipped_semantic = True
+            self._logger.info("Ollama unavailable, skipping semantic extraction")
+
         # 6. 返回结果
         return BuildResult(
             files_scanned=len(py_files),
             entities_created=len(all_entities),
             relations_created=len(relations),
+            concepts_created=concepts_created,
+            semantic_relations_created=semantic_relations_created,
+            skipped_semantic=skipped_semantic,
+            errors=errors,
         )
 
     def query(
@@ -268,6 +349,159 @@ class LayerKGBuilder:
             parts.append(f"in {entity.file_path}")
         return " ".join(parts)
 
+    def _check_ollama(self) -> bool:
+        """检查 Ollama 服务是否可用。
+
+        Returns:
+            True 表示服务可用，False 表示不可用。
+        """
+        try:
+            resp = httpx.get(f"{self._config.ollama_base_url}/api/tags", timeout=5.0)
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+    def _init_semantic_extractor(self) -> SemanticExtractor:
+        """Lazy init SemanticExtractor。
+
+        Returns:
+            SemanticExtractor 实例。
+        """
+        if self._semantic_extractor is None:
+            self._semantic_extractor = SemanticExtractor(
+                ollama_url=self._config.ollama_base_url,
+                model=self._config.llm_model,
+            )
+        return self._semantic_extractor
+
+    def _init_concept_aligner(self) -> ConceptAligner:
+        """Lazy init ConceptAligner（从空概念列表开始）。
+
+        Returns:
+            ConceptAligner 实例。
+        """
+        if self._aligner is None:
+            self._aligner = ConceptAligner(
+                chroma_store=self._get_chroma_store(),
+                concepts=[],
+            )
+        return self._aligner
+
+    def _process_semantic_relations(
+        self,
+        relations: list[SemanticRelation],
+        entity_index: dict[tuple[str, str, str], list[str]],
+        repo_root: Path,
+    ) -> tuple[list[ConceptEntity], list[Relation], int]:
+        """处理语义关系：概念对齐 + ID 解析。
+
+        Args:
+            relations: SemanticExtractor 提取的语义关系。
+            entity_index: Stage 1-2 构建的实体索引。
+            repo_root: 仓库根目录。
+
+        Returns:
+            (新概念列表, Relation列表, 跳过数量) 元组。
+        """
+        aligner = self._init_concept_aligner()
+        new_concepts: list[ConceptEntity] = []
+        resolved: list[Relation] = []
+        skipped = 0
+
+        # 路径 A：收集所有概念目标的 unique target_name
+        concept_targets: dict[str, str] = {}  # target_name → target_type
+        concept_relations: list[SemanticRelation] = []
+        code_relations: list[SemanticRelation] = []
+
+        for rel in relations:
+            if rel.target_type in _CONCEPT_ENTITY_TYPES:
+                concept_targets.setdefault(rel.target_name, rel.target_type)
+                concept_relations.append(rel)
+            elif rel.target_type in _CODE_ENTITY_TYPES:
+                code_relations.append(rel)
+            else:
+                # ResourceEntity, DocEntity 等 → 跳过
+                skipped += 1
+
+        # 路径 A：批量对齐概念
+        if concept_targets:
+            align_results = aligner.align_batch(list(concept_targets.keys()))
+            concept_id_map: dict[str, str] = {}  # target_name → concept_id
+
+            for target_name, align_result in zip(concept_targets.keys(), align_results, strict=True):
+                if align_result.match_type == "none":
+                    # 创建新 ConceptEntity
+                    concept = ConceptEntity(
+                        name=target_name,
+                        entity_type=concept_targets[target_name],
+                    )
+                    new_concepts.append(concept)
+                    concept_id_map[target_name] = concept.id
+                    aligner.add_concept(concept)
+
+                    # 写入 ChromaDB
+                    try:
+                        chroma = self._get_chroma_store()
+                        chroma.put_entities_batch(
+                            [
+                                (
+                                    concept.id,
+                                    concept.description or concept.name,
+                                    {"entity_type": concept.entity_type, "name": concept.name},
+                                )
+                            ]
+                        )
+                    except Exception as e:
+                        self._logger.warning("Failed to write concept %s to ChromaDB: %s", concept.name, e)
+                else:
+                    concept_id_map[target_name] = align_result.concept_id
+
+            # 构建路径 A 的 Relation
+            for rel in concept_relations:
+                source_key = (
+                    rel.source_type,
+                    self._normalize_path(rel.source_file_path, repo_root),
+                    rel.source_name,
+                )
+                source_ids = entity_index.get(source_key, [])
+                if not source_ids:
+                    skipped += 1
+                    continue
+                target_id = concept_id_map.get(rel.target_name)
+                if not target_id:
+                    skipped += 1
+                    continue
+                resolved.append(
+                    Relation(
+                        source_id=source_ids[0],
+                        target_id=target_id,
+                        relation_type=rel.relation_type,
+                    )
+                )
+
+        # 路径 B：代码目标，用 entity_index 解析
+        for rel in code_relations:
+            source_key = (
+                rel.source_type,
+                self._normalize_path(rel.source_file_path, repo_root),
+                rel.source_name,
+            )
+            target_key = (rel.target_type, "", rel.target_name)
+            source_ids = entity_index.get(source_key, [])
+            target_ids = entity_index.get(target_key, [])
+            if not source_ids or not target_ids:
+                skipped += 1
+                continue
+            resolved.append(
+                Relation(
+                    source_id=source_ids[0],
+                    target_id=target_ids[0],
+                    relation_type=rel.relation_type,
+                )
+            )
+
+        return new_concepts, resolved, skipped
+
     def _normalize_path(self, file_path: str | None, repo_root: Path) -> str:
         """规范化文件路径为相对于仓库根目录的路径。
 
@@ -362,6 +596,8 @@ class LayerKGBuilder:
             self._graph_store.close()
         if self._chroma_store:
             self._chroma_store.close()
+        if self._semantic_extractor:
+            self._semantic_extractor.close()
 
     def __enter__(self) -> LayerKGBuilder:
         """进入 context manager。
