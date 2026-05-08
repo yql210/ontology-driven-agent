@@ -54,6 +54,7 @@ class BuildResult:
         modules_created: 模块数量（Phase 2）。
         doc_entities_created: 文档实体数量（Phase 2）。
         skipped_semantic: 是否跳过语义处理（Phase 2）。
+        aborted: 是否在关键阶段失败中止（Phase 2）。
         elapsed_ms: 耗时毫秒数（Phase 2）。
         errors: 错误列表（Phase 2）。
     """
@@ -66,6 +67,7 @@ class BuildResult:
     modules_created: int = 0
     doc_entities_created: int = 0
     skipped_semantic: bool = False
+    aborted: bool = False
     elapsed_ms: float = 0.0
     errors: list[str] = field(default_factory=list)
 
@@ -121,25 +123,21 @@ class LayerKGBuilder:
             )
         return self._chroma_store
 
-    def build(self, repo_path: Path) -> BuildResult:
-        """全量构建：扫描 → 解析 → 写图 + 向量。
+    def _stage_parse(self, repo_path: Path) -> tuple[list[CodeEntity], list[Relation], int]:
+        """Stage 1: 扫描 + 解析文件 + 提取结构关系。
 
         Args:
             repo_path: 仓库根目录路径。
 
         Returns:
-            构建结果统计。
+            (all_entities, relations, files_scanned) 三元组。
         """
-        self._repo_root = repo_path  # 供 _resolve_semantic_names 使用
-
-        # 1. 扫描 .py 文件
+        self._repo_root = repo_path
         py_files = self._scan_python_files(repo_path)
         self._logger.info("Scanned %d Python files", len(py_files))
 
-        # 2. 逐文件解析
         all_entities: list[CodeEntity] = []
         skipped_files = 0
-
         for file_path in py_files:
             result = self._parser.parse_file(file_path)
             if result.error:
@@ -151,21 +149,61 @@ class LayerKGBuilder:
 
         self._logger.info("Parsed %d entities, skipped %d files", len(all_entities), skipped_files)
 
-        # 3. 解析关系
         relations = self._extractor.resolve(all_entities)
         self._logger.info("Resolved %d relations", len(relations))
 
-        # 4. 写 Neo4j
+        return all_entities, relations, len(py_files)
+
+    def _stage_write_structural(
+        self,
+        all_entities: list[CodeEntity],
+        relations: list[Relation],
+    ) -> Neo4jGraphStore:
+        """Stage 2: 写入结构实体和关系到 Neo4j。
+
+        关键路径：失败则抛出 RuntimeError 中止构建。
+
+        Args:
+            all_entities: 代码实体列表。
+            relations: 关系列表。
+
+        Returns:
+            Neo4jGraphStore 实例。
+
+        Raises:
+            RuntimeError: 写入失败时。
+        """
         graph_store = self._get_graph_store()
-        graph_store.ensure_constraints()
 
-        for entity in all_entities:
-            graph_store.merge_node("CodeEntity", self._entity_to_dict(entity))
+        try:
+            graph_store.ensure_constraints()
+            for entity in all_entities:
+                graph_store.merge_node("CodeEntity", self._entity_to_dict(entity))
+            for rel in relations:
+                graph_store.merge_relation(rel.source_id, rel.target_id, rel.relation_type)
+        except Exception as e:
+            raise RuntimeError(f"Stage 2 structural write failed: {e}") from e
 
-        for rel in relations:
-            graph_store.merge_relation(rel.source_id, rel.target_id, rel.relation_type)
+        return graph_store
 
-        # Stage 3a: 语义提取（Ollama 可用时）
+    def _stage_semantic(
+        self,
+        all_entities: list[CodeEntity],
+        graph_store: Neo4jGraphStore,
+        repo_path: Path,
+    ) -> tuple[int, int, bool, list[str], list[ConceptEntity]]:
+        """Stage 3: 语义提取 + 概念对齐 + 写入 Neo4j。
+
+        可降级：失败不中止构建，跳过并记录错误。
+
+        Args:
+            all_entities: 代码实体列表。
+            graph_store: Neo4j 存储实例。
+            repo_path: 仓库根目录。
+
+        Returns:
+            (concepts_created, semantic_relations_created, skipped_semantic, errors, new_concepts) 元组。
+        """
         concepts_created = 0
         semantic_relations_created = 0
         skipped_semantic = False
@@ -176,13 +214,11 @@ class LayerKGBuilder:
             try:
                 extractor = self._init_semantic_extractor()
                 extraction = extractor.extract(all_entities)
-
                 if extraction.relations:
                     entity_index = self._build_entity_index(all_entities, repo_path)
                     new_concepts, semantic_rels, _sem_skipped = self._process_semantic_relations(
                         extraction.relations, entity_index, repo_root=repo_path
                     )
-
                     # 写入新概念到 Neo4j
                     if new_concepts:
                         for concept in new_concepts:
@@ -199,7 +235,6 @@ class LayerKGBuilder:
                             except Exception as e:
                                 self._logger.warning("Failed to write concept %s to Neo4j: %s", concept.name, e)
                                 errors.append(f"Neo4j concept write error: {e}")
-
                     # 写入语义关系到 Neo4j
                     for rel in semantic_rels:
                         try:
@@ -207,10 +242,8 @@ class LayerKGBuilder:
                         except Exception as e:
                             self._logger.warning("Failed to write semantic relation: %s", e)
                             errors.append(f"Neo4j relation write error: {e}")
-
                     concepts_created = len(new_concepts)
                     semantic_relations_created = len(semantic_rels)
-
             except Exception as e:
                 self._logger.error("Semantic extraction failed: %s", e)
                 errors.append(f"Semantic extraction error: {e}")
@@ -218,26 +251,83 @@ class LayerKGBuilder:
             skipped_semantic = True
             self._logger.info("Ollama unavailable, skipping semantic extraction")
 
-        # Stage 4: 模块聚类
-        clusters_count, clusters = self._detect_and_write_modules(graph_store)
+        return concepts_created, semantic_relations_created, skipped_semantic, errors, new_concepts
 
-        # Stage 5: 向量写入统一
+    def build(self, repo_path: Path) -> BuildResult:
+        """全量构建：5阶段流水线编排。
+
+        阶段:
+            1. 解析: 扫描 + AST 解析 + 结构关系提取
+            2. 结构写入: 实体 + 关系 → Neo4j (关键路径)
+            3. 语义提取: LLM 概念 + 语义关系 (可降级)
+            4. 模块聚类: 社区检测 → ModuleEntity (可降级)
+            5. 向量写入: 统一 ChromaDB (可降级)
+
+        Args:
+            repo_path: 仓库根目录路径。
+
+        Returns:
+            构建结果统计。
+        """
+        import time
+
+        t0 = time.monotonic()
+        all_errors: list[str] = []
+        aborted = False
+
+        # Stage 1: 解析
+        all_entities, relations, files_scanned = self._stage_parse(repo_path)
+
+        # Stage 2: 结构写入（关键路径）
+        try:
+            graph_store = self._stage_write_structural(all_entities, relations)
+        except RuntimeError as e:
+            all_errors.append(str(e))
+            aborted = True
+            elapsed = (time.monotonic() - t0) * 1000
+            return BuildResult(
+                files_scanned=files_scanned,
+                entities_created=0,
+                relations_created=0,
+                aborted=aborted,
+                elapsed_ms=elapsed,
+                errors=all_errors,
+            )
+
+        # Stage 3: 语义提取（可降级）
+        concepts_created, semantic_rels_created, skipped_semantic, sem_errors, new_concepts = self._stage_semantic(
+            all_entities, graph_store, repo_path
+        )
+        all_errors.extend(sem_errors)
+
+        # Stage 4: 模块聚类（可降级）
+        try:
+            clusters_count, clusters = self._detect_and_write_modules(graph_store)
+        except Exception as e:
+            self._logger.warning("Module clustering failed: %s", e)
+            all_errors.append(f"Module clustering error: {e}")
+            clusters_count = 0
+            clusters = []
+
+        # Stage 5: 向量写入（可降级）
         try:
             self._write_all_vectors(all_entities, new_concepts, clusters)
         except Exception as e:
             self._logger.warning("Vector write failed: %s", e)
-            errors.append(f"Vector write error: {e}")
+            all_errors.append(f"Vector write error: {e}")
 
-        # 6. 返回结果
+        elapsed = (time.monotonic() - t0) * 1000
         return BuildResult(
-            files_scanned=len(py_files),
+            files_scanned=files_scanned,
             entities_created=len(all_entities),
             relations_created=len(relations),
             concepts_created=concepts_created,
-            semantic_relations_created=semantic_relations_created,
+            semantic_relations_created=semantic_rels_created,
             modules_created=clusters_count,
             skipped_semantic=skipped_semantic,
-            errors=errors,
+            aborted=aborted,
+            elapsed_ms=elapsed,
+            errors=all_errors,
         )
 
     def query(
@@ -410,16 +500,15 @@ class LayerKGBuilder:
 
         Returns:
             (clusters_count, clusters) 元组。
+
+        Raises:
+            RuntimeError: 聚类失败时。
         """
-        try:
-            clustering = self._init_clustering()
-            clusters = clustering.detect_modules()
-            if clusters:
-                clustering.save_modules(clusters)
-            return len(clusters), clusters
-        except Exception as e:
-            self._logger.warning("Module clustering failed: %s", e)
-            return 0, []
+        clustering = self._init_clustering()
+        clusters = clustering.detect_modules()
+        if clusters:
+            clustering.save_modules(clusters)
+        return len(clusters), clusters
 
     def _write_all_vectors(
         self,

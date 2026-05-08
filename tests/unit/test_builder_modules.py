@@ -74,15 +74,15 @@ class TestDetectAndWriteModules:
         mock_clustering.save_modules.assert_not_called()
 
     def test_detect_and_write_modules_exception(self, builder: LayerKGBuilder) -> None:
-        """异常 → (0, [])。"""
+        """异常 → 抛出 RuntimeError。"""
         mock_clustering = MagicMock()
         mock_clustering.detect_modules.side_effect = RuntimeError("graph error")
 
-        with patch.object(builder, "_init_clustering", return_value=mock_clustering):
-            count, result = builder._detect_and_write_modules(MagicMock())
-
-        assert count == 0
-        assert result == []
+        with (
+            patch.object(builder, "_init_clustering", return_value=mock_clustering),
+            pytest.raises(RuntimeError, match="graph error"),
+        ):
+            builder._detect_and_write_modules(MagicMock())
 
 
 class TestWriteAllVectors:
