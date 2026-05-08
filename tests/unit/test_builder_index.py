@@ -176,6 +176,96 @@ class TestResolveSemanticNames:
         expected_key = ("readme", "README.md", "README")
         assert expected_key in index
 
+    def test_missing_source_skipped(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """source name 找不到 → 跳过，skipped=1。"""
+        caplog.set_level(logging.WARNING)
+        config = LayerKGConfig()
+        builder = LayerKGBuilder(config)
+        builder._repo_root = tmp_path
+
+        entities = [
+            CodeEntity(name="foo", entity_type="function", file_path="src/a.py"),
+        ]
+        relations = [
+            SemanticRelation(
+                source_name="nonexistent",
+                source_type="function",
+                target_name="foo",
+                target_type="function",
+                relation_type="semantic_impact",
+                source_file_path="src/a.py",
+            ),
+        ]
+
+        index = builder._build_entity_index(entities, tmp_path)
+        resolved, skipped = builder._resolve_semantic_names(relations, index)
+
+        assert len(resolved) == 0
+        assert skipped == 1
+
+    def test_source_path_mismatch_skipped(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """source name 存在但 file_path 不匹配 → 跳过。"""
+        caplog.set_level(logging.WARNING)
+        config = LayerKGConfig()
+        builder = LayerKGBuilder(config)
+        builder._repo_root = tmp_path
+
+        entities = [
+            CodeEntity(name="foo", entity_type="function", file_path="src/a.py"),
+        ]
+        relations = [
+            SemanticRelation(
+                source_name="foo",
+                source_type="function",
+                target_name="bar",
+                target_type="function",
+                relation_type="semantic_impact",
+                source_file_path="src/WRONG.py",  # 路径不匹配
+            ),
+        ]
+
+        index = builder._build_entity_index(entities, tmp_path)
+        resolved, skipped = builder._resolve_semantic_names(relations, index)
+
+        assert len(resolved) == 0
+        assert skipped == 1
+
+    def test_empty_relations_returns_empty(self, tmp_path: Path) -> None:
+        """空 relations 列表 → ([], 0)。"""
+        config = LayerKGConfig()
+        builder = LayerKGBuilder(config)
+        builder._repo_root = tmp_path
+
+        index = builder._build_entity_index([], tmp_path)
+        resolved, skipped = builder._resolve_semantic_names([], index)
+
+        assert resolved == []
+        assert skipped == 0
+
+    def test_empty_index_all_skipped(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """空 index → 所有关系都 skipped。"""
+        caplog.set_level(logging.WARNING)
+        config = LayerKGConfig()
+        builder = LayerKGBuilder(config)
+        builder._repo_root = tmp_path
+
+        relations = [
+            SemanticRelation(
+                source_name="foo",
+                source_type="function",
+                target_name="bar",
+                target_type="function",
+                relation_type="semantic_impact",
+                source_file_path="src/a.py",
+            ),
+        ]
+
+        index = builder._build_entity_index([], tmp_path)
+        resolved, skipped = builder._resolve_semantic_names(relations, index)
+
+        assert len(resolved) == 0
+        assert skipped == 1
+
 
 class TestBuildResult:
     """测试 BuildResult 扩展。"""

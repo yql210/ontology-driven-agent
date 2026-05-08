@@ -301,8 +301,8 @@ class LayerKGBuilder:
         """
         index: dict[tuple[str, str, str], list[str]] = {}
         for e in entities:
-            file_path = getattr(e, "file_path", None)
-            entity_type = getattr(e, "entity_type", "")
+            file_path = getattr(e, "file_path", None)  # ConceptEntity 没有 file_path
+            entity_type = e.entity_type
             key = (entity_type, self._normalize_path(file_path, repo_root), e.name)
             if key not in index:
                 index[key] = []
@@ -322,6 +322,11 @@ class LayerKGBuilder:
 
         Returns:
             (解析后的 Relation 列表, 跳过数量) 元组。
+
+        Note:
+            如果 source_file_path 为空或多个同名实体存在于不同文件中，
+            source 可能匹配到错误的实体。这是已知的近似匹配限制，
+            后续可用 source_context 或 qualified_name 增强。
         """
         resolved: list[Relation] = []
         skipped = 0
