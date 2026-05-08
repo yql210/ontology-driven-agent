@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import dataclasses
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from layerkg.chroma_store import ChromaStore
 from layerkg.config import LayerKGConfig
 from layerkg.extractor.relation import RelationExtractor
 from layerkg.neo4j_store import Neo4jGraphStore
 from layerkg.parser.python_parser import PythonParser
-from layerkg.schema import CodeEntity
+from layerkg.schema import CodeEntity, ConceptEntity, DocEntity, Relation
+
+if TYPE_CHECKING:
+    from layerkg.extractor.semantic import SemanticRelation
 
 
 @dataclass
@@ -20,11 +25,28 @@ class BuildResult:
         files_scanned: 扫描的文件数量。
         entities_created: 创建的实体数量。
         relations_created: 创建的关系数量。
+        concepts_created: 概念实体数量（Phase 2）。
+        semantic_relations_created: 语义关系数量（Phase 2）。
+        modules_created: 模块数量（Phase 2）。
+        doc_entities_created: 文档实体数量（Phase 2）。
+        skipped_semantic: 是否跳过语义处理（Phase 2）。
+        elapsed_ms: 耗时毫秒数（Phase 2）。
+        errors: 错误列表（Phase 2）。
     """
 
     files_scanned: int
     entities_created: int
     relations_created: int
+    concepts_created: int = 0
+    semantic_relations_created: int = 0
+    modules_created: int = 0
+    doc_entities_created: int = 0
+    skipped_semantic: bool = False
+    elapsed_ms: float = 0.0
+    errors: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return dataclasses.asdict(self)
 
 
 class LayerKGBuilder:
@@ -42,6 +64,7 @@ class LayerKGBuilder:
         self._graph_store: Neo4jGraphStore | None = None
         self._chroma_store: ChromaStore | None = None
         self._logger = logging.getLogger(__name__)
+        self._repo_root: Path | None = None
 
     def _get_graph_store(self) -> Neo4jGraphStore:
         """获取或创建 Neo4j 存储实例。
@@ -80,6 +103,8 @@ class LayerKGBuilder:
         Returns:
             构建结果统计。
         """
+        self._repo_root = repo_path  # 供 _resolve_semantic_names 使用
+
         # 1. 扫描 .py 文件
         py_files = self._scan_python_files(repo_path)
         self._logger.info("Scanned %d Python files", len(py_files))
@@ -242,6 +267,89 @@ class LayerKGBuilder:
         if entity.file_path:
             parts.append(f"in {entity.file_path}")
         return " ".join(parts)
+
+    def _normalize_path(self, file_path: str | None, repo_root: Path) -> str:
+        """规范化文件路径为相对于仓库根目录的路径。
+
+        Args:
+            file_path: 原始文件路径（可能是绝对或相对路径）。
+            repo_root: 仓库根目录路径。
+
+        Returns:
+            规范化后的相对路径，空字符串表示无路径。
+        """
+        if not file_path:
+            return ""
+        try:
+            return str(Path(file_path).relative_to(repo_root))
+        except ValueError:
+            return file_path
+
+    def _build_entity_index(
+        self,
+        entities: list[CodeEntity | ConceptEntity | DocEntity],
+        repo_root: Path,
+    ) -> dict[tuple[str, str, str], list[str]]:
+        """构建实体索引，用于名称解析。
+
+        Args:
+            entities: 实体列表。
+            repo_root: 仓库根目录路径。
+
+        Returns:
+            索引字典，键为 (entity_type, file_path, name) 三元组，值为 ID 列表。
+        """
+        index: dict[tuple[str, str, str], list[str]] = {}
+        for e in entities:
+            file_path = getattr(e, "file_path", None)
+            entity_type = getattr(e, "entity_type", "")
+            key = (entity_type, self._normalize_path(file_path, repo_root), e.name)
+            if key not in index:
+                index[key] = []
+            index[key].append(e.id)
+        return index
+
+    def _resolve_semantic_names(
+        self,
+        relations: list[SemanticRelation],
+        index: dict[tuple[str, str, str], list[str]],
+    ) -> tuple[list[Relation], int]:
+        """将语义关系中的名称解析为实体 ID。
+
+        Args:
+            relations: 语义关系列表（使用名称）。
+            index: 实体索引。
+
+        Returns:
+            (解析后的 Relation 列表, 跳过数量) 元组。
+        """
+        resolved: list[Relation] = []
+        skipped = 0
+        for rel in relations:
+            source_key = (
+                rel.source_type,
+                self._normalize_path(rel.source_file_path, self._repo_root or Path(".")),
+                rel.source_name,
+            )
+            target_key = (rel.target_type, "", rel.target_name)
+            source_ids = index.get(source_key, [])
+            target_ids = index.get(target_key, [])
+            if not source_ids or not target_ids:
+                self._logger.warning(
+                    "Cannot resolve semantic relation: %s -> %s",
+                    rel.source_name,
+                    rel.target_name,
+                )
+                skipped += 1
+                continue
+            resolved.append(
+                Relation(
+                    source_id=source_ids[0],
+                    target_id=target_ids[0],
+                    relation_type=rel.relation_type,
+                )
+            )
+        return resolved, skipped
 
     def close(self) -> None:
         """关闭所有存储连接。"""
