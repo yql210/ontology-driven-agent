@@ -401,3 +401,82 @@ def test_resolve_imports_relations() -> None:
     assert all(r.relation_type == "imports" for r in resolved)
     target_ids = {r.target_id for r in resolved}
     assert target_ids == {"uuid-2", "uuid-3"}
+
+
+def test_resolve_with_unresolved_external() -> None:
+    """测试外部 import 被归入 unresolved。"""
+    # Arrange
+    entities = [
+        CodeEntity(name="mymodule", entity_type="module", id="uuid-1", file_path="test.py"),
+    ]
+    relations = [
+        ExtractedRelation(
+            source_name="mymodule",
+            source_type="module",
+            target_name="external_module",
+            target_type="module",
+            relation_type="imports",
+            file_path="test.py",
+        ),
+    ]
+
+    extractor = RelationExtractor()
+    extractor.add_parse_result(entities, relations)
+
+    # Act
+    resolved, unresolved = extractor.resolve_with_unresolved(entities)
+
+    # Assert
+    assert len(resolved) == 0
+    assert len(unresolved) == 1
+    assert unresolved[0].target_name == "external_module"
+
+
+def test_resolve_same_name_file_priority() -> None:
+    """测试同名实体优先匹配同文件。"""
+    # Arrange: 两个同名函数在不同文件
+    entities = [
+        CodeEntity(name="helper", entity_type="function", id="uuid-1", file_path="file1.py"),
+        CodeEntity(name="helper", entity_type="function", id="uuid-2", file_path="file2.py"),
+        CodeEntity(name="main", entity_type="function", id="uuid-main", file_path="file1.py"),
+    ]
+    relations = [
+        ExtractedRelation(
+            source_name="main",
+            source_type="function",
+            target_name="helper",
+            target_type="function",
+            relation_type="calls",
+            file_path="file1.py",
+        ),
+    ]
+
+    extractor = RelationExtractor()
+    extractor.add_parse_result(entities, relations)
+
+    # Act
+    resolved = extractor.resolve(entities)
+
+    # Assert
+    assert len(resolved) == 1
+    # 应该匹配 file1.py 的 helper
+    assert resolved[0].target_id == "uuid-1"
+
+
+def test_build_name_map_multi_value() -> None:
+    """测试 _build_name_map 返回多值映射。"""
+    # Arrange
+    entities = [
+        CodeEntity(name="helper", entity_type="function", id="uuid-1"),
+        CodeEntity(name="helper", entity_type="function", id="uuid-2"),
+        CodeEntity(name="main", entity_type="function", id="uuid-3"),
+    ]
+
+    # Act
+    from layerkg.extractor.relation import RelationExtractor
+    name_map = RelationExtractor._build_name_map(entities)
+
+    # Assert
+    assert isinstance(name_map, dict)
+    assert name_map["helper"] == ["uuid-1", "uuid-2"]
+    assert name_map["main"] == ["uuid-3"]

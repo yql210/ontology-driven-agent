@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from itertools import combinations
 
 from layerkg.neo4j_store import Neo4jGraphStore
-from layerkg.schema import ModuleEntity
+from layerkg.schema import CodeEntity, ModuleEntity
 
 
 @dataclass
@@ -312,24 +312,41 @@ class ModuleClustering:
         self._logger.info("[Clustering] Detected %d modules", len(clusters))
         return clusters
 
-    def save_modules(self, clusters: list[ModuleCluster]) -> int:
+    def save_modules(
+        self,
+        clusters: list[ModuleCluster],
+        all_entities: list[CodeEntity] | None = None,
+    ) -> int:
         """将聚类结果保存为 ModuleEntity + contains 关系。
 
         Args:
             clusters: 模块聚类列表
+            all_entities: 所有代码实体（用于补全 description 和 size）
 
         Returns:
             保存的模块数量
         """
+        # 构建实体查找字典
+        entity_lookup: dict[str, CodeEntity] = {}
+        if all_entities:
+            entity_lookup = {e.id: e for e in all_entities}
+
         saved = 0
         for cluster in clusters:
+            # 计算 size
+            size = cluster.entity_count
+
+            # 生成 description（包含 class 名和 function 数量）
+            description = self._generate_description(cluster, entity_lookup)
+
             # 保存 ModuleEntity
             self._neo4j_store.merge_node(
                 "ModuleEntity",
                 {
                     "id": cluster.module.id,
                     "name": cluster.module.name,
-                    "description": cluster.module.description,
+                    "description": description,
+                    "size": size,
                     "created_at": cluster.module.created_at,
                 },
             )
@@ -348,6 +365,45 @@ class ModuleClustering:
 
         self._logger.info("[Clustering] Saved %d modules to Neo4j", saved)
         return saved
+
+    def _generate_description(
+        self,
+        cluster: ModuleCluster,
+        entity_lookup: dict[str, CodeEntity],
+    ) -> str | None:
+        """生成模块描述。
+
+        Args:
+            cluster: 模块聚类。
+            entity_lookup: 实体查找字典。
+
+        Returns:
+            描述字符串，无可描述内容时返回 None。
+        """
+        if not entity_lookup:
+            return None
+
+        class_names: list[str] = []
+        function_count = 0
+
+        for entity_id in cluster.entity_ids:
+            entity = entity_lookup.get(entity_id)
+            if entity:
+                if entity.entity_type == "class":
+                    class_names.append(entity.name)
+                elif entity.entity_type == "function":
+                    function_count += 1
+
+        if not class_names and function_count == 0:
+            return None
+
+        parts: list[str] = []
+        if class_names:
+            parts.append(f"Classes: {', '.join(sorted(set(class_names)))}")
+        if function_count > 0:
+            parts.append(f"{function_count} function(s)")
+
+        return " | ".join(parts)
 
     def get_module_tree(self) -> dict:
         """返回模块层次结构树。

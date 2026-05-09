@@ -294,6 +294,9 @@ def test_lambda_not_extracted(parser: PythonParser) -> None:
 
 def test_parse_import_statement(parser: PythonParser) -> None:
     """测试 import 语句生成 imports 关系。"""
+    # IMPORT_CODE = b"\nimport os\nimport sys.path\n"
+    # os -> 最后一段 "os"
+    # sys.path -> 最后一段 "path"
     result = parser.parse_source(IMPORT_CODE, "imports.py")
 
     assert result.error is None
@@ -301,23 +304,30 @@ def test_parse_import_statement(parser: PythonParser) -> None:
     imports_relations = [r for r in result.relations if r.relation_type == "imports"]
     assert len(imports_relations) == 2
 
-    modules = {r.target_name for r in imports_relations}
-    assert "os" in modules
-    assert "sys" in modules
+    targets = [r.target_name for r in imports_relations]
+    assert "os" in targets
+    assert "path" in targets
 
 
 def test_parse_import_from_statement(parser: PythonParser) -> None:
     """测试 from...import 语句生成 imports 关系。"""
+    # IMPORT_FROM_CODE = b"\nfrom typing import Optional, List\nfrom collections import defaultdict\n"
+    # from typing import Optional, List -> typing, Optional, List
+    # from collections import defaultdict -> collections, defaultdict
     result = parser.parse_source(IMPORT_FROM_CODE, "from_import.py")
 
     assert result.error is None
 
     imports_relations = [r for r in result.relations if r.relation_type == "imports"]
-    assert len(imports_relations) == 2
+    # 应该有 5 个: typing, Optional, List, collections, defaultdict
+    assert len(imports_relations) >= 4
 
-    modules = {r.target_name for r in imports_relations}
-    assert "typing" in modules
-    assert "collections" in modules
+    targets = {r.target_name for r in imports_relations}
+    assert "typing" in targets
+    assert "Optional" in targets
+    assert "List" in targets
+    assert "collections" in targets
+    assert "defaultdict" in targets
 
 
 def test_imports_not_entity(parser: PythonParser) -> None:
@@ -400,3 +410,187 @@ def test_class_with_docstring(parser: PythonParser) -> None:
     assert "Service" in entities_by_name
     assert "Service.process" in entities_by_name
     assert "Service._internal" in entities_by_name
+
+
+def test_import_extracts_last_segment(parser: PythonParser) -> None:
+    """测试 import os.path 提取最后一段 path。"""
+    code = b"""
+import os.path
+import os.system
+"""
+    result = parser.parse_source(code, "test.py")
+
+    assert result.error is None
+
+    imports_relations = [r for r in result.relations if r.relation_type == "imports"]
+    assert len(imports_relations) == 2
+
+    targets = {r.target_name for r in imports_relations}
+    assert "path" in targets
+    assert "system" in targets
+
+
+def test_import_from_extracts_last_segment(parser: PythonParser) -> None:
+    """测试 from layerkg.schema import X 提取最后一段 schema。"""
+    code = b"""
+from layerkg.schema import CodeEntity
+from collections.abc import Mapping
+"""
+    result = parser.parse_source(code, "test.py")
+
+    assert result.error is None
+
+    imports_relations = [r for r in result.relations if r.relation_type == "imports"]
+    # 应该有：schema, CodeEntity, abc, Mapping
+    assert len(imports_relations) >= 4
+
+    targets = {r.target_name for r in imports_relations}
+    assert "schema" in targets
+    assert "abc" in targets
+    assert "CodeEntity" in targets
+    assert "Mapping" in targets
+
+
+def test_import_from_with_specific_names(parser: PythonParser) -> None:
+    """测试 from X import A, B 额外提取具名导入。"""
+    code = b"""
+from typing import Optional, List, Dict
+"""
+    result = parser.parse_source(code, "test.py")
+
+    assert result.error is None
+
+    imports_relations = [r for r in result.relations if r.relation_type == "imports"]
+    # 应该有：typing (模块), Optional, List, Dict (具名导入)
+    targets = {r.target_name for r in imports_relations}
+    assert "typing" in targets
+    assert "Optional" in targets
+    assert "List" in targets
+    assert "Dict" in targets
+
+
+# Day 2: CALLS relation tests
+CALL_CODE = b"""
+def helper():
+    pass
+
+def caller():
+    helper()
+"""
+
+SELF_METHOD_CODE = b"""
+class Service:
+    def method(self):
+        self.helper()
+
+    def helper(self):
+        pass
+"""
+
+CLASS_METHOD_CODE = b"""
+class Util:
+    @staticmethod
+    def parse():
+        pass
+
+def process():
+    Util.parse()
+"""
+
+BUILTIN_CALL_CODE = b"""
+def foo():
+    print("hello")
+    len([1, 2, 3])
+"""
+
+SHORT_NAME_CODE = b"""
+def bar():
+    fn()
+    xy()
+"""
+
+NESTED_CALL_CODE = b"""
+def check():
+    if is_valid():
+        process()
+
+def is_valid():
+    return True
+
+def process():
+    pass
+"""
+
+
+def test_extract_simple_call(parser: PythonParser) -> None:
+    """测试简单函数调用提取 calls 关系。"""
+    result = parser.parse_source(CALL_CODE, "test.py")
+
+    assert result.error is None
+
+    calls_relations = [r for r in result.relations if r.relation_type == "calls"]
+    assert len(calls_relations) == 1
+    assert calls_relations[0].source_name == "caller"
+    assert calls_relations[0].target_name == "helper"
+
+
+def test_extract_method_call_self(parser: PythonParser) -> None:
+    """测试 self.method() 提取为 calls method。"""
+    result = parser.parse_source(SELF_METHOD_CODE, "test.py")
+
+    assert result.error is None
+
+    calls_relations = [r for r in result.relations if r.relation_type == "calls"]
+    assert len(calls_relations) == 1
+    assert calls_relations[0].source_name == "Service.method"
+    assert calls_relations[0].target_name == "helper"
+
+
+def test_extract_method_call_class(parser: PythonParser) -> None:
+    """测试 Class.method() 提取为 calls method。"""
+    result = parser.parse_source(CLASS_METHOD_CODE, "test.py")
+
+    assert result.error is None
+
+    calls_relations = [r for r in result.relations if r.relation_type == "calls"]
+    assert len(calls_relations) == 1
+    assert calls_relations[0].source_name == "process"
+    assert calls_relations[0].target_name == "parse"
+
+
+def test_extract_call_filters_builtin(parser: PythonParser) -> None:
+    """测试内置函数不生成 calls 关系。"""
+    result = parser.parse_source(BUILTIN_CALL_CODE, "test.py")
+
+    assert result.error is None
+
+    calls_relations = [r for r in result.relations if r.relation_type == "calls"]
+    # print 和 len 是内置函数，应该被过滤
+    assert len(calls_relations) == 0
+
+
+def test_extract_call_filters_short_name(parser: PythonParser) -> None:
+    """测试短名称（<3字符）不生成 calls 关系。"""
+    result = parser.parse_source(SHORT_NAME_CODE, "test.py")
+
+    assert result.error is None
+
+    calls_relations = [r for r in result.relations if r.relation_type == "calls"]
+    # fn 和 xy 长度 < 3，应该被过滤
+    assert len(calls_relations) == 0
+
+
+def test_extract_nested_call(parser: PythonParser) -> None:
+    """测试嵌套结构中提取多个 call。"""
+    result = parser.parse_source(NESTED_CALL_CODE, "test.py")
+
+    assert result.error is None
+
+    calls_relations = [r for r in result.relations if r.relation_type == "calls"]
+    assert len(calls_relations) == 2
+
+    targets = {r.target_name for r in calls_relations}
+    sources = {r.source_name for r in calls_relations}
+    assert "is_valid" in targets
+    assert "process" in targets
+    assert "check" in sources

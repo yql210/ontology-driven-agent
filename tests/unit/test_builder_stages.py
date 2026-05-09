@@ -50,15 +50,16 @@ class TestStageParse:
     """测试 _stage_parse 方法。"""
 
     def test_stage_parse_returns_entities_and_relations(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
-        """验证 _stage_parse 正常工作，返回四元组 (entities, doc_entities, relations, files_scanned)。"""
+        """验证 _stage_parse 正常工作，返回五元组 (entities, doc_entities, relations, files_scanned, unresolved_imports)。"""
         # Arrange & Act
-        all_entities, doc_entities, relations, files_scanned = builder._stage_parse(temp_repo)
+        all_entities, doc_entities, relations, files_scanned, unresolved_imports = builder._stage_parse(temp_repo)
 
-        # Assert - 返回四元组
+        # Assert - 返回五元组
         assert isinstance(all_entities, list)
         assert isinstance(doc_entities, list)
         assert isinstance(relations, list)
         assert isinstance(files_scanned, int)
+        assert isinstance(unresolved_imports, list)
 
         # Assert - 扫描了 2 个文件
         assert files_scanned == 2
@@ -85,6 +86,7 @@ class TestStageWriteStructural:
         # Arrange
         relations = [Relation(source_id="1", target_id="2", relation_type="contains")]
         doc_entities: list = []
+        unresolved_imports: list = []
         mock_graph = MagicMock()
         mock_graph.ensure_constraints.side_effect = RuntimeError("Neo4j connection failed")
 
@@ -93,7 +95,7 @@ class TestStageWriteStructural:
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             pytest.raises(RuntimeError, match="Stage 2 structural write failed"),
         ):
-            builder._stage_write_structural(sample_entities, doc_entities, relations)
+            builder._stage_write_structural(sample_entities, doc_entities, relations, unresolved_imports)
 
     def test_stage_write_structural_writes_entities_and_relations(
         self, builder: LayerKGBuilder, sample_entities: list[CodeEntity]
@@ -102,14 +104,19 @@ class TestStageWriteStructural:
         # Arrange
         relations = [Relation(source_id="1", target_id="2", relation_type="contains")]
         doc_entities: list = []
+        unresolved_imports: list = []
         mock_graph = MagicMock()
 
         with patch.object(builder, "_get_graph_store", return_value=mock_graph):
             # Act
-            result = builder._stage_write_structural(sample_entities, doc_entities, relations)
+            result, ext_entity_count, ext_rel_count = builder._stage_write_structural(
+                sample_entities, doc_entities, relations, unresolved_imports
+            )
 
             # Assert
             assert result is mock_graph
+            assert ext_entity_count == 0
+            assert ext_rel_count == 0
             mock_graph.ensure_constraints.assert_called_once()
             # CodeEntity + DocEntity merge calls
             assert mock_graph.merge_node.call_count == len(sample_entities) + len(doc_entities)

@@ -10,7 +10,7 @@ import pytest
 from layerkg.builder import LayerKGBuilder
 from layerkg.config import LayerKGConfig
 from layerkg.module_clustering import ModuleCluster
-from layerkg.schema import ModuleEntity
+from layerkg.schema import CodeEntity, ModuleEntity
 
 
 @pytest.fixture
@@ -54,12 +54,17 @@ class TestDetectAndWriteModules:
         mock_clustering.detect_modules.return_value = clusters
         mock_clustering.save_modules.return_value = 3
 
+        all_entities = [
+            CodeEntity(name="test", entity_type="module", file_path="/test.py"),
+            CodeEntity(name="func1", entity_type="function", file_path="/test.py"),
+        ]
+
         with patch.object(builder, "_init_clustering", return_value=mock_clustering):
-            count, result = builder._detect_and_write_modules(MagicMock())
+            count, result = builder._detect_and_write_modules(MagicMock(), all_entities)
 
         assert count == 3
         assert result == clusters
-        mock_clustering.save_modules.assert_called_once_with(clusters)
+        mock_clustering.save_modules.assert_called_once_with(clusters, all_entities)
 
     def test_detect_and_write_modules_empty_graph(self, builder: LayerKGBuilder) -> None:
         """空图 → detect_modules 返回 [] → (0, [])。"""
@@ -67,7 +72,7 @@ class TestDetectAndWriteModules:
         mock_clustering.detect_modules.return_value = []
 
         with patch.object(builder, "_init_clustering", return_value=mock_clustering):
-            count, result = builder._detect_and_write_modules(MagicMock())
+            count, result = builder._detect_and_write_modules(MagicMock(), [])
 
         assert count == 0
         assert result == []
@@ -82,7 +87,7 @@ class TestDetectAndWriteModules:
             patch.object(builder, "_init_clustering", return_value=mock_clustering),
             pytest.raises(RuntimeError, match="graph error"),
         ):
-            builder._detect_and_write_modules(MagicMock())
+            builder._detect_and_write_modules(MagicMock(), [])
 
 
 class TestWriteAllVectors:
@@ -181,9 +186,13 @@ class TestBuildIntegration:
             result = builder.build(tmp_path)
 
         assert result.modules_created == 2
-        mock_dm.assert_called_once_with(mock_graph)
+        mock_dm.assert_called_once()
         # 验证 _write_all_vectors 被调用（通过 chroma_store 访问）
         mock_chroma.assert_called()
+        # 验证 _detect_and_write_modules 的调用参数
+        assert mock_dm.call_args.args[0] == mock_graph
+        # 验证第二个参数是 all_entities (list[CodeEntity])
+        assert isinstance(mock_dm.call_args.args[1], list)
 
     def test_build_chroma_failure_records_error(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
         """ChromaDB 写入失败 → error 记录但不中断。"""

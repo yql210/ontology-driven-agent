@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +21,7 @@ from layerkg.parser.python_parser import PythonParser
 from layerkg.schema import CodeEntity, ConceptEntity, DocEntity, Relation
 
 if TYPE_CHECKING:
+    from layerkg.parser.base import ExtractedRelation
     from layerkg.parser.doc_parser import DocParser
 
 # 路径边界字符（用于防止子串误匹配）
@@ -181,14 +183,14 @@ class LayerKGBuilder:
             self._doc_parser = DocParser()
         return self._doc_parser
 
-    def _stage_parse(self, repo_path: Path) -> tuple[list[CodeEntity], list[DocEntity], list[Relation], int]:
+    def _stage_parse(self, repo_path: Path) -> tuple[list[CodeEntity], list[DocEntity], list[Relation], int, list[ExtractedRelation]]:
         """Stage 1: 扫描 + 解析文件 + 提取结构关系。
 
         Args:
             repo_path: 仓库根目录路径。
 
         Returns:
-            (all_entities, doc_entities, relations, files_scanned) 四元组。
+            (all_entities, doc_entities, relations, files_scanned, unresolved_imports) 五元组。
         """
         self._repo_root = repo_path
         py_files, doc_files = self._scan_files(repo_path)
@@ -220,17 +222,18 @@ class LayerKGBuilder:
 
         self._logger.info("Parsed %d doc entities", len(doc_entities))
 
-        relations = self._extractor.resolve(all_entities)
-        self._logger.info("Resolved %d relations", len(relations))
+        relations, unresolved_imports = self._extractor.resolve_with_unresolved(all_entities)
+        self._logger.info("Resolved %d relations, %d unresolved imports", len(relations), len(unresolved_imports))
 
-        return all_entities, doc_entities, relations, len(py_files) + len(doc_files)
+        return all_entities, doc_entities, relations, len(py_files) + len(doc_files), unresolved_imports
 
     def _stage_write_structural(
         self,
         all_entities: list[CodeEntity],
         doc_entities: list[DocEntity],
         relations: list[Relation],
-    ) -> Neo4jGraphStore:
+        unresolved_imports: list[ExtractedRelation],
+    ) -> tuple[Neo4jGraphStore, int, int]:
         """Stage 2: 写入结构实体和关系到 Neo4j。
 
         关键路径：失败则抛出 RuntimeError 中止构建。
@@ -239,9 +242,10 @@ class LayerKGBuilder:
             all_entities: 代码实体列表。
             doc_entities: 文档实体列表。
             relations: 关系列表。
+            unresolved_imports: 未解析的外部导入列表。
 
         Returns:
-            Neo4jGraphStore 实例。
+            (Neo4jGraphStore 实例, 外部实体数量, 外部关系数量) 三元组。
 
         Raises:
             RuntimeError: 写入失败时。
@@ -269,10 +273,40 @@ class LayerKGBuilder:
                     target_label="CodeEntity",
                 )
             self._logger.info("[Neo4j] Wrote %d structural relations", len(relations))
+
+            # 处理外部 import：创建虚拟节点和关系
+            name_to_id = {e.name: e.id for e in all_entities}
+            external_modules: dict[str, str] = {}  # name → id
+
+            for ext_name in sorted({rel.target_name for rel in unresolved_imports}):
+                ext_entity = CodeEntity(
+                    name=ext_name,
+                    entity_type="module",
+                    file_path="__external__",
+                    language="python",
+                )
+                graph_store.merge_node("CodeEntity", self._entity_to_dict(ext_entity))
+                external_modules[ext_name] = ext_entity.id
+
+            ext_rel_count = 0
+            for rel in unresolved_imports:
+                source_id = name_to_id.get(rel.source_name)
+                target_id = external_modules.get(rel.target_name)
+                if source_id and target_id:
+                    graph_store.merge_relation(
+                        source_id,
+                        target_id,
+                        "imports",
+                        source_label="CodeEntity",
+                        target_label="CodeEntity",
+                    )
+                    ext_rel_count += 1
+
+            self._logger.info("[Neo4j] Created %d external module nodes, %d external import relations", len(external_modules), ext_rel_count)
         except Exception as e:
             raise RuntimeError(f"Stage 2 structural write failed: {e}") from e
 
-        return graph_store
+        return graph_store, len(external_modules), ext_rel_count
 
     def _stage_semantic(
         self,
@@ -385,12 +419,14 @@ class LayerKGBuilder:
 
         # Stage 1: 解析
         self._logger.info("═══ Stage 1/5: Parse ═══")
-        all_entities, doc_entities, relations, files_scanned = self._stage_parse(repo_path)
+        all_entities, doc_entities, relations, files_scanned, unresolved_imports = self._stage_parse(repo_path)
 
         # Stage 2: 结构写入（关键路径）
         self._logger.info("═══ Stage 2/5: Structural Write ═══")
         try:
-            graph_store = self._stage_write_structural(all_entities, doc_entities, relations)
+            graph_store, ext_entity_count, ext_rel_count = self._stage_write_structural(
+                all_entities, doc_entities, relations, unresolved_imports
+            )
         except RuntimeError as e:
             all_errors.append(str(e))
             aborted = True
@@ -437,7 +473,7 @@ class LayerKGBuilder:
             clusters = []
         else:
             try:
-                clusters_count, clusters = self._detect_and_write_modules(graph_store)
+                clusters_count, clusters = self._detect_and_write_modules(graph_store, all_entities)
             except Exception as e:
                 self._logger.warning("Module clustering failed: %s", e)
                 all_errors.append(f"Module clustering error: {e}")
@@ -456,8 +492,8 @@ class LayerKGBuilder:
         elapsed = (time.monotonic() - t0) * 1000
         return BuildResult(
             files_scanned=files_scanned,
-            entities_created=len(all_entities),
-            relations_created=len(relations) + len(describes_rels),
+            entities_created=len(all_entities) + len(doc_entities) + ext_entity_count,
+            relations_created=len(relations) + len(describes_rels) + ext_rel_count,
             concepts_created=concepts_created,
             semantic_relations_created=semantic_rels_created,
             modules_created=clusters_count,
@@ -670,6 +706,28 @@ class LayerKGBuilder:
                             count += 1
                             continue
 
+                    # 文件名匹配：检查 doc.content 是否包含文件 basename
+                    # 用于处理只提到文件名而非完整路径的情况
+                    filename = os.path.basename(file_path)
+                    if filename and filename != file_path and filename in doc_content:  # 避免重复匹配根目录文件
+                            # 检查边界
+                            doc_idx = doc_content.find(filename)
+                            left_ok = doc_idx == 0 or doc_content[doc_idx - 1] in _BOUNDARY_CHARS
+                            right_ok = (
+                                doc_idx + len(filename) >= len(doc_content)
+                                or doc_content[doc_idx + len(filename)] in _BOUNDARY_CHARS
+                            )
+                            if left_ok and right_ok:
+                                describes_rels.append(
+                                    Relation(
+                                        source_id=doc.id,
+                                        target_id=entity_ids[0],
+                                        relation_type="describes",
+                                    )
+                                )
+                                count += 1
+                                continue
+
                 # 函数名匹配：从代码块提取标识符（不依赖 file_path）
                 if name in self._extract_identifiers_from_code(content) and len(name) > 3:
                     describes_rels.append(
@@ -733,11 +791,16 @@ class LayerKGBuilder:
             )
         return self._clustering
 
-    def _detect_and_write_modules(self, graph_store: Neo4jGraphStore) -> tuple[int, list[ModuleCluster]]:
+    def _detect_and_write_modules(
+        self,
+        graph_store: Neo4jGraphStore,
+        all_entities: list[CodeEntity],
+    ) -> tuple[int, list[ModuleCluster]]:
         """Stage 4: 检测模块聚类并写入 Neo4j.
 
         Args:
             graph_store: Neo4j 存储实例。
+            all_entities: 所有代码实体（用于补全 ModuleEntity 属性）。
 
         Returns:
             (clusters_count, clusters) 元组。
@@ -748,7 +811,7 @@ class LayerKGBuilder:
         clustering = self._init_clustering()
         clusters = clustering.detect_modules()
         if clusters:
-            clustering.save_modules(clusters)
+            clustering.save_modules(clusters, all_entities)
         return len(clusters), clusters
 
     def _write_all_vectors(

@@ -315,7 +315,13 @@ Entities:
 Find pairs where Entity A's behavior change would likely affect Entity B.
 - source_type / target_type: use code types (function, class, module)
 
-## Step 2: Identify Concepts (MOST IMPORTANT)
+Common semantic impact patterns:
+- Data flow: parse() → validate() → transform() → store()
+- Config dependency: functions that read the same config object
+- Error propagation: function A catches errors from function B
+- Side effects: function A modifies state that function B reads
+
+## Step 2: Identify Concepts
 For each entity, ask: "What design pattern, architecture concept, or business concept does this implement?"
 
 Common concepts to recognize:
@@ -359,6 +365,8 @@ Return ONLY a JSON object:
 - Only include relations you are confident about (confidence >= 0.5)
 - relation_type must be one of: semantic_impact, derived_from
 - target_type for concepts MUST be one of: design_pattern, business_concept, api_contract, data_model, process
+- You MUST identify both semantic_impact AND derived_from relations
+- Aim for roughly equal numbers of each relation type
 - You MUST identify at least some concepts — do NOT only output code-to-code relations
 - Return ONLY the JSON, no additional text"""
 

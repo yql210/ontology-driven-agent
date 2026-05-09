@@ -10,6 +10,30 @@ from layerkg.schema import CodeEntity
 
 PY_LANG = Language(tspython.language())
 
+# 内置函数和异常类型名（约40个），用于过滤 calls 关系
+_BUILTIN_NAMES = {
+    # 内置函数
+    "abs", "all", "any", "ascii", "bin", "bool", "breakpoint", "bytearray",
+    "bytes", "callable", "chr", "classmethod", "compile", "complex", "delattr",
+    "dict", "dir", "divmod", "enumerate", "eval", "exec", "filter", "float",
+    "format", "frozenset", "getattr", "globals", "hasattr", "hash", "help",
+    "hex", "id", "input", "int", "isinstance", "issubclass", "iter", "len",
+    "list", "locals", "map", "max", "memoryview", "min", "next", "object",
+    "oct", "open", "ord", "pow", "print", "property", "range", "repr",
+    "reversed", "round", "set", "setattr", "slice", "sorted", "staticmethod",
+    "str", "sum", "super", "tuple", "type", "vars", "zip",
+    # 内置异常类型
+    "Exception", "BaseException", "SystemExit", "KeyboardInterrupt",
+    "GeneratorExit", "ArithmeticError", "FloatingPointError", "OverflowError",
+    "ZeroDivisionError", "AssertionError", "AttributeError", "BufferError",
+    "EOFError", "ImportError", "ModuleNotFoundError", "LookupError",
+    "IndexError", "KeyError", "MemoryError", "NameError", "OSError",
+    "FileExistsError", "FileNotFoundError", "IsADirectoryError",
+    "NotADirectoryError", "PermissionError", "RuntimeError", "StopAsyncIteration",
+    "StopIteration", "SyntaxError", "IndentationError", "TabError",
+    "ReferenceError", "TypeError", "ValueError",
+}
+
 
 class PythonParser(BaseParser):
     """Python 源码解析器，使用 tree-sitter 提取实体和关系。"""
@@ -215,6 +239,9 @@ class PythonParser(BaseParser):
         )
         relations.append(relation)
 
+        # 提取调用关系
+        self._extract_calls(node, source, file_path, relations, module_name, full_name)
+
     def _extract_class(
         self,
         node,
@@ -325,13 +352,13 @@ class PythonParser(BaseParser):
                 else:
                     import_name = child.text.decode()
 
-                # 只取顶层模块名（如 os.path -> os）
-                top_module = import_name.split(".")[0]
+                # 取最后一段（如 os.path -> path）
+                last_segment = import_name.split(".")[-1]
 
                 relation = ExtractedRelation(
                     source_name=module_name,
                     source_type="module",
-                    target_name=top_module,
+                    target_name=last_segment,
                     target_type="module",
                     relation_type="imports",
                     file_path=file_path,
@@ -363,15 +390,137 @@ class PythonParser(BaseParser):
             return
 
         import_module = module_node.text.decode()
-        # 只取顶层模块名
-        top_module = import_module.split(".")[0]
+        # 取最后一段（如 layerkg.schema -> schema）
+        last_segment = import_module.split(".")[-1]
 
         relation = ExtractedRelation(
             source_name=module_name,
             source_type="module",
-            target_name=top_module,
+            target_name=last_segment,
             target_type="module",
             relation_type="imports",
             file_path=file_path,
         )
         relations.append(relation)
+
+        # 额外提取具名导入（from X import A, B）
+        for child in node.children:
+            if child.type == "identifier":
+                name = child.text.decode()
+                relations.append(
+                    ExtractedRelation(
+                        source_name=module_name,
+                        source_type="module",
+                        target_name=name,
+                        target_type="module",
+                        relation_type="imports",
+                        file_path=file_path,
+                    )
+                )
+            elif child.type == "dotted_name":
+                # from X import Y.Z -> 提取 Y 和 Z
+                name = child.text.decode()
+                segments = name.split(".")
+                for seg in segments:
+                    relations.append(
+                        ExtractedRelation(
+                            source_name=module_name,
+                            source_type="module",
+                            target_name=seg,
+                            target_type="module",
+                            relation_type="imports",
+                            file_path=file_path,
+                        )
+                    )
+            elif child.type == "aliased_import":
+                # from X import Y as Z -> 提取 Y
+                name_part = child.child_by_field_name("name")
+                if name_part:
+                    name = name_part.text.decode()
+                    relations.append(
+                        ExtractedRelation(
+                            source_name=module_name,
+                            source_type="module",
+                            target_name=name,
+                            target_type="module",
+                            relation_type="imports",
+                            file_path=file_path,
+                        )
+                    )
+
+    def _extract_calls(
+        self,
+        func_node,
+        source: bytes,
+        file_path: str,
+        relations: list[ExtractedRelation],
+        module_name: str,
+        caller_name: str,
+    ) -> None:
+        """提取函数内的调用关系。
+
+        Args:
+            func_node: function_definition 节点。
+            source: 源码字节流。
+            file_path: 文件路径。
+            relations: 关系列表（累积）。
+            module_name: 模块名。
+            caller_name: 调用者函数名。
+        """
+        # BFS 遍历函数体，找 call 节点
+        queue = list(func_node.children)
+
+        while queue:
+            node = queue.pop(0)
+
+            if node.type == "call":
+                # 提取被调用函数名
+                callee_name = self._extract_callee_name(node)
+                # 过滤内置名和短名称
+                if callee_name and callee_name not in _BUILTIN_NAMES and len(callee_name) >= 3:
+                        relation = ExtractedRelation(
+                            source_name=caller_name,
+                            source_type="function",
+                            target_name=callee_name,
+                            target_type="function",
+                            relation_type="calls",
+                            file_path=file_path,
+                        )
+                        relations.append(relation)
+
+            # 继续遍历子节点
+            queue.extend(node.children)
+
+    def _extract_callee_name(self, call_node) -> str | None:
+        """从 call 节点提取被调用函数名。
+
+        Args:
+            call_node: call 类型节点。
+
+        Returns:
+            被调用函数名，处理 self.method / Class.method 形式。
+        """
+        # call 节点的第一个子节点通常是函数引用
+        func_node = call_node.child_by_field_name("function")
+        if func_node is None:
+            # 如果没有 function 字段，取第一个子节点
+            children = call_node.children
+            if not children:
+                return None
+            func_node = children[0]
+
+        # 根据 func_node 类型提取名称
+        node_type = func_node.type
+
+        if node_type == "identifier":
+            return func_node.text.decode()
+        elif node_type == "attribute":
+            # self.method 或 Class.method -> 取最后一段
+            text = func_node.text.decode()
+            parts = text.split(".")
+            return parts[-1] if parts else None
+        elif node_type == "call":
+            # 嵌套调用如 foo()()，递归提取
+            return self._extract_callee_name(func_node)
+
+        return None
