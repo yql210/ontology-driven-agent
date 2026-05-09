@@ -99,7 +99,7 @@ class TestWriteAllVectors:
         mock_chroma = MagicMock()
 
         with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
-            builder._write_all_vectors([entity], [], [])
+            builder._write_all_vectors([entity], [], [], [])
 
         mock_chroma.put_entities_batch.assert_called_once()
         items = mock_chroma.put_entities_batch.call_args[0][0]
@@ -117,7 +117,7 @@ class TestWriteAllVectors:
         mock_chroma = MagicMock()
 
         with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
-            builder._write_all_vectors([], [concept], [])
+            builder._write_all_vectors([], [], [concept], [])
 
         mock_chroma.put_entities_batch.assert_called_once()
         items = mock_chroma.put_entities_batch.call_args[0][0]
@@ -130,7 +130,7 @@ class TestWriteAllVectors:
         mock_chroma = MagicMock()
 
         with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
-            builder._write_all_vectors([], [], [cluster])
+            builder._write_all_vectors([], [], [], [cluster])
 
         mock_chroma.put_entities_batch.assert_called_once()
         items = mock_chroma.put_entities_batch.call_args[0][0]
@@ -147,7 +147,7 @@ class TestWriteAllVectors:
 
         mock_chroma = MagicMock()
         with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
-            builder._write_all_vectors([entity], [concept], [cluster])
+            builder._write_all_vectors([entity], [], [concept], [cluster])
 
         items = mock_chroma.put_entities_batch.call_args[0][0]
         assert len(items) == 3
@@ -156,7 +156,7 @@ class TestWriteAllVectors:
         """空列表 → 不调用 ChromaDB。"""
         mock_chroma = MagicMock()
         with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
-            builder._write_all_vectors([], [], [])
+            builder._write_all_vectors([], [], [], [])
 
         mock_chroma.put_entities_batch.assert_not_called()
 

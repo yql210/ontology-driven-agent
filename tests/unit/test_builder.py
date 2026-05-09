@@ -52,19 +52,19 @@ def builder(mock_config: LayerKGConfig) -> LayerKGBuilder:
     return LayerKGBuilder(mock_config)
 
 
-class TestScanPythonFiles:
-    """测试 _scan_python_files 方法。"""
+class TestScanFiles:
+    """测试 _scan_files 方法。"""
 
-    def test_scan_python_files_finds_py_files(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+    def test_scan_files_finds_py_files(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
         # Arrange
         expected_files = 3  # module1.py, module2.py, module3.py
 
         # Act
-        files = builder._scan_python_files(temp_repo)
+        py_files, _doc_files = builder._scan_files(temp_repo)
 
         # Assert
-        assert len(files) == expected_files
-        assert all(f.suffix == ".py" for f in files)
+        assert len(py_files) == expected_files
+        assert all(f.suffix == ".py" for f in py_files)
 
     def test_scan_skips_hidden_dirs(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
         # Arrange
@@ -72,26 +72,28 @@ class TestScanPythonFiles:
         cache_dir = temp_repo / "__pycache__"
 
         # Act
-        files = builder._scan_python_files(temp_repo)
+        py_files, _doc_files = builder._scan_files(temp_repo)
 
         # Assert
-        file_strs = [str(f) for f in files]
+        file_strs = [str(f) for f in py_files]
         assert not any(str(hidden_dir) in f for f in file_strs)
         assert not any(str(cache_dir) in f for f in file_strs)
 
     def test_scan_empty_dir_returns_empty(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
         # Arrange & Act
-        files = builder._scan_python_files(tmp_path)
+        py_files, doc_files = builder._scan_files(tmp_path)
 
         # Assert
-        assert files == []
+        assert py_files == []
+        assert doc_files == []
 
     def test_scan_returns_sorted_files(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
         # Act
-        files = builder._scan_python_files(temp_repo)
+        py_files, doc_files = builder._scan_files(temp_repo)
 
         # Assert - 检查是否已排序
-        assert files == sorted(files)
+        assert py_files == sorted(py_files)
+        assert doc_files == sorted(doc_files)
 
 
 class TestEntityToDict:

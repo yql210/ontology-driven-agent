@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -17,6 +18,15 @@ from layerkg.module_clustering import ModuleCluster, ModuleClustering
 from layerkg.neo4j_store import Neo4jGraphStore
 from layerkg.parser.python_parser import PythonParser
 from layerkg.schema import CodeEntity, ConceptEntity, DocEntity, Relation
+
+if TYPE_CHECKING:
+    from layerkg.parser.doc_parser import DocParser
+
+# Doc 文件扩展名
+_DOC_EXTENSIONS = {".md", ".rst"}
+
+# 路径边界字符（用于防止子串误匹配）
+_BOUNDARY_CHARS = " ./\\-_"
 
 # 概念类型的 entity_type 集合
 _CONCEPT_ENTITY_TYPES = frozenset(
@@ -92,6 +102,7 @@ class LayerKGBuilder:
         self._semantic_extractor: SemanticExtractor | None = None
         self._aligner: ConceptAligner | None = None
         self._clustering: ModuleClustering | None = None
+        self._doc_parser: DocParser | None = None
         self._logger = logging.getLogger(__name__)
         self._repo_root: Path | None = None
 
@@ -123,18 +134,30 @@ class LayerKGBuilder:
             )
         return self._chroma_store
 
-    def _stage_parse(self, repo_path: Path) -> tuple[list[CodeEntity], list[Relation], int]:
+    def _get_doc_parser(self) -> DocParser:
+        """Lazy init DocParser（缓存实例）。
+
+        Returns:
+            DocParser 实例。
+        """
+        from layerkg.parser.doc_parser import DocParser
+
+        if self._doc_parser is None:
+            self._doc_parser = DocParser()
+        return self._doc_parser
+
+    def _stage_parse(self, repo_path: Path) -> tuple[list[CodeEntity], list[DocEntity], list[Relation], int]:
         """Stage 1: 扫描 + 解析文件 + 提取结构关系。
 
         Args:
             repo_path: 仓库根目录路径。
 
         Returns:
-            (all_entities, relations, files_scanned) 三元组。
+            (all_entities, doc_entities, relations, files_scanned) 四元组。
         """
         self._repo_root = repo_path
-        py_files = self._scan_python_files(repo_path)
-        self._logger.info("Scanned %d Python files", len(py_files))
+        py_files, doc_files = self._scan_files(repo_path)
+        self._logger.info("Scanned %d Python files, %d doc files", len(py_files), len(doc_files))
 
         all_entities: list[CodeEntity] = []
         skipped_files = 0
@@ -149,14 +172,28 @@ class LayerKGBuilder:
 
         self._logger.info("Parsed %d entities, skipped %d files", len(all_entities), skipped_files)
 
+        # 解析文档文件
+        doc_parser = self._get_doc_parser()
+        doc_entities: list[DocEntity] = []
+        for file_path in doc_files:
+            result = doc_parser.parse_file(file_path)
+            if result.error:
+                self._logger.warning("Skip doc %s: %s", file_path, result.error)
+                skipped_files += 1
+                continue
+            doc_entities.extend(result.entities)
+
+        self._logger.info("Parsed %d doc entities", len(doc_entities))
+
         relations = self._extractor.resolve(all_entities)
         self._logger.info("Resolved %d relations", len(relations))
 
-        return all_entities, relations, len(py_files)
+        return all_entities, doc_entities, relations, len(py_files) + len(doc_files)
 
     def _stage_write_structural(
         self,
         all_entities: list[CodeEntity],
+        doc_entities: list[DocEntity],
         relations: list[Relation],
     ) -> Neo4jGraphStore:
         """Stage 2: 写入结构实体和关系到 Neo4j。
@@ -165,6 +202,7 @@ class LayerKGBuilder:
 
         Args:
             all_entities: 代码实体列表。
+            doc_entities: 文档实体列表。
             relations: 关系列表。
 
         Returns:
@@ -179,6 +217,8 @@ class LayerKGBuilder:
             graph_store.ensure_constraints()
             for entity in all_entities:
                 graph_store.merge_node("CodeEntity", self._entity_to_dict(entity))
+            for doc in doc_entities:
+                graph_store.merge_node("DocEntity", self._doc_entity_to_dict(doc))
             for rel in relations:
                 graph_store.merge_relation(rel.source_id, rel.target_id, rel.relation_type)
         except Exception as e:
@@ -276,11 +316,11 @@ class LayerKGBuilder:
         aborted = False
 
         # Stage 1: 解析
-        all_entities, relations, files_scanned = self._stage_parse(repo_path)
+        all_entities, doc_entities, relations, files_scanned = self._stage_parse(repo_path)
 
         # Stage 2: 结构写入（关键路径）
         try:
-            graph_store = self._stage_write_structural(all_entities, relations)
+            graph_store = self._stage_write_structural(all_entities, doc_entities, relations)
         except RuntimeError as e:
             all_errors.append(str(e))
             aborted = True
@@ -289,10 +329,17 @@ class LayerKGBuilder:
                 files_scanned=files_scanned,
                 entities_created=0,
                 relations_created=0,
+                doc_entities_created=0,
                 aborted=aborted,
                 elapsed_ms=elapsed,
                 errors=all_errors,
             )
+
+        # Stage 2.5: 文档→代码关联
+        entity_index = self._build_entity_index(all_entities, repo_path)
+        describes_rels = self._link_docs_to_code(doc_entities, entity_index)
+        for rel in describes_rels:
+            graph_store.merge_relation(rel.source_id, rel.target_id, rel.relation_type)
 
         # Stage 3: 语义提取（可降级）
         concepts_created, semantic_rels_created, skipped_semantic, sem_errors, new_concepts = self._stage_semantic(
@@ -311,7 +358,7 @@ class LayerKGBuilder:
 
         # Stage 5: 向量写入（可降级）
         try:
-            self._write_all_vectors(all_entities, new_concepts, clusters)
+            self._write_all_vectors(all_entities, doc_entities, new_concepts, clusters)
         except Exception as e:
             self._logger.warning("Vector write failed: %s", e)
             all_errors.append(f"Vector write error: {e}")
@@ -320,10 +367,11 @@ class LayerKGBuilder:
         return BuildResult(
             files_scanned=files_scanned,
             entities_created=len(all_entities),
-            relations_created=len(relations),
+            relations_created=len(relations) + len(describes_rels),
             concepts_created=concepts_created,
             semantic_relations_created=semantic_rels_created,
             modules_created=clusters_count,
+            doc_entities_created=len(doc_entities),
             skipped_semantic=skipped_semantic,
             aborted=aborted,
             elapsed_ms=elapsed,
@@ -369,14 +417,14 @@ class LayerKGBuilder:
         return result
 
     @staticmethod
-    def _scan_python_files(repo_path: Path) -> list[Path]:
-        """扫描 Python 文件，跳过隐藏目录。
+    def _scan_files(repo_path: Path) -> tuple[list[Path], list[Path]]:
+        """扫描 Python 和文档文件，跳过隐藏目录。
 
         Args:
             repo_path: 仓库根目录路径。
 
         Returns:
-            Python 文件路径列表（已排序）。
+            (py_files, doc_files) 元组，均为已排序的路径列表。
         """
         skip_dirs = {
             ".git",
@@ -390,14 +438,25 @@ class LayerKGBuilder:
             "dist",
             "build",
             "*.egg-info",
+            "site",  # MkDocs/Sphinx 产物目录
         }
-        files = []
+        py_files: list[Path] = []
+        doc_files: list[Path] = []
+
+        # 扫描 Python 文件
         for p in repo_path.rglob("*.py"):
-            # 检查路径中是否包含跳过的目录
             if any(skip in p.parts or skip in p.name for skip in skip_dirs):
                 continue
-            files.append(p)
-        return sorted(files)
+            py_files.append(p)
+
+        # 扫描文档文件
+        for ext in _DOC_EXTENSIONS:
+            for p in repo_path.rglob(f"*{ext}"):
+                if any(skip in p.parts or skip in p.name for skip in skip_dirs):
+                    continue
+                doc_files.append(p)
+
+        return sorted(py_files), sorted(doc_files)
 
     @staticmethod
     def _entity_to_dict(entity: CodeEntity) -> dict:
@@ -425,6 +484,29 @@ class LayerKGBuilder:
         return d
 
     @staticmethod
+    def _doc_entity_to_dict(entity: DocEntity) -> dict:
+        """将 DocEntity 转为 Neo4j 属性字典。
+
+        Args:
+            entity: 文档实体。
+
+        Returns:
+            属性字典。
+        """
+        d: dict[str, str] = {
+            "id": entity.id,
+            "name": entity.name,
+            "entity_type": entity.entity_type,
+        }
+        if entity.file_path:
+            d["file_path"] = entity.file_path
+        if entity.content:
+            d["content"] = entity.content
+        if entity.language:
+            d["language"] = entity.language
+        return d
+
+    @staticmethod
     def _entity_to_text(entity: CodeEntity) -> str | None:
         """提取实体的可嵌入文本。
 
@@ -441,6 +523,88 @@ class LayerKGBuilder:
         if entity.file_path:
             parts.append(f"in {entity.file_path}")
         return " ".join(parts)
+
+    # 代码块和标识符正则
+    _CODE_BLOCK_RE = re.compile(r"```python\n(.*?)\n```", re.DOTALL)
+    _IDENTIFIER_RE = re.compile(r"\b[a-zA-Z_][a-zA-Z0-9_]{2,}\b")
+
+    @staticmethod
+    def _extract_identifiers_from_code(code: str) -> set[str]:
+        """从 Markdown 代码块中提取 Python 标识符。
+
+        Args:
+            code: Markdown 文本内容。
+
+        Returns:
+            标识符集合。
+        """
+        identifiers: set[str] = set()
+        for match in LayerKGBuilder._CODE_BLOCK_RE.finditer(code):
+            for id_match in LayerKGBuilder._IDENTIFIER_RE.finditer(match.group(1)):
+                identifiers.add(id_match.group(0))
+        return identifiers
+
+    def _link_docs_to_code(
+        self,
+        doc_entities: list[DocEntity],
+        entity_index: dict[tuple[str, str, str], list[str]],
+    ) -> list[Relation]:
+        """链接文档到代码实体，生成 describes 关系。
+
+        Args:
+            doc_entities: 文档实体列表。
+            entity_index: 实体索引，键为 (entity_type, file_path, name)。
+
+        Returns:
+            describes 关系列表。
+        """
+        describes_rels: list[Relation] = []
+        max_rels_per_doc = 50
+
+        for doc in doc_entities:
+            count = 0
+            content = doc.content or ""
+
+            # 路径匹配：检查 doc.content 是否包含代码文件的 file_path
+            for (_entity_type, file_path, name), entity_ids in entity_index.items():
+                if count >= max_rels_per_doc:
+                    break
+
+                # 路径匹配（需要 file_path）
+                if file_path:
+                    # 边界检查：防止子串误匹配
+                    doc_content = doc.content or ""
+                    if file_path in doc_content:
+                        # 检查边界
+                        doc_idx = doc_content.find(file_path)
+                        left_ok = doc_idx == 0 or doc_content[doc_idx - 1] in _BOUNDARY_CHARS
+                        right_ok = (
+                            doc_idx + len(file_path) >= len(doc_content)
+                            or doc_content[doc_idx + len(file_path)] in _BOUNDARY_CHARS
+                        )
+                        if left_ok and right_ok:
+                            describes_rels.append(
+                                Relation(
+                                    source_id=doc.id,
+                                    target_id=entity_ids[0],
+                                    relation_type="describes",
+                                )
+                            )
+                            count += 1
+                            continue
+
+                # 函数名匹配：从代码块提取标识符（不依赖 file_path）
+                if name in self._extract_identifiers_from_code(content) and len(name) > 3:
+                    describes_rels.append(
+                        Relation(
+                            source_id=doc.id,
+                            target_id=entity_ids[0],
+                            relation_type="describes",
+                        )
+                    )
+                    count += 1
+
+        return describes_rels
 
     def _check_ollama(self) -> bool:
         """检查 Ollama 服务是否可用。
@@ -513,6 +677,7 @@ class LayerKGBuilder:
     def _write_all_vectors(
         self,
         all_entities: list[CodeEntity],
+        doc_entities: list[DocEntity],
         new_concepts: list[ConceptEntity],
         clusters: list[ModuleCluster],
     ) -> None:
@@ -520,6 +685,7 @@ class LayerKGBuilder:
 
         Args:
             all_entities: 所有代码实体。
+            doc_entities: 所有文档实体。
             new_concepts: 新创建的概念实体。
             clusters: 模块聚类列表。
         """
@@ -531,6 +697,12 @@ class LayerKGBuilder:
             text = self._entity_to_text(entity)
             if text:
                 items.append((entity.id, text, {"entity_type": entity.entity_type, "name": entity.name}))
+
+        # DocEntity
+        for doc in doc_entities:
+            text = (doc.content or "")[:2000]
+            if text.strip():
+                items.append((doc.id, text, {"entity_type": doc.entity_type, "name": doc.name}))
 
         # ConceptEntity
         for concept in new_concepts:
