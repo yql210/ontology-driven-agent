@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from neo4j import GraphDatabase
@@ -149,6 +150,9 @@ class Neo4jGraphStore(GraphStore):
         target_id: str,
         rel_type: str,
         properties: dict | None = None,
+        *,
+        source_label: str = "",
+        target_label: str = "",
     ) -> dict:
         """合并（创建或更新）关系。
 
@@ -157,15 +161,35 @@ class Neo4jGraphStore(GraphStore):
             target_id: 目标节点 ID。
             rel_type: 关系类型，支持 snake_case 或 UPPER_SNAKE。
             properties: 关系属性（可选）。
+            source_label: 源节点标签（可选），用于优化 MERGE 性能。
+            target_label: 目标节点标签（可选），用于优化 MERGE 性能。
 
         Returns:
             合并后的关系属性。
+
+        Raises:
+            ValueError: 当 label 或 rel_type 包含非法字符时（Cypher 注入防护）。
         """
+        # Cypher 注入防护：验证 label 格式
+        if source_label and not re.match(r"^[A-Za-z_]\w*$", source_label):
+            msg = f"Invalid source_label: {source_label}"
+            raise ValueError(msg)
+        if target_label and not re.match(r"^[A-Za-z_]\w*$", target_label):
+            msg = f"Invalid target_label: {target_label}"
+            raise ValueError(msg)
+
         # 转换关系类型为 Neo4j 格式（UPPER_SNAKE）
         neo4j_rel_type = RELATION_TYPE_TO_NEO4J.get(rel_type, rel_type.upper())
 
-        # 构建 MERGE 语句
-        cypher = f"MERGE (source {{id: $source_id}})-[r:{neo4j_rel_type}]->(target {{id: $target_id}})"
+        # Cypher 注入防护：验证关系类型格式
+        if not re.match(r"^[A-Z_]+$", neo4j_rel_type):
+            msg = f"Invalid relation type: {neo4j_rel_type}"
+            raise ValueError(msg)
+
+        # 动态构建 MERGE 语句（带 label 优化）
+        source_part = f"source:{source_label}" if source_label else "source"
+        target_part = f"target:{target_label}" if target_label else "target"
+        cypher = f"MERGE ({source_part} {{id: $source_id}})-[r:{neo4j_rel_type}]->({target_part} {{id: $target_id}})"
 
         # 准备参数
         params: dict[str, Any] = {"source_id": source_id, "target_id": target_id}
@@ -284,3 +308,21 @@ class Neo4jGraphStore(GraphStore):
             with self._driver.session() as session:
                 session.run(cypher)
             logger.debug(f"Ensured constraint for {label}")
+
+    def cleanup_orphan_nodes(self) -> int:
+        """清理无标签的孤立节点。
+
+        这些节点通常是因为 MERGE 操作时未指定 label 而创建的。
+
+        Returns:
+            删除的节点数量。
+        """
+        cypher = "MATCH (n) WHERE labels(n) = [] DETACH DELETE n RETURN count(*) as deleted"
+
+        with self._driver.session() as session:
+            result: Neo4jResult = session.run(cypher)
+            record = result.single()
+            deleted_count = record["deleted"] if record else 0
+            logger.info(f"Cleaned up {deleted_count} orphan nodes")
+
+        return deleted_count

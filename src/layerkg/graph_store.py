@@ -50,6 +50,9 @@ class GraphStore(ABC):
         target_id: str,
         rel_type: str,
         properties: dict | None = None,
+        *,
+        source_label: str = "",
+        target_label: str = "",
     ) -> dict:
         """合并（创建或更新）关系。
 
@@ -58,6 +61,8 @@ class GraphStore(ABC):
             target_id: 目标节点 ID。
             rel_type: 关系类型。
             properties: 关系属性（可选）。
+            source_label: 源节点标签（可选），用于优化 MERGE 性能。
+            target_label: 目标节点标签（可选），用于优化 MERGE 性能。
 
         Returns:
             合并后的关系属性。
@@ -104,4 +109,14 @@ class GraphStore(ABC):
 
         Returns:
             查询结果列表。
+        """
+
+    @abstractmethod
+    def cleanup_orphan_nodes(self) -> int:
+        """清理无标签的孤立节点。
+
+        这些节点通常是因为 MERGE 操作时未指定 label 而创建的。
+
+        Returns:
+            删除的节点数量。
         """

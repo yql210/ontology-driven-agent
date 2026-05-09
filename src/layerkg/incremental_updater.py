@@ -292,7 +292,9 @@ class IncrementalUpdater:
         for entity in entities:
             graph_store.merge_node("CodeEntity", self._entity_to_dict(entity))
         for rel in relations:
-            graph_store.merge_relation(rel.source_id, rel.target_id, rel.relation_type)
+            graph_store.merge_relation(
+                rel.source_id, rel.target_id, rel.relation_type, source_label="CodeEntity", target_label="CodeEntity"
+            )
 
         # 写 ChromaDB
         items = []
@@ -401,7 +403,9 @@ class IncrementalUpdater:
 
         # 对新解析的 relations：merge_relation 写入
         for rel in relations:
-            graph_store.merge_relation(rel.source_id, rel.target_id, rel.relation_type)
+            graph_store.merge_relation(
+                rel.source_id, rel.target_id, rel.relation_type, source_label="CodeEntity", target_label="CodeEntity"
+            )
 
         # ChromaDB：先删旧向量，再写新向量
         chroma_store.delete_entities_by_metadata({"file_path": change.path})

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 import os
 from collections import Counter
 from dataclasses import dataclass
+from itertools import combinations
 
 from layerkg.neo4j_store import Neo4jGraphStore
 from layerkg.schema import ModuleEntity
@@ -53,11 +55,13 @@ class ModuleClustering:
         self._neo4j_store = neo4j_store
         self._algorithm = algorithm
         self._module_name_counter = 0
+        self._logger = logging.getLogger(self.__class__.__name__)
 
     def _load_graph(self) -> tuple[dict[str, set[str]], dict[str, dict]]:
         """从 Neo4j 加载邻接表和实体数据。
 
         使用 neo4j_store.query() 执行 Cypher。
+        添加同文件虚拟边：同一文件内的实体两两互连，解决图稀疏问题。
 
         Returns:
             (adj, entity_data) 元组：
@@ -100,6 +104,22 @@ class ModuleClustering:
             if source in adj and target in adj:
                 adj[source].add(target)
                 adj[target].add(source)
+
+        # 添加同文件虚拟边：同一文件内的实体两两互连
+        # 按 file_path 分组
+        file_to_entities: dict[str, list[str]] = {}
+        for entity_id, data in entity_data.items():
+            file_path = data.get("file_path")
+            if file_path:
+                file_to_entities.setdefault(file_path, []).append(entity_id)
+
+        # 为每个文件内的实体添加全连接虚拟边
+        for _file_path, entities_in_file in file_to_entities.items():
+            if len(entities_in_file) > 1:
+                # 同文件内的实体两两互连
+                for e1, e2 in combinations(entities_in_file, 2):
+                    adj[e1].add(e2)
+                    adj[e2].add(e1)
 
         return adj, entity_data
 
@@ -253,6 +273,20 @@ class ModuleClustering:
             模块聚类列表
         """
         adj, entity_data = self._load_graph()
+
+        # 诊断日志：图统计信息
+        isolated = sum(1 for neighbors in adj.values() if not neighbors)
+        total_nodes = len(adj)
+        total_edges = sum(len(n) for n in adj.values()) // 2  # 无向图，边数是邻接表总和的一半
+        isolated_pct = 100 * isolated / total_nodes if total_nodes > 0 else 0
+        self._logger.info(
+            "Module clustering graph: %d nodes, %d isolated (%.1f%%), %d edges",
+            total_nodes,
+            isolated,
+            isolated_pct,
+            total_edges,
+        )
+
         labels = self._label_propagation(adj)
 
         # 按 label 分组
@@ -305,6 +339,8 @@ class ModuleClustering:
                     source_id=cluster.module.id,
                     target_id=entity_id,
                     rel_type="contains",
+                    source_label="ModuleEntity",
+                    target_label="CodeEntity",
                 )
 
             saved += 1

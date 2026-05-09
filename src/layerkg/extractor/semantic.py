@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -109,7 +110,7 @@ class SemanticExtractor:
         ollama_url: str = "http://localhost:11434",
         model: str = "qwen3.5:9b",
         *,
-        batch_size: int = 5,
+        batch_size: int = 20,
         max_retries: int = 3,
         timeout: float = 60.0,
         temperature: float = 0.1,
@@ -321,6 +322,8 @@ Rules:
     def _parse_response(response_text: str) -> list[SemanticRelation]:
         """解析 LLM 响应为 SemanticRelation 列表。"""
         text = response_text.strip()
+        # 移除 qwen3.5 等模型的 <think...</think 标签
+        text = re.sub(r"<think\b[^>]*>.*?</think\s*>", "", text, flags=re.DOTALL).strip()
         if "```json" in text:
             text = text.split("```json")[1].split("```")[0].strip()
         elif "```" in text:

@@ -148,6 +148,73 @@ class TestLoadGraph:
             "e2": {"name": "Entity2", "file_path": "src/file2.py"},
         }
 
+    def test_load_graph_with_same_file_entities(self) -> None:
+        """测试同文件实体两两互连（虚拟边）。"""
+        mock_store = MagicMock(spec=Neo4jGraphStore)
+
+        # 同文件 src/module1.py 有 3 个实体：e1, e2, e3
+        # 不同文件 src/module2.py 有 1 个实体：e4
+        # 无结构关系，全靠虚拟边连接
+        mock_store.query.side_effect = [
+            [
+                {"id": "e1", "name": "Entity1", "file_path": "src/module1.py"},
+                {"id": "e2", "name": "Entity2", "file_path": "src/module1.py"},
+                {"id": "e3", "name": "Entity3", "file_path": "src/module1.py"},
+                {"id": "e4", "name": "Entity4", "file_path": "src/module2.py"},
+            ],
+            [],  # 无结构关系
+        ]
+
+        clustering = ModuleClustering(mock_store)
+        adj, _entity_data = clustering._load_graph()
+
+        # 同文件的 e1, e2, e3 应该全连接（虚拟边）
+        # e1 与 e2, e3 相连
+        assert "e2" in adj["e1"]
+        assert "e3" in adj["e1"]
+        assert len(adj["e1"]) == 2
+
+        # e2 与 e1, e3 相连
+        assert "e1" in adj["e2"]
+        assert "e3" in adj["e2"]
+        assert len(adj["e2"]) == 2
+
+        # e3 与 e1, e2 相连
+        assert "e1" in adj["e3"]
+        assert "e2" in adj["e3"]
+        assert len(adj["e3"]) == 2
+
+        # e4 孤立（单文件无同文件邻居）
+        assert len(adj["e4"]) == 0
+
+    def test_load_graph_combines_virtual_and_structural_edges(self) -> None:
+        """测试虚拟边和结构边合并。"""
+        mock_store = MagicMock(spec=Neo4jGraphStore)
+
+        # e1, e2 同文件 src/file1.py（虚拟边）
+        # e1 -> e3 有结构关系 CALLS
+        # e3 在不同文件 src/file2.py
+        mock_store.query.side_effect = [
+            [
+                {"id": "e1", "name": "Entity1", "file_path": "src/file1.py"},
+                {"id": "e2", "name": "Entity2", "file_path": "src/file1.py"},
+                {"id": "e3", "name": "Entity3", "file_path": "src/file2.py"},
+            ],
+            [
+                {"source": "e1", "target": "e3"},  # 结构边
+            ],
+        ]
+
+        clustering = ModuleClustering(mock_store)
+        adj, _entity_data = clustering._load_graph()
+
+        # e1 通过虚拟边连 e2，通过结构边连 e3
+        assert adj["e1"] == {"e2", "e3"}
+        # e2 通过虚拟边连 e1
+        assert adj["e2"] == {"e1"}
+        # e3 通过结构边连 e1
+        assert adj["e3"] == {"e1"}
+
 
 # =============================================================================
 # Task 4: _label_propagation (5 tests)

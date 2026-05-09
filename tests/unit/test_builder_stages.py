@@ -164,7 +164,7 @@ class TestStageSemantic:
             )
 
             # Assert
-            mock_extractor.extract.assert_called_once_with(sample_entities)
+            mock_extractor.extract.assert_called_once_with(sample_entities, doc_entities=None)
             assert skipped_semantic is False
 
 

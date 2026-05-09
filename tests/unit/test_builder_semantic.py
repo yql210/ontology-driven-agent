@@ -115,7 +115,7 @@ class TestProcessSemanticRelations:
             patch.object(builder._init_concept_aligner(), "align_batch", return_value=[NO_MATCH]),
             patch.object(builder._get_chroma_store(), "put_entities_batch"),
         ):
-            new_concepts, _resolved, skipped = builder._process_semantic_relations(
+            new_concepts, _resolved, skipped, _type_map = builder._process_semantic_relations(
                 relations, mock_entity_index, repo_root
             )
 
@@ -148,7 +148,7 @@ class TestProcessSemanticRelations:
         )
 
         with patch.object(builder._init_concept_aligner(), "align_batch", return_value=[align_result]):
-            new_concepts, resolved, skipped = builder._process_semantic_relations(
+            new_concepts, resolved, skipped, _ = builder._process_semantic_relations(
                 relations, mock_entity_index, repo_root
             )
 
@@ -189,7 +189,7 @@ class TestProcessSemanticRelations:
             patch.object(builder._init_concept_aligner(), "align_batch", return_value=[NO_MATCH]),
             patch.object(builder._get_chroma_store(), "put_entities_batch"),
         ):
-            new_concepts, resolved, _skipped = builder._process_semantic_relations(
+            new_concepts, resolved, _skipped, _ = builder._process_semantic_relations(
                 relations, mock_entity_index, repo_root
             )
 
@@ -218,7 +218,7 @@ class TestProcessSemanticRelations:
             patch.object(builder._init_concept_aligner(), "align_batch", return_value=[NO_MATCH]),
             patch.object(mock_chroma, "put_entities_batch") as mock_put,
         ):
-            new_concepts, _, _ = builder._process_semantic_relations(relations, mock_entity_index, repo_root)
+            new_concepts, _, _, _ = builder._process_semantic_relations(relations, mock_entity_index, repo_root)
 
         assert len(new_concepts) == 1
         # 验证不再直接调用 ChromaDB 写入
@@ -238,7 +238,9 @@ class TestProcessSemanticRelations:
             )
         ]
 
-        new_concepts, resolved, skipped = builder._process_semantic_relations(relations, mock_entity_index, repo_root)
+        new_concepts, resolved, skipped, _ = builder._process_semantic_relations(
+            relations, mock_entity_index, repo_root
+        )
 
         assert len(new_concepts) == 0
         assert len(resolved) == 1
@@ -261,7 +263,9 @@ class TestProcessSemanticRelations:
             )
         ]
 
-        new_concepts, resolved, skipped = builder._process_semantic_relations(relations, mock_entity_index, repo_root)
+        new_concepts, resolved, skipped, _ = builder._process_semantic_relations(
+            relations, mock_entity_index, repo_root
+        )
 
         assert len(new_concepts) == 0
         assert len(resolved) == 0
@@ -281,7 +285,9 @@ class TestProcessSemanticRelations:
             )
         ]
 
-        new_concepts, resolved, skipped = builder._process_semantic_relations(relations, mock_entity_index, repo_root)
+        new_concepts, resolved, skipped, _ = builder._process_semantic_relations(
+            relations, mock_entity_index, repo_root
+        )
 
         # wiki 不是 _CODE_ENTITY_TYPES 也不是 _CONCEPT_ENTITY_TYPES，所以跳过
         assert len(new_concepts) == 0
@@ -330,7 +336,7 @@ class TestProcessSemanticRelations:
             patch.object(builder._init_concept_aligner(), "align_batch", return_value=[mock_align_result, NO_MATCH]),
             patch.object(builder._get_chroma_store(), "put_entities_batch"),
         ):
-            new_concepts, resolved, skipped = builder._process_semantic_relations(
+            new_concepts, resolved, skipped, _ = builder._process_semantic_relations(
                 relations, mock_entity_index, repo_root
             )
 

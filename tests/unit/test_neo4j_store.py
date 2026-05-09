@@ -291,6 +291,49 @@ class TestNeo4jGraphStoreMergeRelation:
         assert "SEMANTIC_IMPACT" in cypher
         assert result == {}
 
+    def test_merge_relation_with_labels_uses_labels(self, mock_driver: MagicMock, mock_session: MagicMock):
+        """测试 merge_relation 带 label 时使用正确标签创建节点。"""
+        # Arrange
+        mock_result = MagicMock()
+        mock_session.run = MagicMock(return_value=mock_result)
+
+        store = Neo4jGraphStore("bolt://localhost:7687", "neo4j", "password")
+        store._driver = mock_driver
+
+        # Act
+        store.merge_relation("src-123", "tgt-456", "CALLS", source_label="CodeEntity", target_label="CodeEntity")
+
+        # Assert
+        mock_session.run.assert_called_once()
+        call_args = mock_session.run.call_args
+        cypher = call_args[0][0]
+        assert "source:CodeEntity" in cypher
+        assert "target:CodeEntity" in cypher
+
+    def test_merge_relation_invalid_label_raises(self, mock_driver: MagicMock, mock_session: MagicMock):
+        """测试 merge_relation 非法 label 抛出 ValueError。"""
+        # Arrange
+        store = Neo4jGraphStore("bolt://localhost:7687", "neo4j", "password")
+        store._driver = mock_driver
+
+        # Act & Assert - 测试包含空格的 label
+        with pytest.raises(ValueError, match="Invalid source_label"):
+            store.merge_relation("src-123", "tgt-456", "CALLS", source_label="Invalid Label")
+
+        # Act & Assert - 测试包含特殊字符的 label
+        with pytest.raises(ValueError, match="Invalid target_label"):
+            store.merge_relation("src-123", "tgt-456", "CALLS", target_label="Label;DROP TABLE")
+
+    def test_merge_relation_invalid_rel_type_raises(self, mock_driver: MagicMock, mock_session: MagicMock):
+        """测试 merge_relation 非法关系类型抛出 ValueError。"""
+        # Arrange
+        store = Neo4jGraphStore("bolt://localhost:7687", "neo4j", "password")
+        store._driver = mock_driver
+
+        # Act & Assert - 测试包含非法字符的关系类型
+        with pytest.raises(ValueError, match="Invalid relation type"):
+            store.merge_relation("src-123", "tgt-456", "INVALID;REL")
+
 
 @pytest.mark.unit
 class TestNeo4jGraphStoreDeleteRelation:
@@ -509,3 +552,33 @@ class TestNeo4jGraphStoreConstraints:
         for cypher in cyphers:
             assert "CREATE CONSTRAINT" in cypher
             assert "REQUIRE n.id IS UNIQUE" in cypher
+
+
+@pytest.mark.unit
+class TestNeo4jGraphStoreCleanupOrphanNodes:
+    """测试 cleanup_orphan_nodes 方法。"""
+
+    def test_cleanup_orphan_nodes(self, mock_driver: MagicMock, mock_session: MagicMock):
+        """测试 cleanup_orphan_nodes 返回删除计数。"""
+        # Arrange - 模拟返回删除计数
+        mock_record = MagicMock()
+        mock_record.__getitem__ = MagicMock(return_value=3)
+
+        mock_result = MagicMock()
+        mock_result.single = MagicMock(return_value=mock_record)
+
+        mock_session.run = MagicMock(return_value=mock_result)
+
+        store = Neo4jGraphStore("bolt://localhost:7687", "neo4j", "password")
+        store._driver = mock_driver
+
+        # Act
+        count = store.cleanup_orphan_nodes()
+
+        # Assert
+        assert count == 3
+        mock_session.run.assert_called_once()
+        call_args = mock_session.run.call_args
+        cypher = call_args[0][0]
+        assert "WHERE labels(n) = []" in cypher
+        assert "DETACH DELETE" in cypher

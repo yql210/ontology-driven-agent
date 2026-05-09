@@ -197,11 +197,11 @@ class TestSemanticExtractorInit:
         assert extractor._temperature == 0.5
 
     def test_constructor_defaults(self):
-        """默认参数值正确：batch_size=5, max_retries=3, timeout=60.0, temperature=0.1。"""
+        """默认参数值正确：batch_size=20, max_retries=3, timeout=60.0, temperature=0.1。"""
         extractor = SemanticExtractor()
         assert extractor._ollama_url == "http://localhost:11434"
         assert extractor._model == "qwen3.5:9b"
-        assert extractor._batch_size == 5
+        assert extractor._batch_size == 20
         assert extractor._max_retries == 3
         assert extractor._timeout == 60.0
         assert extractor._temperature == 0.1
@@ -323,6 +323,29 @@ class TestParseResponseNormal:
         relations = SemanticExtractor._parse_response(response)
         assert len(relations) == 1
         assert relations[0].confidence == 0.5
+
+    def test_parse_response_with_think_tags(self):
+        """<think...</think> 标签后跟 JSON → 正确解析。"""
+        response = '<think>Let me analyze this...</think>\n{"relations": [{"source": "A", "source_type": "function", "target": "B", "target_type": "class", "relation_type": "semantic_impact", "confidence": 0.8}]}'
+        relations = SemanticExtractor._parse_response(response)
+        assert len(relations) == 1
+        assert relations[0].source_name == "A"
+        assert relations[0].confidence == 0.8
+
+    def test_parse_response_with_think_tags_and_code_block(self):
+        """<think...</think> 标签 + ```json``` code block → 正确解析。"""
+        response = '<think>I need to analyze this carefully...</think>\n```json\n{"relations": [{"source": "A", "source_type": "function", "target": "B", "target_type": "class", "relation_type": "semantic_impact"}]}\n```'
+        relations = SemanticExtractor._parse_response(response)
+        assert len(relations) == 1
+        assert relations[0].source_name == "A"
+
+    def test_parse_response_without_think_tags(self):
+        """无 <think...</think> 标签 → 正常解析 JSON。"""
+        response = '{"relations": [{"source": "A", "source_type": "function", "target": "B", "target_type": "class", "relation_type": "semantic_impact", "confidence": 0.9}]}'
+        relations = SemanticExtractor._parse_response(response)
+        assert len(relations) == 1
+        assert relations[0].source_name == "A"
+        assert relations[0].confidence == 0.9
 
 
 class TestParseResponseErrors:
@@ -1000,11 +1023,11 @@ class TestExtractBoundary:
     """边界测试。"""
 
     def test_large_entities_batched_correctly(self, mocker):
-        """大量实体（20个）→ 正确分批（batch_size=5 → 4批）。"""
+        """大量实体（20个）→ 正确分批（batch_size=20 → 1批）。"""
         from layerkg.extractor.semantic import SemanticExtractor
         from layerkg.schema import CodeEntity
 
-        extractor = SemanticExtractor(batch_size=5)
+        extractor = SemanticExtractor(batch_size=20)
 
         entities = [CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(20)]
 
@@ -1021,7 +1044,7 @@ class TestExtractBoundary:
 
         extractor.extract(entities)
 
-        assert call_count == 4
+        assert call_count == 1
 
     def test_llm_returns_empty_relations(self, mocker):
         """LLM 返回空 relations → 无异常，空列表。"""

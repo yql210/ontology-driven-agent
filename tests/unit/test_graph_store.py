@@ -19,7 +19,16 @@ class _DummyStore(GraphStore):
     def delete_node(self, node_id: str) -> bool:
         return False  # pragma: no cover
 
-    def merge_relation(self, source_id: str, target_id: str, rel_type: str, properties: dict | None = None) -> dict:
+    def merge_relation(
+        self,
+        source_id: str,
+        target_id: str,
+        rel_type: str,
+        properties: dict | None = None,
+        *,
+        source_label: str = "",
+        target_label: str = "",
+    ) -> dict:
         return {"source": source_id, "target": target_id}  # pragma: no cover
 
     def delete_relation(self, source_id: str, target_id: str, rel_type: str) -> bool:
@@ -32,6 +41,9 @@ class _DummyStore(GraphStore):
 
     def query(self, cypher: str, params: dict | None = None) -> list[dict]:
         return []  # pragma: no cover
+
+    def cleanup_orphan_nodes(self) -> int:
+        return 0  # pragma: no cover
 
 
 @pytest.mark.unit
@@ -60,6 +72,7 @@ def test_graph_store_abstract_methods():
         "delete_relation",
         "get_relations",
         "query",
+        "cleanup_orphan_nodes",
     }
     actual = {name for name in dir(GraphStore) if not name.startswith("_")}
     assert expected.issubset(actual)

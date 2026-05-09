@@ -25,6 +25,26 @@ if TYPE_CHECKING:
 # 路径边界字符（用于防止子串误匹配）
 _BOUNDARY_CHARS = " ./\\-_"
 
+# entity_type 到 Neo4j 标签的映射（用于 merge_relation label 优化）
+ENTITY_TYPE_TO_LABEL: dict[str, str] = {
+    "function": "CodeEntity",
+    "class": "CodeEntity",
+    "interface": "CodeEntity",
+    "module": "CodeEntity",
+    "file": "CodeEntity",
+    "readme": "DocEntity",
+    "module_doc": "DocEntity",
+    "api_doc": "DocEntity",
+    "comment": "DocEntity",
+    "wiki": "DocEntity",
+    "architecture_doc": "DocEntity",
+    "business_concept": "ConceptEntity",
+    "design_pattern": "ConceptEntity",
+    "api_contract": "ConceptEntity",
+    "data_model": "ConceptEntity",
+    "process": "ConceptEntity",
+}
+
 # 概念类型的 entity_type 集合
 _CONCEPT_ENTITY_TYPES = frozenset(
     {
@@ -235,7 +255,13 @@ class LayerKGBuilder:
             for doc in doc_entities:
                 graph_store.merge_node("DocEntity", self._doc_entity_to_dict(doc))
             for rel in relations:
-                graph_store.merge_relation(rel.source_id, rel.target_id, rel.relation_type)
+                graph_store.merge_relation(
+                    rel.source_id,
+                    rel.target_id,
+                    rel.relation_type,
+                    source_label="CodeEntity",
+                    target_label="CodeEntity",
+                )
         except Exception as e:
             raise RuntimeError(f"Stage 2 structural write failed: {e}") from e
 
@@ -246,6 +272,8 @@ class LayerKGBuilder:
         all_entities: list[CodeEntity],
         graph_store: Neo4jGraphStore,
         repo_path: Path,
+        *,
+        doc_entities: list[DocEntity] | None = None,
     ) -> tuple[int, int, bool, list[str], list[ConceptEntity]]:
         """Stage 3: 语义提取 + 概念对齐 + 写入 Neo4j。
 
@@ -268,10 +296,10 @@ class LayerKGBuilder:
         if self._check_ollama():
             try:
                 extractor = self._init_semantic_extractor()
-                extraction = extractor.extract(all_entities)
+                extraction = extractor.extract(all_entities, doc_entities=doc_entities)
                 if extraction.relations:
                     entity_index = self._build_entity_index(all_entities, repo_path)
-                    new_concepts, semantic_rels, _sem_skipped = self._process_semantic_relations(
+                    new_concepts, semantic_rels, _sem_skipped, type_mapping = self._process_semantic_relations(
                         extraction.relations, entity_index, repo_root=repo_path
                     )
                     # 写入新概念到 Neo4j
@@ -293,7 +321,16 @@ class LayerKGBuilder:
                     # 写入语义关系到 Neo4j
                     for rel in semantic_rels:
                         try:
-                            graph_store.merge_relation(rel.source_id, rel.target_id, rel.relation_type)
+                            source_type, target_type = type_mapping.get((rel.source_id, rel.target_id), ("", ""))
+                            source_label = ENTITY_TYPE_TO_LABEL.get(source_type, "")
+                            target_label = ENTITY_TYPE_TO_LABEL.get(target_type, "")
+                            graph_store.merge_relation(
+                                rel.source_id,
+                                rel.target_id,
+                                rel.relation_type,
+                                source_label=source_label,
+                                target_label=target_label,
+                            )
                         except Exception as e:
                             self._logger.warning("Failed to write semantic relation: %s", e)
                             errors.append(f"Neo4j relation write error: {e}")
@@ -362,7 +399,9 @@ class LayerKGBuilder:
         entity_index = self._build_entity_index(all_entities, repo_path)
         describes_rels = self._link_docs_to_code(doc_entities, entity_index)
         for rel in describes_rels:
-            graph_store.merge_relation(rel.source_id, rel.target_id, rel.relation_type)
+            graph_store.merge_relation(
+                rel.source_id, rel.target_id, rel.relation_type, source_label="DocEntity", target_label="CodeEntity"
+            )
 
         # Stage 3: 语义提取（可降级）
         if skip_semantic:
@@ -373,7 +412,7 @@ class LayerKGBuilder:
             new_concepts = []
         else:
             concepts_created, semantic_rels_created, skipped_semantic, sem_errors, new_concepts = self._stage_semantic(
-                all_entities, graph_store, repo_path
+                all_entities, graph_store, repo_path, doc_entities=doc_entities
             )
         all_errors.extend(sem_errors)
 
@@ -745,7 +784,7 @@ class LayerKGBuilder:
         relations: list[SemanticRelation],
         entity_index: dict[tuple[str, str, str], list[str]],
         repo_root: Path,
-    ) -> tuple[list[ConceptEntity], list[Relation], int]:
+    ) -> tuple[list[ConceptEntity], list[Relation], int, dict[tuple[str, str], tuple[str, str]]]:
         """处理语义关系：概念对齐 + ID 解析。
 
         Args:
@@ -754,12 +793,16 @@ class LayerKGBuilder:
             repo_root: 仓库根目录。
 
         Returns:
-            (新概念列表, Relation列表, 跳过数量) 元组。
+            (新概念列表, Relation列表, 跳过数量, 类型映射) 元组。
+            类型映射: {(source_id, target_id): (source_type, target_type)}
         """
         aligner = self._init_concept_aligner()
         new_concepts: list[ConceptEntity] = []
         resolved: list[Relation] = []
         skipped = 0
+        type_mapping: dict[
+            tuple[str, str], tuple[str, str]
+        ] = {}  # (source_id, target_id) -> (source_type, target_type)
 
         # 路径 A：收集所有概念目标的 unique target_name
         concept_targets: dict[str, str] = {}  # target_name → target_type
@@ -809,13 +852,15 @@ class LayerKGBuilder:
                 if not target_id:
                     skipped += 1
                     continue
+                source_id = source_ids[0]
                 resolved.append(
                     Relation(
-                        source_id=source_ids[0],
+                        source_id=source_id,
                         target_id=target_id,
                         relation_type=rel.relation_type,
                     )
                 )
+                type_mapping[(source_id, target_id)] = (rel.source_type, concept_targets[rel.target_name])
 
         # 路径 B：代码目标，用 entity_index 解析
         for rel in code_relations:
@@ -830,15 +875,18 @@ class LayerKGBuilder:
             if not source_ids or not target_ids:
                 skipped += 1
                 continue
+            source_id = source_ids[0]
+            target_id = target_ids[0]
             resolved.append(
                 Relation(
-                    source_id=source_ids[0],
-                    target_id=target_ids[0],
+                    source_id=source_id,
+                    target_id=target_id,
                     relation_type=rel.relation_type,
                 )
             )
+            type_mapping[(source_id, target_id)] = (rel.source_type, rel.target_type)
 
-        return new_concepts, resolved, skipped
+        return new_concepts, resolved, skipped, type_mapping
 
     def _normalize_path(self, file_path: str | None, repo_root: Path) -> str:
         """规范化文件路径为相对于仓库根目录的路径。
