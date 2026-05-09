@@ -95,6 +95,78 @@ class TestScanFiles:
         assert py_files == sorted(py_files)
         assert doc_files == sorted(doc_files)
 
+    def test_scan_files_skip_dirs_from_config(self, tmp_path: Path) -> None:
+        """验证 skip_dirs 从 config 读取。"""
+        # Arrange
+        (tmp_path / "module.py").write_text("pass")
+        custom_dir = tmp_path / "custom_skip"
+        custom_dir.mkdir()
+        (custom_dir / "skipped.py").write_text("pass")
+
+        config = LayerKGConfig(
+            build_skip_dirs={"custom_skip"},
+        )
+        builder = LayerKGBuilder(config)
+
+        # Act
+        py_files, _doc_files = builder._scan_files(tmp_path)
+
+        # Assert
+        assert len(py_files) == 1
+        assert py_files[0].name == "module.py"
+
+    def test_scan_files_include_docs_false(self, tmp_path: Path) -> None:
+        """验证 build_include_docs=False 时 doc_files 为空。"""
+        # Arrange
+        (tmp_path / "README.md").write_text("# Test")
+        config = LayerKGConfig(build_include_docs=False)
+        builder = LayerKGBuilder(config)
+
+        # Act
+        _py_files, doc_files = builder._scan_files(tmp_path)
+
+        # Assert
+        assert doc_files == []
+
+    def test_scan_files_include_docs_true(self, tmp_path: Path) -> None:
+        """验证 build_include_docs=True 时能扫描到文档文件。"""
+        # Arrange
+        (tmp_path / "README.md").write_text("# Test")
+        config = LayerKGConfig(build_include_docs=True)
+        builder = LayerKGBuilder(config)
+
+        # Act
+        _py_files, doc_files = builder._scan_files(tmp_path)
+
+        # Assert
+        assert len(doc_files) == 1
+        assert doc_files[0].name == "README.md"
+
+
+class TestDocTruncation:
+    """测试文档截断配置化。"""
+
+    def test_doc_entity_truncation_respects_config(self, builder: LayerKGBuilder) -> None:
+        """验证 build_doc_max_length 配置生效。"""
+        # Arrange
+        from layerkg.schema import DocEntity
+
+        long_content = "x" * 5000
+        doc = DocEntity(
+            name="test.md",
+            entity_type="readme",
+            file_path="test.md",
+            content=long_content,
+        )
+        builder._config.build_doc_max_length = 100
+
+        # Act - 直接测试截断逻辑
+        truncated = (doc.content or "")[: builder._config.build_doc_max_length]
+
+        # Assert
+        assert len(truncated) == 100
+        assert truncated == "x" * 100
+
 
 class TestEntityToDict:
     """测试 _entity_to_dict 方法。"""

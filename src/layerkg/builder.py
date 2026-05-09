@@ -22,9 +22,6 @@ from layerkg.schema import CodeEntity, ConceptEntity, DocEntity, Relation
 if TYPE_CHECKING:
     from layerkg.parser.doc_parser import DocParser
 
-# Doc 文件扩展名
-_DOC_EXTENSIONS = {".md", ".rst"}
-
 # 路径边界字符（用于防止子串误匹配）
 _BOUNDARY_CHARS = " ./\\-_"
 
@@ -453,8 +450,7 @@ class LayerKGBuilder:
         result["chroma_count"] = chroma_store.count()
         return result
 
-    @staticmethod
-    def _scan_files(repo_path: Path) -> tuple[list[Path], list[Path]]:
+    def _scan_files(self, repo_path: Path) -> tuple[list[Path], list[Path]]:
         """扫描 Python 和文档文件，跳过隐藏目录。
 
         Args:
@@ -463,20 +459,7 @@ class LayerKGBuilder:
         Returns:
             (py_files, doc_files) 元组，均为已排序的路径列表。
         """
-        skip_dirs = {
-            ".git",
-            "__pycache__",
-            ".venv",
-            "venv",
-            ".mypy_cache",
-            ".pytest_cache",
-            "node_modules",
-            ".tox",
-            "dist",
-            "build",
-            "*.egg-info",
-            "site",  # MkDocs/Sphinx 产物目录
-        }
+        skip_dirs = self._config.build_skip_dirs
         py_files: list[Path] = []
         doc_files: list[Path] = []
 
@@ -486,12 +469,13 @@ class LayerKGBuilder:
                 continue
             py_files.append(p)
 
-        # 扫描文档文件
-        for ext in _DOC_EXTENSIONS:
-            for p in repo_path.rglob(f"*{ext}"):
-                if any(skip in p.parts or skip in p.name for skip in skip_dirs):
-                    continue
-                doc_files.append(p)
+        # 扫描文档文件（仅在 build_include_docs 为 True 时）
+        if self._config.build_include_docs:
+            for ext in self._config.build_doc_extensions:
+                for p in repo_path.rglob(f"*{ext}"):
+                    if any(skip in p.parts or skip in p.name for skip in skip_dirs):
+                        continue
+                    doc_files.append(p)
 
         return sorted(py_files), sorted(doc_files)
 
@@ -737,7 +721,7 @@ class LayerKGBuilder:
 
         # DocEntity
         for doc in doc_entities:
-            text = (doc.content or "")[:2000]
+            text = (doc.content or "")[: self._config.build_doc_max_length]
             if text.strip():
                 items.append((doc.id, text, {"entity_type": doc.entity_type, "name": doc.name}))
 

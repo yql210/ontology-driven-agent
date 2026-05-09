@@ -173,13 +173,18 @@ class ChromaStore:
         )
         self._logger.debug("Put entity %s", entity_id)
 
-    def put_entities_batch(self, items: list[tuple[str, str, dict[str, Any]]]) -> None:
+    def put_entities_batch(
+        self,
+        items: list[tuple[str, str, dict[str, Any]]],
+        batch_size: int = 50,
+    ) -> None:
         """批量存储实体嵌入。
 
-        空文本项会被跳过。
+        空文本项会被跳过。数据按 batch_size 分批写入。
 
         Args:
             items: (entity_id, text, metadata) 元组列表。
+            batch_size: 每批次写入的实体数量，默认 50。
         """
         ids, docs, metas = [], [], []
         for entity_id, text, metadata in items:
@@ -189,8 +194,18 @@ class ChromaStore:
                 metas.append(_sanitize_metadata(metadata))
         if not ids:
             return
-        self._collection.upsert(ids=ids, documents=docs, metadatas=metas)
-        self._logger.debug("Put batch: %d entities", len(ids))
+        total_batches = -(-len(ids) // batch_size)  # ceil division
+        for i in range(0, len(ids), batch_size):
+            batch_ids = ids[i : i + batch_size]
+            batch_docs = docs[i : i + batch_size]
+            batch_metas = metas[i : i + batch_size]
+            self._collection.upsert(ids=batch_ids, documents=batch_docs, metadatas=batch_metas)
+            self._logger.debug(
+                "Put batch (%d/%d): %d entities",
+                i // batch_size + 1,
+                total_batches,
+                len(batch_ids),
+            )
 
     # --- 查询操作 ---
 

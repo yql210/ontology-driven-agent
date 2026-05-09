@@ -115,21 +115,29 @@ class TestDocParserRST:
 class TestScanFiles:
     def test_scan_files_returns_both(self, tmp_path: Path):
         """同时返回 .py 和 .md/.rst 文件。"""
+        from layerkg.config import LayerKGConfig
+
         (tmp_path / "a.py").write_text("x = 1")
         (tmp_path / "b.md").write_text("# Hello")
         (tmp_path / "c.rst").write_text("Title\n=====\n")
-        _py, doc = LayerKGBuilder._scan_files(tmp_path)
+        config = LayerKGConfig(build_include_docs=True)
+        builder = LayerKGBuilder(config)
+        _py, doc = builder._scan_files(tmp_path)
         assert len(_py) == 1
         assert len(doc) == 2
 
     def test_scan_files_skips_site(self, tmp_path: Path):
         """跳过 site/ 目录（MkDocs/Sphinx 产物）。"""
+        from layerkg.config import LayerKGConfig
+
         site = tmp_path / "site"
         site.mkdir()
         (site / "index.html").write_text("<html>")
         (site / "page.md").write_text("# Built")
         (tmp_path / "guide.md").write_text("# Guide")
-        _py, doc = LayerKGBuilder._scan_files(tmp_path)
+        config = LayerKGConfig(build_include_docs=True)
+        builder = LayerKGBuilder(config)
+        _py, doc = builder._scan_files(tmp_path)
         assert len(doc) == 1  # 只有 guide.md，site/page.md 跳过
 
 

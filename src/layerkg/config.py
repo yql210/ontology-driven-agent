@@ -32,14 +32,17 @@ class LayerKGConfig:
     # Build 配置
     build_include_docs: bool = True
     build_doc_extensions: list[str] = field(default_factory=lambda: [".md", ".rst"])
+    build_doc_max_length: int = 2000
     build_skip_dirs: set[str] = field(
         default_factory=lambda: {
             "__pycache__",
             ".git",
             ".mypy_cache",
             ".ruff_cache",
+            ".pytest_cache",
             "node_modules",
             ".venv",
+            "venv",
             "site",
             ".tox",
             "dist",
@@ -55,8 +58,26 @@ class LayerKGConfig:
         支持的环境变量：
             LAYERKG_NEO4J_URI, LAYERKG_NEO4J_USER, LAYERKG_NEO4J_PASSWORD,
             LAYERKG_CHROMA_DIR, LAYERKG_OLLAMA_URL, LAYERKG_EMBEDDING_MODEL,
-            LAYERKG_LLM_MODEL, LAYERKG_BUILD_INCLUDE_DOCS
+            LAYERKG_LLM_MODEL, LAYERKG_BUILD_INCLUDE_DOCS,
+            LAYERKG_BUILD_DOC_EXTENSIONS, LAYERKG_BUILD_SKIP_DIRS,
+            LAYERKG_BUILD_DOC_MAX_LENGTH
         """
+        # 解析 build_doc_extensions
+        doc_ext_str = os.getenv("LAYERKG_BUILD_DOC_EXTENSIONS")
+        build_doc_extensions = (
+            [e.strip() for e in doc_ext_str.split(",") if e.strip()]
+            if doc_ext_str
+            else list(cls.__dataclass_fields__["build_doc_extensions"].default_factory())
+        )
+
+        # 解析 build_skip_dirs
+        skip_dirs_str = os.getenv("LAYERKG_BUILD_SKIP_DIRS")
+        build_skip_dirs = (
+            {d.strip() for d in skip_dirs_str.split(",") if d.strip()}
+            if skip_dirs_str
+            else cls.__dataclass_fields__["build_skip_dirs"].default_factory()
+        )
+
         return cls(
             neo4j_uri=os.getenv("LAYERKG_NEO4J_URI", cls.neo4j_uri),
             neo4j_user=os.getenv("LAYERKG_NEO4J_USER", cls.neo4j_user),
@@ -66,4 +87,7 @@ class LayerKGConfig:
             embedding_model=os.getenv("LAYERKG_EMBEDDING_MODEL", cls.embedding_model),
             llm_model=os.getenv("LAYERKG_LLM_MODEL", cls.llm_model),
             build_include_docs=os.getenv("LAYERKG_BUILD_INCLUDE_DOCS", "true").lower() == "true",
+            build_doc_extensions=build_doc_extensions,
+            build_skip_dirs=build_skip_dirs,
+            build_doc_max_length=int(os.getenv("LAYERKG_BUILD_DOC_MAX_LENGTH", "2000")),
         )

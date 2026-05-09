@@ -327,6 +327,27 @@ class TestChromaStoreWrite:
         # Assert
         assert chroma_store.count() == initial_count
 
+    def test_put_entities_batch_splits(self, chroma_store):
+        # Arrange
+        items = [(f"entity-{i}", f"text {i}", {"idx": i}) for i in range(120)]
+        batch_size = 50
+
+        # Act
+        chroma_store.put_entities_batch(items, batch_size=batch_size)
+
+        # Assert
+        assert chroma_store.count() == 120
+
+    def test_put_entities_batch_size_1(self, chroma_store):
+        # Arrange
+        items = [(f"entity-{i}", f"text {i}", {"idx": i}) for i in range(10)]
+
+        # Act
+        chroma_store.put_entities_batch(items, batch_size=1)
+
+        # Assert
+        assert chroma_store.count() == 10
+
 
 # =============================================================================
 # ChromaStore 查询测试 (7 tests)
