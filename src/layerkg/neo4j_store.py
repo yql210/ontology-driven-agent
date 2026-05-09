@@ -186,10 +186,12 @@ class Neo4jGraphStore(GraphStore):
             msg = f"Invalid relation type: {neo4j_rel_type}"
             raise ValueError(msg)
 
-        # 动态构建 MERGE 语句（带 label 优化）
+        # 动态构建 MATCH + MERGE 语句（拆分避免 UNIQUE 约束冲突）
         source_part = f"source:{source_label}" if source_label else "source"
         target_part = f"target:{target_label}" if target_label else "target"
-        cypher = f"MERGE ({source_part} {{id: $source_id}})-[r:{neo4j_rel_type}]->({target_part} {{id: $target_id}})"
+        cypher = f"MATCH ({source_part} {{id: $source_id}})"
+        cypher += f" MATCH ({target_part} {{id: $target_id}})"
+        cypher += f" MERGE (source)-[r:{neo4j_rel_type}]->(target)"
 
         # 准备参数
         params: dict[str, Any] = {"source_id": source_id, "target_id": target_id}

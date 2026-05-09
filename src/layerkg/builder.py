@@ -779,6 +779,28 @@ class LayerKGBuilder:
         if items:
             chroma_store.put_entities_batch(items)
 
+    def _fuzzy_lookup_entity(
+        self,
+        entity_index: dict[tuple[str, str, str], list[str]],
+        entity_type: str,
+        name: str,
+    ) -> list[str]:
+        """模糊查找实体 ID：按 (type, name) 匹配，忽略 file_path。
+
+        Args:
+            entity_index: 实体索引。
+            entity_type: 实体类型。
+            name: 实体名称。
+
+        Returns:
+            匹配到的 ID 列表。
+        """
+        candidates: list[str] = []
+        for key, ids in entity_index.items():
+            if key[0] == entity_type and key[2] == name:
+                candidates.extend(ids)
+        return candidates
+
     def _process_semantic_relations(
         self,
         relations: list[SemanticRelation],
@@ -869,9 +891,10 @@ class LayerKGBuilder:
                 self._normalize_path(rel.source_file_path, repo_root),
                 rel.source_name,
             )
-            target_key = (rel.target_type, "", rel.target_name)
             source_ids = entity_index.get(source_key, [])
-            target_ids = entity_index.get(target_key, [])
+            if not source_ids:
+                source_ids = self._fuzzy_lookup_entity(entity_index, rel.source_type, rel.source_name)
+            target_ids = self._fuzzy_lookup_entity(entity_index, rel.target_type, rel.target_name)
             if not source_ids or not target_ids:
                 skipped += 1
                 continue

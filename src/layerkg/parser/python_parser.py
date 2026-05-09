@@ -66,6 +66,7 @@ class PythonParser(BaseParser):
         else:
             end_line = 0
 
+        source_text = source.decode("utf-8", errors="replace")
         module_entity = CodeEntity(
             name=module_name,
             entity_type="module",
@@ -73,6 +74,7 @@ class PythonParser(BaseParser):
             start_line=0,
             end_line=end_line,
             language="python",
+            source=source_text[:500],
         )
         entities.append(module_entity)
 
@@ -189,6 +191,7 @@ class PythonParser(BaseParser):
         start_line = node.start_point[0]
         end_line = node.end_point[0]
 
+        source_text = node.text.decode("utf-8", errors="replace")
         entity = CodeEntity(
             name=full_name,
             entity_type="function",
@@ -196,6 +199,7 @@ class PythonParser(BaseParser):
             start_line=start_line,
             end_line=end_line,
             language="python",
+            source=source_text,
         )
         entities.append(entity)
 
@@ -244,6 +248,7 @@ class PythonParser(BaseParser):
         start_line = node.start_point[0]
         end_line = node.end_point[0]
 
+        source_text = node.text.decode("utf-8", errors="replace")
         entity = CodeEntity(
             name=class_name,
             entity_type="class",
@@ -251,6 +256,7 @@ class PythonParser(BaseParser):
             start_line=start_line,
             end_line=end_line,
             language="python",
+            source=source_text,
         )
         entities.append(entity)
 
