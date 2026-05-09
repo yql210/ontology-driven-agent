@@ -287,21 +287,38 @@ class SemanticExtractor:
 
         entities_text = "\n".join(entity_descriptions)
 
-        return f"""Analyze the following code entities and extract semantic relationships.
+        return f"""You are a code architecture analyst. Analyze these code entities and extract TWO kinds of output:
+
+1. **semantic_impact** relations: code-to-code influence (A's changes affect B)
+2. **Concepts**: abstract design patterns or business concepts embodied in the code
 
 Entities:
 {entities_text}
 
-Extract ONLY these relationship types:
-1. "semantic_impact": Entity A's changes likely affect Entity B's behavior
-2. "describes": A document describes a code entity
-3. "illustrates": A resource illustrates a code entity
-4. "derived_from": Code implements a concept/pattern
+## Step 1: Identify Code-to-Code Impact (semantic_impact)
+Find pairs where Entity A's behavior change would likely affect Entity B.
+- source_type / target_type: use code types (function, class, module)
 
-Return a JSON object with this exact format:
-{{
+## Step 2: Identify Concepts (MOST IMPORTANT)
+For each entity, ask: "What design pattern, architecture concept, or business concept does this implement?"
+
+Common concepts to recognize:
+- Design patterns: Observer, Strategy, Factory, Singleton, Adapter, Facade, Proxy, Builder, Iterator, Pipeline, Cache, Index, Repository
+- Architecture concepts: Message Queue, Event Bus, Middleware, ORM, Dependency Injection, Configuration Management
+- Business concepts: Authentication, Authorization, Rate Limiting, Data Validation, Logging, Error Handling
+
+When you identify a concept:
+- source: the code entity name
+- source_type: the entity's type (function, class, etc.)
+- target: the concept name (e.g. "Cache Pattern", "Repository Pattern", "Dependency Injection")
+- target_type: one of "design_pattern", "business_concept", "api_contract", "data_model", "process"
+- relation_type: "derived_from"
+
+## Output Format
+Return ONLY a JSON object:
+{{{{
   "relations": [
-    {{
+    {{{{
       "source": "EntityName",
       "source_type": "function",
       "target": "EntityName",
@@ -309,13 +326,24 @@ Return a JSON object with this exact format:
       "relation_type": "semantic_impact",
       "confidence": 0.8,
       "reasoning": "Brief explanation"
-    }}
+    }}}},
+    {{{{
+      "source": "ClassName",
+      "source_type": "class",
+      "target": "Cache Pattern",
+      "target_type": "design_pattern",
+      "relation_type": "derived_from",
+      "confidence": 0.9,
+      "reasoning": "This class manages cached data with get/set operations"
+    }}}}
   ]
-}}
+}}}}
 
-Rules:
+## Rules
 - Only include relations you are confident about (confidence >= 0.5)
-- relation_type must be one of: semantic_impact, describes, illustrates, derived_from
+- relation_type must be one of: semantic_impact, derived_from
+- target_type for concepts MUST be one of: design_pattern, business_concept, api_contract, data_model, process
+- You MUST identify at least some concepts — do NOT only output code-to-code relations
 - Return ONLY the JSON, no additional text"""
 
     @staticmethod

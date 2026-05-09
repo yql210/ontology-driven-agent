@@ -230,7 +230,7 @@ class TestBuildPrompt:
     def test_empty_entities(self):
         """空 entities → prompt 包含 "Entities:" 后为空。"""
         prompt = SemanticExtractor._build_prompt([])
-        assert "Entities:\n\n\nExtract" in prompt
+        assert "Entities:\n\n\n## Step 1:" in prompt
 
     def test_single_entity_with_source(self):
         """1 个 entity（有 source）→ prompt 包含实体名和源码预览。"""
