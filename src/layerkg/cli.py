@@ -20,7 +20,15 @@ def main(verbose: bool) -> None:
 
 @main.command()
 @click.argument("repo_path", type=click.Path(exists=True))
-def build(repo_path: str) -> None:
+@click.option("--skip-semantic", is_flag=True, help="跳过语义提取 (Stage 3)")
+@click.option("--skip-clustering", is_flag=True, help="跳过模块聚类 (Stage 4)")
+@click.option("--verbose-build", is_flag=True, help="逐阶段输出详情")
+def build(
+    repo_path: str,
+    skip_semantic: bool,
+    skip_clustering: bool,
+    verbose_build: bool,
+) -> None:
     """全量构建知识图谱。
 
     扫描指定目录下的所有 Python 文件，解析代码结构，
@@ -28,12 +36,19 @@ def build(repo_path: str) -> None:
     """
     config = LayerKGConfig.from_env()
     with LayerKGBuilder(config) as builder:
-        result = builder.build(Path(repo_path))
-        click.echo(
-            f"Build complete: {result.files_scanned} files scanned, "
-            f"{result.entities_created} entities created, "
-            f"{result.relations_created} relations created"
+        result = builder.build(
+            Path(repo_path),
+            skip_semantic=skip_semantic,
+            skip_clustering=skip_clustering,
         )
+        if verbose_build:
+            click.echo(str(result))
+        else:
+            click.echo(
+                f"Build complete: {result.files_scanned} files scanned, "
+                f"{result.entities_created} entities created, "
+                f"{result.relations_created} relations created"
+            )
 
 
 @main.command()

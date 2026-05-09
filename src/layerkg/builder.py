@@ -84,6 +84,24 @@ class BuildResult:
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
+    def __str__(self) -> str:
+        lines = ["Build Report:"]
+        lines.append(f"  Files scanned:    {self.files_scanned}")
+        lines.append(f"  Entities created: {self.entities_created}")
+        lines.append(f"  Relations created: {self.relations_created}")
+        lines.append(f"  Doc entities:     {self.doc_entities_created}")
+        lines.append(f"  Concepts:         {self.concepts_created}")
+        lines.append(f"  Semantic rels:    {self.semantic_relations_created}")
+        lines.append(f"  Modules:          {self.modules_created}")
+        lines.append(f"  Semantic stage: {'[!] skipped' if self.skipped_semantic else '[+] completed'}")
+        lines.append(f"  Build status: {'[X] aborted' if self.aborted else '[+] success'}")
+        if self.errors:
+            lines.append(f"  Errors ({len(self.errors)}):")
+            for err in self.errors:
+                lines.append(f"    - {err}")
+        lines.append(f"  Elapsed: {self.elapsed_ms:.0f}ms")
+        return "\n".join(lines)
+
 
 class LayerKGBuilder:
     """LayerKG 构建器，组装解析 → 提取 → 存储流水线。"""
@@ -293,7 +311,13 @@ class LayerKGBuilder:
 
         return concepts_created, semantic_relations_created, skipped_semantic, errors, new_concepts
 
-    def build(self, repo_path: Path) -> BuildResult:
+    def build(
+        self,
+        repo_path: Path,
+        *,
+        skip_semantic: bool = False,
+        skip_clustering: bool = False,
+    ) -> BuildResult:
         """全量构建：5阶段流水线编排。
 
         阶段:
@@ -305,6 +329,8 @@ class LayerKGBuilder:
 
         Args:
             repo_path: 仓库根目录路径。
+            skip_semantic: 跳过语义提取（Stage 3）。
+            skip_clustering: 跳过模块聚类（Stage 4）。
 
         Returns:
             构建结果统计。
@@ -342,19 +368,30 @@ class LayerKGBuilder:
             graph_store.merge_relation(rel.source_id, rel.target_id, rel.relation_type)
 
         # Stage 3: 语义提取（可降级）
-        concepts_created, semantic_rels_created, skipped_semantic, sem_errors, new_concepts = self._stage_semantic(
-            all_entities, graph_store, repo_path
-        )
+        if skip_semantic:
+            concepts_created = 0
+            semantic_rels_created = 0
+            skipped_semantic = True
+            sem_errors = []
+            new_concepts = []
+        else:
+            concepts_created, semantic_rels_created, skipped_semantic, sem_errors, new_concepts = self._stage_semantic(
+                all_entities, graph_store, repo_path
+            )
         all_errors.extend(sem_errors)
 
         # Stage 4: 模块聚类（可降级）
-        try:
-            clusters_count, clusters = self._detect_and_write_modules(graph_store)
-        except Exception as e:
-            self._logger.warning("Module clustering failed: %s", e)
-            all_errors.append(f"Module clustering error: {e}")
+        if skip_clustering:
             clusters_count = 0
             clusters = []
+        else:
+            try:
+                clusters_count, clusters = self._detect_and_write_modules(graph_store)
+            except Exception as e:
+                self._logger.warning("Module clustering failed: %s", e)
+                all_errors.append(f"Module clustering error: {e}")
+                clusters_count = 0
+                clusters = []
 
         # Stage 5: 向量写入（可降级）
         try:
