@@ -16,6 +16,9 @@ def main(verbose: bool) -> None:
     """LayerKG — 本体驱动的可更新知识图谱引擎。"""
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("neo4j").setLevel(logging.WARNING)
 
 
 @main.command()

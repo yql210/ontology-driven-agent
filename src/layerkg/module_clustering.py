@@ -309,6 +309,7 @@ class ModuleClustering:
             )
             clusters.append(cluster)
 
+        self._logger.info("[Clustering] Detected %d modules", len(clusters))
         return clusters
 
     def save_modules(self, clusters: list[ModuleCluster]) -> int:
@@ -345,6 +346,7 @@ class ModuleClustering:
 
             saved += 1
 
+        self._logger.info("[Clustering] Saved %d modules to Neo4j", saved)
         return saved
 
     def get_module_tree(self) -> dict:

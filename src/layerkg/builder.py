@@ -250,10 +250,16 @@ class LayerKGBuilder:
 
         try:
             graph_store.ensure_constraints()
-            for entity in all_entities:
+            for i, entity in enumerate(all_entities, 1):
                 graph_store.merge_node("CodeEntity", self._entity_to_dict(entity))
-            for doc in doc_entities:
+                if i % 200 == 0:
+                    self._logger.info("[Neo4j] Merged %d/%d CodeEntities", i, len(all_entities))
+            self._logger.info("[Neo4j] Merged %d CodeEntities complete", len(all_entities))
+            for i, doc in enumerate(doc_entities, 1):
                 graph_store.merge_node("DocEntity", self._doc_entity_to_dict(doc))
+                if i % 200 == 0:
+                    self._logger.info("[Neo4j] Merged %d/%d DocEntities", i, len(doc_entities))
+            self._logger.info("[Neo4j] Merged %d DocEntities complete", len(doc_entities))
             for rel in relations:
                 graph_store.merge_relation(
                     rel.source_id,
@@ -262,6 +268,7 @@ class LayerKGBuilder:
                     source_label="CodeEntity",
                     target_label="CodeEntity",
                 )
+            self._logger.info("[Neo4j] Wrote %d structural relations", len(relations))
         except Exception as e:
             raise RuntimeError(f"Stage 2 structural write failed: {e}") from e
 
@@ -343,6 +350,7 @@ class LayerKGBuilder:
             skipped_semantic = True
             self._logger.info("Ollama unavailable, skipping semantic extraction")
 
+        self._logger.info("[Semantic] Stage complete: %d concepts, %d relations, %d errors", concepts_created, semantic_relations_created, len(errors))
         return concepts_created, semantic_relations_created, skipped_semantic, errors, new_concepts
 
     def build(
@@ -376,9 +384,11 @@ class LayerKGBuilder:
         aborted = False
 
         # Stage 1: 解析
+        self._logger.info("═══ Stage 1/5: Parse ═══")
         all_entities, doc_entities, relations, files_scanned = self._stage_parse(repo_path)
 
         # Stage 2: 结构写入（关键路径）
+        self._logger.info("═══ Stage 2/5: Structural Write ═══")
         try:
             graph_store = self._stage_write_structural(all_entities, doc_entities, relations)
         except RuntimeError as e:
@@ -396,14 +406,17 @@ class LayerKGBuilder:
             )
 
         # Stage 2.5: 文档→代码关联
+        self._logger.info("═══ Stage 2.5/5: Doc-Code Link ═══")
         entity_index = self._build_entity_index(all_entities, repo_path)
         describes_rels = self._link_docs_to_code(doc_entities, entity_index)
         for rel in describes_rels:
             graph_store.merge_relation(
                 rel.source_id, rel.target_id, rel.relation_type, source_label="DocEntity", target_label="CodeEntity"
             )
+        self._logger.info("═══ Stage 2.5/5 complete: %d DESCRIBES relations ═══", len(describes_rels))
 
         # Stage 3: 语义提取（可降级）
+        self._logger.info("═══ Stage 3/5: Semantic Extraction (may take a while...) ═══")
         if skip_semantic:
             concepts_created = 0
             semantic_rels_created = 0
@@ -415,8 +428,10 @@ class LayerKGBuilder:
                 all_entities, graph_store, repo_path, doc_entities=doc_entities
             )
         all_errors.extend(sem_errors)
+        self._logger.info("═══ Stage 3/5 complete: %d concepts, %d semantic relations ═══", concepts_created, semantic_rels_created)
 
         # Stage 4: 模块聚类（可降级）
+        self._logger.info("═══ Stage 4/5: Module Clustering ═══")
         if skip_clustering:
             clusters_count = 0
             clusters = []
@@ -428,8 +443,10 @@ class LayerKGBuilder:
                 all_errors.append(f"Module clustering error: {e}")
                 clusters_count = 0
                 clusters = []
+        self._logger.info("═══ Stage 4/5 complete: %d modules ═══", clusters_count)
 
         # Stage 5: 向量写入（可降级）
+        self._logger.info("═══ Stage 5/5: Vector Index ═══")
         try:
             self._write_all_vectors(all_entities, doc_entities, new_concepts, clusters)
         except Exception as e:
@@ -777,7 +794,9 @@ class LayerKGBuilder:
             items.append((module.id, text, {"entity_type": "module", "name": module.name}))
 
         if items:
+            self._logger.info("[Vector] Writing %d items to ChromaDB...", len(items))
             chroma_store.put_entities_batch(items)
+            self._logger.info("[Vector] Wrote %d vectors complete", len(items))
 
     def _fuzzy_lookup_entity(
         self,

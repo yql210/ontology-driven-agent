@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -122,6 +123,7 @@ class SemanticExtractor:
         self._max_retries = max_retries
         self._timeout = timeout
         self._temperature = temperature
+        self._logger = logging.getLogger(__name__)
         self._client = httpx.Client()
 
     def close(self) -> None:
@@ -156,13 +158,22 @@ class SemanticExtractor:
         batches = self._create_batches(entities)
 
         # 2. 逐批调用 LLM
-        for batch in batches:
+        total_batches = len(batches)
+        self._logger.info("[Semantic] Starting: %d entities in %d batches", len(entities), total_batches)
+        for i, batch in enumerate(batches, 1):
+            t_batch = time.time()
             try:
                 batch_relations, batch_tokens = self.extract_batch(batch)
                 all_relations.extend(batch_relations)
                 total_tokens += batch_tokens
+                elapsed_batch = time.time() - t_batch
+                self._logger.info(
+                    "[Semantic] Batch %d/%d: %d relations, %d tokens (%.1fs)",
+                    i, total_batches, len(batch_relations), batch_tokens, elapsed_batch,
+                )
             except ExtractionError as e:
                 errors.append(str(e))
+                self._logger.warning("[Semantic] Batch %d/%d FAILED: %s", i, total_batches, e)
             finally:
                 llm_calls += 1
 
@@ -174,6 +185,10 @@ class SemanticExtractor:
             concept_relations = self._extract_cross_type_relations(entities, concept_entities, "derived_from")
             all_relations.extend(concept_relations)
 
+        self._logger.info(
+            "[Semantic] Complete: %d relations from %d batches, %d tokens total",
+            len(all_relations), total_batches, total_tokens,
+        )
         return ExtractionResult(
             relations=all_relations,
             entities_processed=len(entities),
@@ -260,6 +275,7 @@ class SemanticExtractor:
             except ExtractionError:
                 if attempt == self._max_retries - 1:
                     raise
+                self._logger.warning("[Semantic] Batch retry %d/%d", attempt + 2, self._max_retries)
                 import time
 
                 time.sleep(2**attempt)
