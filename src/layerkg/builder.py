@@ -393,6 +393,7 @@ class LayerKGBuilder:
         *,
         skip_semantic: bool = False,
         skip_clustering: bool = False,
+        clear: bool = False,
     ) -> BuildResult:
         """全量构建：5阶段流水线编排。
 
@@ -416,6 +417,12 @@ class LayerKGBuilder:
         t0 = time.monotonic()
         all_errors: list[str] = []
         aborted = False
+
+        # Pre-build: 清库（如果指定）
+        if clear:
+            graph_store = self._get_graph_store()
+            cleared = graph_store.clear_all()
+            self._logger.info("═══ Pre-build: Cleared %d existing nodes ═══", cleared)
 
         # Stage 1: 解析
         self._logger.info("═══ Stage 1/5: Parse ═══")
@@ -913,13 +920,13 @@ class LayerKGBuilder:
         ] = {}  # (source_id, target_id) -> (source_type, target_type)
 
         # 路径 A：收集所有概念目标的 unique target_name
-        concept_targets: dict[str, str] = {}  # target_name → target_type
+        concept_targets: dict[str, tuple[str, str]] = {}  # target_name → (target_type, reasoning)
         concept_relations: list[SemanticRelation] = []
         code_relations: list[SemanticRelation] = []
 
         for rel in relations:
             if rel.target_type in _CONCEPT_ENTITY_TYPES:
-                concept_targets.setdefault(rel.target_name, rel.target_type)
+                concept_targets.setdefault(rel.target_name, (rel.target_type, rel.reasoning or ""))
                 concept_relations.append(rel)
             elif rel.target_type in _CODE_ENTITY_TYPES:
                 code_relations.append(rel)
@@ -935,9 +942,11 @@ class LayerKGBuilder:
             for target_name, align_result in zip(concept_targets.keys(), align_results, strict=True):
                 if align_result.match_type == "none":
                     # 创建新 ConceptEntity
+                    _target_type, _description = concept_targets[target_name]
                     concept = ConceptEntity(
                         name=target_name,
-                        entity_type=concept_targets[target_name],
+                        entity_type=_target_type,
+                        description=_description,
                     )
                     new_concepts.append(concept)
                     concept_id_map[target_name] = concept.id
@@ -968,7 +977,7 @@ class LayerKGBuilder:
                         relation_type=rel.relation_type,
                     )
                 )
-                type_mapping[(source_id, target_id)] = (rel.source_type, concept_targets[rel.target_name])
+                type_mapping[(source_id, target_id)] = (rel.source_type, concept_targets[rel.target_name][0])
 
         # 路径 B：代码目标，用 entity_index 解析
         for rel in code_relations:

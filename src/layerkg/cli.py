@@ -26,11 +26,13 @@ def main(verbose: bool) -> None:
 @click.option("--skip-semantic", is_flag=True, help="跳过语义提取 (Stage 3)")
 @click.option("--skip-clustering", is_flag=True, help="跳过模块聚类 (Stage 4)")
 @click.option("--verbose-build", is_flag=True, help="逐阶段输出详情")
+@click.option("--clear", is_flag=True, help="清空数据库后重建")
 def build(
     repo_path: str,
     skip_semantic: bool,
     skip_clustering: bool,
     verbose_build: bool,
+    clear: bool,
 ) -> None:
     """全量构建知识图谱。
 
@@ -43,6 +45,7 @@ def build(
             Path(repo_path),
             skip_semantic=skip_semantic,
             skip_clustering=skip_clustering,
+            clear=clear,
         )
         if verbose_build:
             click.echo(str(result))

@@ -328,3 +328,19 @@ class Neo4jGraphStore(GraphStore):
             logger.info(f"Cleaned up {deleted_count} orphan nodes")
 
         return deleted_count
+
+    def clear_all(self) -> int:
+        """清空所有节点和关系。
+
+        Returns:
+            删除的节点数量。
+        """
+        cypher = "MATCH (n) DETACH DELETE n RETURN count(*) as c"
+
+        with self._driver.session() as session:
+            result: Neo4jResult = session.run(cypher)
+            record = result.single()
+            count = record["c"] if record else 0
+            logger.info("Cleared %d nodes from Neo4j", count)
+
+        return count
