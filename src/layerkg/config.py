@@ -36,6 +36,10 @@ class LayerKGConfig:
         build_include_docs: 是否包含文档文件。
         build_doc_extensions: 文档文件扩展名列表。
         build_skip_dirs: 跳过的目录集合。
+        agent_llm_provider: Agent LLM 提供商。
+        agent_llm_model: Agent LLM 模型名称。
+        agent_api_key: Agent API 密钥。
+        agent_base_url: Agent API 基础 URL。
     """
 
     neo4j_uri: str = "bolt://localhost:7687"
@@ -68,6 +72,31 @@ class LayerKGConfig:
         }
     )
 
+    # Agent/LLM 配置（Phase 3 新增）
+    agent_llm_provider: str = "zhipu"
+    agent_llm_model: str = "claude-sonnet-4-20250514"
+    agent_api_key: str = ""
+    agent_base_url: str = "https://open.bigmodel.cn/api/anthropic"
+    build_doc_extensions: list[str] = field(default_factory=lambda: [".md", ".rst"])
+    build_doc_max_length: int = 2000
+    build_skip_dirs: set[str] = field(
+        default_factory=lambda: {
+            "__pycache__",
+            ".git",
+            ".mypy_cache",
+            ".ruff_cache",
+            ".pytest_cache",
+            "node_modules",
+            ".venv",
+            "venv",
+            "site",
+            ".tox",
+            "dist",
+            "build",
+            "*.egg-info",
+        }
+    )
+
     @classmethod
     def from_env(cls) -> LayerKGConfig:
         """从环境变量创建配置（自动加载 .env 文件）。
@@ -77,7 +106,9 @@ class LayerKGConfig:
             LAYERKG_CHROMA_DIR, LAYERKG_OLLAMA_URL, LAYERKG_EMBEDDING_MODEL,
             LAYERKG_LLM_MODEL, LAYERKG_BUILD_INCLUDE_DOCS,
             LAYERKG_BUILD_DOC_EXTENSIONS, LAYERKG_BUILD_SKIP_DIRS,
-            LAYERKG_BUILD_DOC_MAX_LENGTH
+            LAYERKG_BUILD_DOC_MAX_LENGTH, LAYERKG_AGENT_LLM_PROVIDER,
+            LAYERKG_AGENT_LLM_MODEL, LAYERKG_AGENT_API_KEY,
+            LAYERKG_AGENT_BASE_URL
         """
         _load_dotenv()
 
@@ -109,4 +140,8 @@ class LayerKGConfig:
             build_doc_extensions=build_doc_extensions,
             build_skip_dirs=build_skip_dirs,
             build_doc_max_length=int(os.getenv("LAYERKG_BUILD_DOC_MAX_LENGTH", "2000")),
+            agent_llm_provider=os.getenv("LAYERKG_AGENT_LLM_PROVIDER", cls.agent_llm_provider),
+            agent_llm_model=os.getenv("LAYERKG_AGENT_LLM_MODEL", cls.agent_llm_model),
+            agent_api_key=os.getenv("LAYERKG_AGENT_API_KEY", cls.agent_api_key),
+            agent_base_url=os.getenv("LAYERKG_AGENT_BASE_URL", cls.agent_base_url),
         )

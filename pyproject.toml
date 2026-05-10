@@ -13,6 +13,10 @@ dependencies = [
     "tree-sitter-python>=0.25.0",
     "httpx>=0.28.1",
     "fastmcp>=3.2.4",
+    "langgraph>=0.2,<0.3",
+    "langchain-core>=0.3,<0.4",
+    "langchain-ollama>=0.2,<0.3",
+    "langchain-anthropic>=0.3.22",
 ]
 
 [project.optional-dependencies]

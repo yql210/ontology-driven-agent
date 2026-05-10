@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -131,3 +132,32 @@ def serve(transport: str, port: int) -> None:
     else:
         click.echo("Starting MCP server on stdio")
         mcp.run()
+
+
+@main.command()
+@click.argument("question", required=False)
+@click.option("--interactive", "-i", is_flag=True, help="交互式对话模式")
+def ask(question: str | None, interactive: bool) -> None:
+    """向代码知识图谱提问。示例：layerkg ask "merge_node 被谁调用" """
+    if not question and not interactive:
+        click.echo("请提供问题或使用 -i 进入交互模式")
+        return
+
+    from layerkg.agent.graph import run_query
+
+    if interactive:
+        click.echo("LayerKG 交互模式(输入 quit 退出)")
+        while True:
+            try:
+                q = click.prompt("", prompt_suffix="> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if q.lower() in ("quit", "exit", "q"):
+                break
+            if not q:
+                continue
+            answer = asyncio.run(run_query(q))
+            click.echo(f"\n{answer}\n")
+    else:
+        answer = asyncio.run(run_query(question))
+        click.echo(answer)
