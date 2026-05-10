@@ -77,25 +77,10 @@ class LayerKGConfig:
     agent_llm_model: str = "glm-4-flash"
     agent_api_key: str = ""
     agent_base_url: str = "https://open.bigmodel.cn/api/anthropic"
-    build_doc_extensions: list[str] = field(default_factory=lambda: [".md", ".rst"])
-    build_doc_max_length: int = 2000
-    build_skip_dirs: set[str] = field(
-        default_factory=lambda: {
-            "__pycache__",
-            ".git",
-            ".mypy_cache",
-            ".ruff_cache",
-            ".pytest_cache",
-            "node_modules",
-            ".venv",
-            "venv",
-            "site",
-            ".tox",
-            "dist",
-            "build",
-            "*.egg-info",
-        }
-    )
+    # Langfuse 可观测性（Phase 3 Day 2 新增）
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "http://REDACTED_IP:3000"
 
     @classmethod
     def from_env(cls) -> LayerKGConfig:
@@ -108,7 +93,8 @@ class LayerKGConfig:
             LAYERKG_BUILD_DOC_EXTENSIONS, LAYERKG_BUILD_SKIP_DIRS,
             LAYERKG_BUILD_DOC_MAX_LENGTH, LAYERKG_AGENT_LLM_PROVIDER,
             LAYERKG_AGENT_LLM_MODEL, LAYERKG_AGENT_API_KEY,
-            LAYERKG_AGENT_BASE_URL
+            LAYERKG_AGENT_BASE_URL, LAYERKG_LANGFUSE_PUBLIC_KEY,
+            LAYERKG_LANGFUSE_SECRET_KEY, LAYERKG_LANGFUSE_HOST
         """
         _load_dotenv()
 
@@ -144,4 +130,7 @@ class LayerKGConfig:
             agent_llm_model=os.getenv("LAYERKG_AGENT_LLM_MODEL", cls.agent_llm_model),
             agent_api_key=os.getenv("LAYERKG_AGENT_API_KEY", cls.agent_api_key),
             agent_base_url=os.getenv("LAYERKG_AGENT_BASE_URL", cls.agent_base_url),
+            langfuse_public_key=os.getenv("LAYERKG_LANGFUSE_PUBLIC_KEY", cls.langfuse_public_key),
+            langfuse_secret_key=os.getenv("LAYERKG_LANGFUSE_SECRET_KEY", cls.langfuse_secret_key),
+            langfuse_host=os.getenv("LAYERKG_LANGFUSE_HOST", cls.langfuse_host),
         )

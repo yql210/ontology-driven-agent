@@ -15,12 +15,14 @@ from layerkg.agent.tools import ALL_TOOLS
 
 class AgentState(MessagesState):
     """ReAct Agent 状态 — 只需 messages"""
+
     pass
 
 
 def _create_llm() -> ChatOpenAI:
     """创建 LLM 实例（智谱 OpenAI 兼容接口）"""
     from layerkg.agent._helpers import get_config
+
     cfg = get_config()
     return ChatOpenAI(
         model=cfg.agent_llm_model,
@@ -40,6 +42,22 @@ async def _agent_node(state: AgentState) -> dict[str, list[BaseMessage]]:
     ]
     response = await llm_with_tools.ainvoke(messages)
     return {"messages": [response]}
+
+
+def _get_langfuse_handler():
+    """创建 Langfuse 回调 handler（可选，无 key 时返回 None）"""
+    from layerkg.agent._helpers import get_config
+
+    cfg = get_config()
+    if not cfg.langfuse_public_key or not cfg.langfuse_secret_key:
+        return None
+    from langfuse.callback import CallbackHandler
+
+    return CallbackHandler(
+        public_key=cfg.langfuse_public_key,
+        secret_key=cfg.langfuse_secret_key,
+        host=cfg.langfuse_host,
+    )
 
 
 def create_agent() -> Any:
@@ -65,9 +83,14 @@ def create_agent() -> Any:
 async def run_query(question: str) -> str:
     """运行单次查询（异步）"""
     agent = create_agent()
+    config = {"recursion_limit": 50}
+    handler = _get_langfuse_handler()
+    if handler:
+        config["callbacks"] = [handler]
+
     result = await agent.ainvoke(
         {"messages": [HumanMessage(content=question)]},
-        config={"recursion_limit": 50},
+        config=config,
     )
     # 取最后一条 AI 消息
     for msg in reversed(result["messages"]):
@@ -76,5 +99,6 @@ async def run_query(question: str) -> str:
             if isinstance(content, str):
                 return content
             import json
+
             return json.dumps(content, ensure_ascii=False)
     return "无法生成回答。"

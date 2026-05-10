@@ -183,7 +183,9 @@ class LayerKGBuilder:
             self._doc_parser = DocParser()
         return self._doc_parser
 
-    def _stage_parse(self, repo_path: Path) -> tuple[list[CodeEntity], list[DocEntity], list[Relation], int, list[ExtractedRelation]]:
+    def _stage_parse(
+        self, repo_path: Path
+    ) -> tuple[list[CodeEntity], list[DocEntity], list[Relation], int, list[ExtractedRelation]]:
         """Stage 1: 扫描 + 解析文件 + 提取结构关系。
 
         Args:
@@ -302,7 +304,11 @@ class LayerKGBuilder:
                     )
                     ext_rel_count += 1
 
-            self._logger.info("[Neo4j] Created %d external module nodes, %d external import relations", len(external_modules), ext_rel_count)
+            self._logger.info(
+                "[Neo4j] Created %d external module nodes, %d external import relations",
+                len(external_modules),
+                ext_rel_count,
+            )
         except Exception as e:
             raise RuntimeError(f"Stage 2 structural write failed: {e}") from e
 
@@ -384,7 +390,12 @@ class LayerKGBuilder:
             skipped_semantic = True
             self._logger.info("Ollama unavailable, skipping semantic extraction")
 
-        self._logger.info("[Semantic] Stage complete: %d concepts, %d relations, %d errors", concepts_created, semantic_relations_created, len(errors))
+        self._logger.info(
+            "[Semantic] Stage complete: %d concepts, %d relations, %d errors",
+            concepts_created,
+            semantic_relations_created,
+            len(errors),
+        )
         return concepts_created, semantic_relations_created, skipped_semantic, errors, new_concepts
 
     def build(
@@ -471,7 +482,9 @@ class LayerKGBuilder:
                 all_entities, graph_store, repo_path, doc_entities=doc_entities
             )
         all_errors.extend(sem_errors)
-        self._logger.info("═══ Stage 3/5 complete: %d concepts, %d semantic relations ═══", concepts_created, semantic_rels_created)
+        self._logger.info(
+            "═══ Stage 3/5 complete: %d concepts, %d semantic relations ═══", concepts_created, semantic_rels_created
+        )
 
         # Stage 4: 模块聚类（可降级）
         self._logger.info("═══ Stage 4/5: Module Clustering ═══")
@@ -721,23 +734,23 @@ class LayerKGBuilder:
                     # 用于处理只提到文件名而非完整路径的情况
                     filename = os.path.basename(file_path)
                     if filename and filename != file_path and filename in doc_content:  # 避免重复匹配根目录文件
-                            # 检查边界
-                            doc_idx = doc_content.find(filename)
-                            left_ok = doc_idx == 0 or doc_content[doc_idx - 1] in _BOUNDARY_CHARS
-                            right_ok = (
-                                doc_idx + len(filename) >= len(doc_content)
-                                or doc_content[doc_idx + len(filename)] in _BOUNDARY_CHARS
-                            )
-                            if left_ok and right_ok:
-                                describes_rels.append(
-                                    Relation(
-                                        source_id=doc.id,
-                                        target_id=entity_ids[0],
-                                        relation_type="describes",
-                                    )
+                        # 检查边界
+                        doc_idx = doc_content.find(filename)
+                        left_ok = doc_idx == 0 or doc_content[doc_idx - 1] in _BOUNDARY_CHARS
+                        right_ok = (
+                            doc_idx + len(filename) >= len(doc_content)
+                            or doc_content[doc_idx + len(filename)] in _BOUNDARY_CHARS
+                        )
+                        if left_ok and right_ok:
+                            describes_rels.append(
+                                Relation(
+                                    source_id=doc.id,
+                                    target_id=entity_ids[0],
+                                    relation_type="describes",
                                 )
-                                count += 1
-                                continue
+                            )
+                            count += 1
+                            continue
 
                 # 函数名匹配：从代码块提取标识符（不依赖 file_path）
                 if name in self._extract_identifiers_from_code(content) and len(name) > 3:

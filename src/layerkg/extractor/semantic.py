@@ -169,7 +169,11 @@ class SemanticExtractor:
                 elapsed_batch = time.time() - t_batch
                 self._logger.info(
                     "[Semantic] Batch %d/%d: %d relations, %d tokens (%.1fs)",
-                    i, total_batches, len(batch_relations), batch_tokens, elapsed_batch,
+                    i,
+                    total_batches,
+                    len(batch_relations),
+                    batch_tokens,
+                    elapsed_batch,
                 )
             except ExtractionError as e:
                 errors.append(str(e))
@@ -187,7 +191,9 @@ class SemanticExtractor:
 
         self._logger.info(
             "[Semantic] Complete: %d relations from %d batches, %d tokens total",
-            len(all_relations), total_batches, total_tokens,
+            len(all_relations),
+            total_batches,
+            total_tokens,
         )
         return ExtractionResult(
             relations=all_relations,

@@ -16,10 +16,16 @@ def reset_helpers() -> None:
     _helpers._config = None
     _helpers._neo4j = None
     _helpers._chroma = None
+    _helpers._aligner = None
+    _helpers._clustering = None
+    _helpers._impact_propagator = None
     yield
     _helpers._config = None
     _helpers._neo4j = None
     _helpers._chroma = None
+    _helpers._aligner = None
+    _helpers._clustering = None
+    _helpers._impact_propagator = None
 
 
 def test_get_config_returns_config() -> None:
@@ -67,9 +73,7 @@ def test_get_neo4j_returns_store() -> None:
             store = _helpers.get_neo4j()
 
             assert store is not None
-            mock_neo4j_class.assert_called_once_with(
-                "bolt://localhost:7687", "neo4j", "password"
-            )
+            mock_neo4j_class.assert_called_once_with("bolt://localhost:7687", "neo4j", "password")
 
 
 def test_get_neo4j_singleton() -> None:
@@ -110,9 +114,7 @@ def test_get_chroma_returns_store() -> None:
             store = _helpers.get_chroma()
 
             assert store is not None
-            mock_chroma_class.assert_called_once_with(
-                "/tmp/chroma", "http://localhost:11434", "qwen2.5-coder:0.5b"
-            )
+            mock_chroma_class.assert_called_once_with("/tmp/chroma", "http://localhost:11434", "qwen2.5-coder:0.5b")
 
 
 def test_get_chroma_singleton() -> None:
@@ -135,3 +137,44 @@ def test_get_chroma_singleton() -> None:
             mock_chroma_class.assert_called_once()
             # 返回同一实例
             assert store1 is store2
+
+
+def test_get_aligner_returns_aligner() -> None:
+    """get_aligner 返回 ConceptAligner（带 concepts 加载）"""
+    with (
+        patch("layerkg.agent._helpers.get_neo4j") as mock_neo4j_fn,
+        patch("layerkg.agent._helpers.get_chroma") as mock_chroma_fn,
+        patch("layerkg.agent._helpers.get_config") as mock_config_fn,
+    ):
+        mock_neo4j = MagicMock()
+        mock_neo4j.query.return_value = []
+        mock_neo4j_fn.return_value = mock_neo4j
+        mock_chroma_fn.return_value = MagicMock()
+        mock_config_fn.return_value = MagicMock()
+
+        from layerkg.agent._helpers import get_aligner
+
+        aligner = get_aligner()
+        assert aligner is not None
+
+
+def test_get_clustering_returns_clustering() -> None:
+    """get_clustering 返回 ModuleClustering"""
+    with patch("layerkg.agent._helpers.get_neo4j") as mock_neo4j_fn:
+        mock_neo4j_fn.return_value = MagicMock()
+
+        from layerkg.agent._helpers import get_clustering
+
+        clustering = get_clustering()
+        assert clustering is not None
+
+
+def test_get_impact_propagator_returns_propagator() -> None:
+    """get_impact_propagator 返回 ImpactPropagator"""
+    with patch("layerkg.agent._helpers.get_neo4j") as mock_neo4j_fn:
+        mock_neo4j_fn.return_value = MagicMock()
+
+        from layerkg.agent._helpers import get_impact_propagator
+
+        propagator = get_impact_propagator()
+        assert propagator is not None

@@ -9,11 +9,20 @@ from layerkg.agent.tools import ALL_TOOLS, graph_query, semantic_search
 
 
 def test_all_tools_defined() -> None:
-    """ALL_TOOLS 长度为 2，包含 semantic_search 和 graph_query"""
-    assert len(ALL_TOOLS) == 2
+    """ALL_TOOLS 长度为 8，包含所有工具"""
+    assert len(ALL_TOOLS) == 8
     tool_names = {t.name for t in ALL_TOOLS}
-    assert "semantic_search" in tool_names
-    assert "graph_query" in tool_names
+    expected_tools = {
+        "semantic_search",
+        "graph_query",
+        "impact_analysis",
+        "get_context",
+        "list_concepts",
+        "get_module_tree",
+        "detect_changes",
+        "export_graph",
+    }
+    assert tool_names == expected_tools
 
 
 def test_semantic_search_returns_json() -> None:

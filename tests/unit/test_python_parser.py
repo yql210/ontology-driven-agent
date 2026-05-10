@@ -618,10 +618,10 @@ def complex_func(self, source: bytes, file_path: str = "<string>", options: dict
     pass
 '''
 
-FUNC_NO_DOCSTRING = b'''
+FUNC_NO_DOCSTRING = b"""
 def no_doc(x, y):
     return x + y
-'''
+"""
 
 
 def test_extract_function_docstring(parser: PythonParser) -> None:

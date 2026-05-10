@@ -85,18 +85,14 @@ def test_code_entity_parameters_default_none():
 @pytest.mark.unit
 def test_code_entity_docstring_can_be_set():
     """Test CodeEntity docstring field can be set."""
-    entity = CodeEntity(
-        name="test", entity_type="function", docstring="A test function."
-    )
+    entity = CodeEntity(name="test", entity_type="function", docstring="A test function.")
     assert entity.docstring == "A test function."
 
 
 @pytest.mark.unit
 def test_code_entity_parameters_can_be_set():
     """Test CodeEntity parameters field can be set."""
-    entity = CodeEntity(
-        name="test", entity_type="function", parameters='["self", "x: int"]'
-    )
+    entity = CodeEntity(name="test", entity_type="function", parameters='["self", "x: int"]')
     assert entity.parameters == '["self", "x: int"]'
 
 

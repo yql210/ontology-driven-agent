@@ -474,6 +474,7 @@ def test_build_name_map_multi_value() -> None:
 
     # Act
     from layerkg.extractor.relation import RelationExtractor
+
     name_map = RelationExtractor._build_name_map(entities)
 
     # Assert
