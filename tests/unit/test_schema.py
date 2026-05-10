@@ -69,6 +69,38 @@ def test_code_entity_optional_fields():
 
 
 @pytest.mark.unit
+def test_code_entity_docstring_default_none():
+    """Test CodeEntity docstring field defaults to None."""
+    entity = CodeEntity(name="test", entity_type="function")
+    assert entity.docstring is None
+
+
+@pytest.mark.unit
+def test_code_entity_parameters_default_none():
+    """Test CodeEntity parameters field defaults to None."""
+    entity = CodeEntity(name="test", entity_type="function")
+    assert entity.parameters is None
+
+
+@pytest.mark.unit
+def test_code_entity_docstring_can_be_set():
+    """Test CodeEntity docstring field can be set."""
+    entity = CodeEntity(
+        name="test", entity_type="function", docstring="A test function."
+    )
+    assert entity.docstring == "A test function."
+
+
+@pytest.mark.unit
+def test_code_entity_parameters_can_be_set():
+    """Test CodeEntity parameters field can be set."""
+    entity = CodeEntity(
+        name="test", entity_type="function", parameters='["self", "x: int"]'
+    )
+    assert entity.parameters == '["self", "x: int"]'
+
+
+@pytest.mark.unit
 def test_code_entity_created_at_is_iso_string():
     """Test that CodeEntity created_at is a valid ISO format string."""
     entity = CodeEntity(name="test", entity_type="function")

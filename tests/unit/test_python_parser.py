@@ -594,3 +594,137 @@ def test_extract_nested_call(parser: PythonParser) -> None:
     assert "is_valid" in targets
     assert "process" in targets
     assert "check" in sources
+
+
+# Docstring and parameters tests
+FUNC_WITH_DOCSTRING = b'''
+def calculate(x: int, y: int) -> int:
+    """Calculate the sum of two numbers."""
+    return x + y
+'''
+
+CLASS_WITH_DOCSTRING = b'''
+class Calculator:
+    """A simple calculator class."""
+
+    def add(self, a: int, b: int) -> int:
+        """Add two numbers."""
+        return a + b
+'''
+
+FUNC_WITH_COMPLEX_PARAMS = b'''
+def complex_func(self, source: bytes, file_path: str = "<string>", options: dict | None = None):
+    """A function with complex parameters."""
+    pass
+'''
+
+FUNC_NO_DOCSTRING = b'''
+def no_doc(x, y):
+    return x + y
+'''
+
+
+def test_extract_function_docstring(parser: PythonParser) -> None:
+    """测试提取函数 docstring。"""
+    result = parser.parse_source(FUNC_WITH_DOCSTRING, "calc.py")
+
+    assert result.error is None
+    entities_by_name = {e.name: e for e in result.entities}
+
+    assert "calculate" in entities_by_name
+    calc = entities_by_name["calculate"]
+    assert calc.docstring == "Calculate the sum of two numbers."
+
+
+def test_extract_function_parameters(parser: PythonParser) -> None:
+    """测试提取函数参数。"""
+    result = parser.parse_source(FUNC_WITH_DOCSTRING, "calc.py")
+
+    assert result.error is None
+    entities_by_name = {e.name: e for e in result.entities}
+
+    assert "calculate" in entities_by_name
+    calc = entities_by_name["calculate"]
+    # 参数应该是 JSON 数组字符串
+    assert calc.parameters is not None
+    assert "x: int" in calc.parameters
+    assert "y: int" in calc.parameters
+
+
+def test_extract_class_docstring(parser: PythonParser) -> None:
+    """测试提取类 docstring。"""
+    result = parser.parse_source(CLASS_WITH_DOCSTRING, "calc.py")
+
+    assert result.error is None
+    entities_by_name = {e.name: e for e in result.entities}
+
+    assert "Calculator" in entities_by_name
+    calc_class = entities_by_name["Calculator"]
+    assert calc_class.docstring == "A simple calculator class."
+
+
+def test_extract_method_docstring_and_parameters(parser: PythonParser) -> None:
+    """测试提取类方法的 docstring 和参数。"""
+    result = parser.parse_source(CLASS_WITH_DOCSTRING, "calc.py")
+
+    assert result.error is None
+    entities_by_name = {e.name: e for e in result.entities}
+
+    assert "Calculator.add" in entities_by_name
+    add_method = entities_by_name["Calculator.add"]
+    assert add_method.docstring == "Add two numbers."
+    assert add_method.parameters is not None
+    assert "self" in add_method.parameters
+    assert "a: int" in add_method.parameters
+
+
+def test_extract_complex_parameters(parser: PythonParser) -> None:
+    """测试提取复杂参数（带默认值、可选类型）。"""
+    result = parser.parse_source(FUNC_WITH_COMPLEX_PARAMS, "complex.py")
+
+    assert result.error is None
+    entities_by_name = {e.name: e for e in result.entities}
+
+    assert "complex_func" in entities_by_name
+    func = entities_by_name["complex_func"]
+    assert func.parameters is not None
+    assert "self" in func.parameters
+    assert "source: bytes" in func.parameters
+    assert "file_path: str" in func.parameters
+    assert "options: dict | None = None" in func.parameters
+
+
+def test_function_without_docstring_has_none(parser: PythonParser) -> None:
+    """测试没有 docstring 的函数字段为 None。"""
+    result = parser.parse_source(FUNC_NO_DOCSTRING, "no_doc.py")
+
+    assert result.error is None
+    entities_by_name = {e.name: e for e in result.entities}
+
+    assert "no_doc" in entities_by_name
+    func = entities_by_name["no_doc"]
+    assert func.docstring is None
+    # 参数应该仍然被提取
+    assert func.parameters is not None
+    assert "x" in func.parameters
+    assert "y" in func.parameters
+
+
+def test_docstring_truncated_to_500_chars(parser: PythonParser) -> None:
+    """测试 docstring 截断到 500 字符。"""
+    long_doc = """x""" * 600
+    code = f'''
+def long_func():
+    """{long_doc}"""
+    pass
+'''.encode()
+
+    result = parser.parse_source(code, "long.py")
+
+    assert result.error is None
+    entities_by_name = {e.name: e for e in result.entities}
+
+    assert "long_func" in entities_by_name
+    func = entities_by_name["long_func"]
+    assert func.docstring is not None
+    assert len(func.docstring) <= 500

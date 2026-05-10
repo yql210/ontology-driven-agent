@@ -20,6 +20,8 @@ class CodeEntity:
         end_line: 结束行号（可选）。
         source: 源代码片段（可选）。
         language: 编程语言（可选）。
+        docstring: 文档字符串（可选）。
+        parameters: 参数列表，JSON 格式字符串如 '["self", "x: int"]'（可选）。
         created_at: ISO 8601 格式的时间戳，自动生成。
     """
 
@@ -31,6 +33,8 @@ class CodeEntity:
     end_line: int | None = None
     source: str | None = None
     language: str | None = None
+    docstring: str | None = None
+    parameters: str | None = None
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     VALID_ENTITY_TYPES = {"function", "class", "interface", "module", "file"}

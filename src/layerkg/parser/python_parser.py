@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import tree_sitter_python as tspython
@@ -216,6 +217,9 @@ class PythonParser(BaseParser):
         end_line = node.end_point[0]
 
         source_text = node.text.decode("utf-8", errors="replace")
+        docstring = self._extract_docstring(node, source)
+        parameters = self._extract_parameters(node)
+
         entity = CodeEntity(
             name=full_name,
             entity_type="function",
@@ -224,6 +228,8 @@ class PythonParser(BaseParser):
             end_line=end_line,
             language="python",
             source=source_text,
+            docstring=docstring,
+            parameters=parameters,
         )
         entities.append(entity)
 
@@ -276,6 +282,8 @@ class PythonParser(BaseParser):
         end_line = node.end_point[0]
 
         source_text = node.text.decode("utf-8", errors="replace")
+        docstring = self._extract_docstring(node, source)
+
         entity = CodeEntity(
             name=class_name,
             entity_type="class",
@@ -284,6 +292,7 @@ class PythonParser(BaseParser):
             end_line=end_line,
             language="python",
             source=source_text,
+            docstring=docstring,
         )
         entities.append(entity)
 
@@ -524,3 +533,91 @@ class PythonParser(BaseParser):
             return self._extract_callee_name(func_node)
 
         return None
+
+    def _extract_docstring(self, node, source: bytes) -> str | None:
+        """从函数或类节点提取 docstring。
+
+        Args:
+            node: function_definition 或 class_definition 节点。
+            source: 源码字节流。
+
+        Returns:
+            提取的 docstring（去掉引号，截断到 500 字符），如果没有则返回 None。
+        """
+        # 找到 block 节点（tree-sitter Python 的 block 无 field name，需遍历 children）
+        block_node = None
+        for child in node.children:
+            if child.type == "block":
+                block_node = child
+                break
+        if block_node is None:
+            return None
+
+        # 在 block 内找第一个 expression_statement -> string
+        for child in block_node.children:
+            if child.type == "expression_statement":
+                for grandchild in child.children:
+                    if grandchild.type == "string":
+                        # 获取字符串内容
+                        doc_text = grandchild.text.decode("utf-8", errors="replace")
+                        # 去掉引号（可能是 """...""" 或 '''...''' 或 "..." 或 '...'）
+                        doc_text = doc_text.strip()
+                        if (doc_text.startswith('"""') and doc_text.endswith('"""')) or (
+                            doc_text.startswith("'''") and doc_text.endswith("'''")
+                        ):
+                            doc_text = doc_text[3:-3]
+                        elif (doc_text.startswith('"') and doc_text.endswith('"')) or (
+                            doc_text.startswith("'") and doc_text.endswith("'")
+                        ):
+                            doc_text = doc_text[1:-1]
+                        # 去掉首尾空白
+                        doc_text = doc_text.strip()
+                        # 截断到 500 字符
+                        if len(doc_text) > 500:
+                            doc_text = doc_text[:500]
+                        return doc_text if doc_text else None
+        return None
+
+    def _extract_parameters(self, node) -> str | None:
+        """从函数节点提取参数列表。
+
+        Args:
+            node: function_definition 节点。
+
+        Returns:
+            JSON 字符串格式的参数列表，如 '["self", "x: int"]'，如果没有参数则返回 None。
+        """
+        params_node = node.child_by_field_name("parameters")
+        if params_node is None:
+            return None
+
+        params: list[str] = []
+        for child in params_node.children:
+            if child.type == "identifier":
+                # 简单参数名: self, x
+                params.append(child.text.decode())
+            elif child.type == "typed_parameter":
+                # 带类型参数: x: int
+                params.append(child.text.decode())
+            elif child.type == "typed_default_parameter":
+                # 带类型和默认值的参数: x: int = 1
+                params.append(child.text.decode())
+            elif child.type == "default_parameter":
+                # 带默认值参数（无类型）: x = 1
+                params.append(child.text.decode())
+            elif child.type == "dictionary_pattern":
+                # **kwargs
+                params.append(child.text.decode())
+            elif child.type == "tuple_pattern":
+                # *args
+                params.append(child.text.decode())
+            elif child.type == "typed_dictionary_pattern":
+                # **kwargs: dict
+                params.append(child.text.decode())
+            elif child.type == "typed_tuple_pattern":
+                # *args: tuple
+                params.append(child.text.decode())
+
+        if not params:
+            return None
+        return json.dumps(params, ensure_ascii=False)
