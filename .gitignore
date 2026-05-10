@@ -10,3 +10,4 @@ build/
 .mypy_cache/
 .pyright/
 .chroma/
+.env

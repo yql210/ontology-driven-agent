@@ -2,6 +2,23 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
+
+
+def _load_dotenv(env_path: Path | None = None) -> None:
+    """Load .env file into os.environ (no external dependency)."""
+    path = env_path or Path(__file__).resolve().parent.parent.parent / ".env"
+    if not path.exists():
+        return
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip()
+            if key and key not in os.environ:
+                os.environ[key] = value
 
 
 @dataclass
@@ -53,7 +70,7 @@ class LayerKGConfig:
 
     @classmethod
     def from_env(cls) -> LayerKGConfig:
-        """从环境变量创建配置。
+        """从环境变量创建配置（自动加载 .env 文件）。
 
         支持的环境变量：
             LAYERKG_NEO4J_URI, LAYERKG_NEO4J_USER, LAYERKG_NEO4J_PASSWORD,
@@ -62,6 +79,8 @@ class LayerKGConfig:
             LAYERKG_BUILD_DOC_EXTENSIONS, LAYERKG_BUILD_SKIP_DIRS,
             LAYERKG_BUILD_DOC_MAX_LENGTH
         """
+        _load_dotenv()
+
         # 解析 build_doc_extensions
         doc_ext_str = os.getenv("LAYERKG_BUILD_DOC_EXTENSIONS")
         build_doc_extensions = (
