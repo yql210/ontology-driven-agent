@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 
@@ -139,25 +138,38 @@ def serve(transport: str, port: int) -> None:
 @click.option("--interactive", "-i", is_flag=True, help="交互式对话模式")
 def ask(question: str | None, interactive: bool) -> None:
     """向代码知识图谱提问。示例：layerkg ask "merge_node 被谁调用" """
-    if not question and not interactive:
-        click.echo("请提供问题或使用 -i 进入交互模式")
-        return
+    import asyncio
+    import uuid
 
     from layerkg.agent.graph import run_query
 
     if interactive:
-        click.echo("LayerKG 交互模式(输入 quit 退出)")
+        click.echo("🔍 LayerKG 交互模式")
+        click.echo("输入问题查询代码知识图谱，输入 quit/exit 退出\n")
+
+        thread_id = str(uuid.uuid4())
+
         while True:
             try:
                 q = click.prompt("", prompt_suffix="> ").strip()
             except (EOFError, KeyboardInterrupt):
+                click.echo("\n再见！")
                 break
             if q.lower() in ("quit", "exit", "q"):
+                click.echo("再见！")
                 break
             if not q:
                 continue
-            answer = asyncio.run(run_query(q))
-            click.echo(f"\n{answer}\n")
-    else:
+            try:
+                answer = asyncio.run(run_query(q, thread_id=thread_id))
+                click.echo(f"\n{answer}\n")
+                click.echo("-" * 60)
+            except KeyboardInterrupt:
+                click.echo("\n中断当前查询")
+            except Exception as e:
+                click.echo(f"\n错误: {e}\n")
+    elif question:
         answer = asyncio.run(run_query(question))
         click.echo(answer)
+    else:
+        click.echo("请提供问题或使用 -i 进入交互模式")

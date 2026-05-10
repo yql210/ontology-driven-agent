@@ -28,9 +28,15 @@ def semantic_search(query: str, top_k: int = 5) -> str:
     Returns:
         匹配的代码片段列表（JSON），包含文件路径、函数名、相似度分数
     """
-    chroma = get_chroma()
-    results = chroma.search(query_text=query, n_results=top_k)
-    return json.dumps(results, ensure_ascii=False, indent=2)
+    try:
+        chroma = get_chroma()
+        results = chroma.search(query_text=query, n_results=top_k)
+        return json.dumps(results, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return json.dumps(
+            {"error": f"语义搜索失败: {e!s}", "suggestion": "尝试使用 graph_query 替代"},
+            ensure_ascii=False,
+        )
 
 
 @tool
@@ -69,43 +75,46 @@ def impact_analysis(entity_name: str, depth: int = 3) -> str:
     Returns:
         影响分析结果（JSON），包含源实体、受影响实体数量及详细列表
     """
-    neo4j = get_neo4j()
-    propagator = get_impact_propagator()
+    try:
+        neo4j = get_neo4j()
+        propagator = get_impact_propagator()
 
-    # 先通过 name 查找 id
-    cypher = "MATCH (n {name: $name}) RETURN n.id AS id LIMIT 1"
-    result = neo4j.query(cypher, {"name": entity_name})
+        # 先通过 name 查找 id
+        cypher = "MATCH (n {name: $name}) RETURN n.id AS id LIMIT 1"
+        result = neo4j.query(cypher, {"name": entity_name})
 
-    if not result:
-        # 模糊匹配
-        cypher = "MATCH (n) WHERE n.name CONTAINS $name RETURN n.id AS id, n.name AS name LIMIT 5"
-        fuzzy_results = neo4j.query(cypher, {"name": entity_name})
-        if fuzzy_results:
-            return json.dumps(
-                {
-                    "error": f"未找到精确匹配的实体 '{entity_name}'",
-                    "suggestions": fuzzy_results,
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-        return json.dumps({"error": f"未找到包含 '{entity_name}' 的实体"}, ensure_ascii=False)
+        if not result:
+            # 模糊匹配
+            cypher = "MATCH (n) WHERE n.name CONTAINS $name RETURN n.id AS id, n.name AS name LIMIT 5"
+            fuzzy_results = neo4j.query(cypher, {"name": entity_name})
+            if fuzzy_results:
+                return json.dumps(
+                    {
+                        "error": f"未找到精确匹配的实体 '{entity_name}'",
+                        "suggestions": fuzzy_results,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            return json.dumps({"error": f"未找到包含 '{entity_name}' 的实体"}, ensure_ascii=False)
 
-    entity_id = result[0]["id"]
+        entity_id = result[0]["id"]
 
-    # 调用 ImpactPropagator
-    impacts = propagator.compute_impact([entity_id], ChangeType.BODY)
+        # 调用 ImpactPropagator
+        impacts = propagator.compute_impact([entity_id], ChangeType.BODY)
 
-    return json.dumps(
-        {
-            "source": entity_name,
-            "source_id": entity_id,
-            "total_count": len(impacts),
-            "impacted_entities": [i.to_dict() for i in impacts[:50]],
-        },
-        ensure_ascii=False,
-        indent=2,
-    )
+        return json.dumps(
+            {
+                "source": entity_name,
+                "source_id": entity_id,
+                "total_count": len(impacts),
+                "impacted_entities": [i.to_dict() for i in impacts[:50]],
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    except Exception as e:
+        return json.dumps({"error": f"影响分析失败: {e!s}", "entity_id": entity_name}, ensure_ascii=False)
 
 
 @tool
@@ -256,31 +265,34 @@ def export_graph(limit: int = 100) -> str:
     Returns:
         图数据（JSON），包含 nodes, edges, node_count, edge_count
     """
-    neo4j = get_neo4j()
+    try:
+        neo4j = get_neo4j()
 
-    # 查询节点
-    nodes_cypher = "MATCH (n) RETURN n.id AS id, n.name AS name, labels(n) AS labels LIMIT $limit"
-    nodes = neo4j.query(nodes_cypher, {"limit": limit})
+        # 查询节点
+        nodes_cypher = "MATCH (n) RETURN n.id AS id, n.name AS name, labels(n) AS labels LIMIT $limit"
+        nodes = neo4j.query(nodes_cypher, {"limit": limit})
 
-    # 查询边
-    edges_cypher = """
-        MATCH (a)-[r]->(b)
-        RETURN a.id AS source, b.id AS target, type(r) AS type, properties(r) AS properties
-        LIMIT $limit
-    """
-    edges = neo4j.query(edges_cypher, {"limit": limit})
+        # 查询边
+        edges_cypher = """
+            MATCH (a)-[r]->(b)
+            RETURN a.id AS source, b.id AS target, type(r) AS type, properties(r) AS properties
+            LIMIT $limit
+        """
+        edges = neo4j.query(edges_cypher, {"limit": limit})
 
-    return json.dumps(
-        {
-            "nodes": nodes,
-            "edges": edges,
-            "node_count": len(nodes),
-            "edge_count": len(edges),
-        },
-        ensure_ascii=False,
-        indent=2,
-        default=str,
-    )
+        return json.dumps(
+            {
+                "nodes": nodes,
+                "edges": edges,
+                "node_count": len(nodes),
+                "edge_count": len(edges),
+            },
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        )
+    except Exception as e:
+        return json.dumps({"error": f"导出图谱失败: {e!s}"}, ensure_ascii=False)
 
 
 ALL_TOOLS = [

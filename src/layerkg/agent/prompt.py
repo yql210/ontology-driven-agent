@@ -1,6 +1,6 @@
 """Agent System Prompt"""
 
-# ruff: noqa: RUF001  # Chinese punctuation is intentional
+# Chinese punctuation is intentional
 AGENT_SYSTEM_PROMPT = """你是 LayerKG 代码知识图谱助手。你可以帮助用户理解代码架构、查询依赖关系、分析变更影响。
 
 【工具列表】

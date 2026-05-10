@@ -2,15 +2,28 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from layerkg.agent.prompt import AGENT_SYSTEM_PROMPT
 from layerkg.agent.tools import ALL_TOOLS
+
+# 全局 checkpointer 单例 — 支持跨调用对话记忆
+_checkpointer: MemorySaver | None = None
+
+
+def _get_checkpointer() -> MemorySaver:
+    """获取全局 MemorySaver 单例"""
+    global _checkpointer
+    if _checkpointer is None:
+        _checkpointer = MemorySaver()
+    return _checkpointer
 
 
 class AgentState(MessagesState):
@@ -61,7 +74,7 @@ def _get_langfuse_handler():
 
 
 def create_agent() -> Any:
-    """创建 ReAct Agent 编排图"""
+    """创建 ReAct Agent 编排图（带对话记忆）"""
     graph = StateGraph(AgentState)
 
     # 节点
@@ -77,22 +90,37 @@ def create_agent() -> Any:
     )
     graph.add_edge("tools", "agent")
 
-    return graph.compile()
+    return graph.compile(checkpointer=_get_checkpointer())
 
 
-async def run_query(question: str) -> str:
-    """运行单次查询（异步）"""
-    agent = create_agent()
-    config = {"recursion_limit": 50}
+def _make_config(thread_id: str = "default") -> dict[str, Any]:
+    """生成 Agent 运行配置"""
+    config: dict[str, Any] = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": 50,
+    }
     handler = _get_langfuse_handler()
     if handler:
         config["callbacks"] = [handler]
+    return config
 
-    result = await agent.ainvoke(
-        {"messages": [HumanMessage(content=question)]},
-        config=config,
-    )
-    # 取最后一条 AI 消息
+
+async def run_query(question: str, thread_id: str = "default") -> str:
+    """运行单次查询（异步，支持多轮对话）"""
+    agent = create_agent()
+    config = _make_config(thread_id)
+
+    try:
+        result = await asyncio.wait_for(
+            agent.ainvoke(
+                {"messages": [HumanMessage(content=question)]},
+                config=config,
+            ),
+            timeout=120,
+        )
+    except TimeoutError:
+        return "查询超时（120秒），请尝试简化问题或减少搜索范围。"
+
     for msg in reversed(result["messages"]):
         if isinstance(msg, AIMessage) and msg.content:
             content = msg.content
