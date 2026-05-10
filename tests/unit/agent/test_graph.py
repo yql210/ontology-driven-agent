@@ -26,7 +26,7 @@ def test_create_agent_returns_compiled_graph() -> None:
         mock_get_config.return_value = mock_config
 
         # Mock ChatAnthropic 避免真实 API 调用
-        with patch("layerkg.agent.graph.ChatAnthropic") as mock_llm_class:
+        with patch("layerkg.agent.graph.ChatOpenAI") as mock_llm_class:
             mock_llm = MagicMock()
             mock_llm.bind_tools.return_value = mock_llm
             mock_llm.ainvoke.return_value = MagicMock(content="test response")
@@ -53,7 +53,7 @@ def test_create_agent_has_correct_nodes() -> None:
         mock_config.agent_api_key = "test-key"
         mock_get_config.return_value = mock_config
 
-        with patch("layerkg.agent.graph.ChatAnthropic") as mock_llm_class:
+        with patch("layerkg.agent.graph.ChatOpenAI") as mock_llm_class:
             mock_llm = MagicMock()
             mock_llm.bind_tools.return_value = mock_llm
             mock_llm.ainvoke.return_value = MagicMock(content="test response")

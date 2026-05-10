@@ -74,7 +74,7 @@ class LayerKGConfig:
 
     # Agent/LLM 配置（Phase 3 新增）
     agent_llm_provider: str = "zhipu"
-    agent_llm_model: str = "claude-sonnet-4-20250514"
+    agent_llm_model: str = "glm-4-flash"
     agent_api_key: str = ""
     agent_base_url: str = "https://open.bigmodel.cn/api/anthropic"
     build_doc_extensions: list[str] = field(default_factory=lambda: [".md", ".rst"])

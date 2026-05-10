@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
@@ -18,15 +18,15 @@ class AgentState(MessagesState):
     pass
 
 
-def _create_llm() -> ChatAnthropic:
-    """创建 LLM 实例（智谱 Anthropic 兼容接口）"""
+def _create_llm() -> ChatOpenAI:
+    """创建 LLM 实例（智谱 OpenAI 兼容接口）"""
     from layerkg.agent._helpers import get_config
     cfg = get_config()
-    return ChatAnthropic(  # type: ignore[call-arg]
-        model=cfg.agent_llm_model,  # type: ignore[call-arg]
-        base_url=cfg.agent_base_url,  # type: ignore[call-arg]
-        api_key=cfg.agent_api_key,  # type: ignore[call-arg]
-        timeout=60,  # type: ignore[call-arg]
+    return ChatOpenAI(
+        model=cfg.agent_llm_model,
+        base_url=cfg.agent_base_url,
+        api_key=cfg.agent_api_key,
+        timeout=60,
     )
 
 
@@ -67,7 +67,7 @@ async def run_query(question: str) -> str:
     agent = create_agent()
     result = await agent.ainvoke(
         {"messages": [HumanMessage(content=question)]},
-        config={"recursion_limit": 25},
+        config={"recursion_limit": 50},
     )
     # 取最后一条 AI 消息
     for msg in reversed(result["messages"]):
@@ -75,7 +75,6 @@ async def run_query(question: str) -> str:
             content = msg.content
             if isinstance(content, str):
                 return content
-            # 如果是 list 格式（多模态或工具调用结果），转 JSON
             import json
             return json.dumps(content, ensure_ascii=False)
     return "无法生成回答。"

@@ -17,6 +17,7 @@ dependencies = [
     "langchain-core>=0.3,<0.4",
     "langchain-ollama>=0.2,<0.3",
     "langchain-anthropic>=0.3.22",
+    "langchain-openai",
 ]
 
 [project.optional-dependencies]
