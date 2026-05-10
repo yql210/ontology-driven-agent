@@ -247,7 +247,7 @@ class IncrementalUpdater:
         if entity.docstring:
             d["docstring"] = entity.docstring
         if entity.parameters:
-            d["parameters"] = entity.parameters
+            d["code_parameters"] = entity.parameters
         return d
 
     @staticmethod
