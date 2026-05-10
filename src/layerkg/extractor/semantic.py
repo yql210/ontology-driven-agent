@@ -111,9 +111,9 @@ class SemanticExtractor:
         ollama_url: str = "http://localhost:11434",
         model: str = "qwen3.5:9b",
         *,
-        batch_size: int = 20,
+        batch_size: int = 10,
         max_retries: int = 3,
-        timeout: float = 60.0,
+        timeout: float = 120.0,
         temperature: float = 0.1,
     ) -> None:
         """初始化。"""
@@ -220,7 +220,7 @@ class SemanticExtractor:
                     "think": False,
                     "options": {
                         "temperature": self._temperature,
-                        "num_predict": 1024,
+                        "num_predict": 2048,
                     },
                 },
                 timeout=self._timeout,

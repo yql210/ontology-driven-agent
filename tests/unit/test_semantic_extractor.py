@@ -201,9 +201,9 @@ class TestSemanticExtractorInit:
         extractor = SemanticExtractor()
         assert extractor._ollama_url == "http://localhost:11434"
         assert extractor._model == "qwen3.5:9b"
-        assert extractor._batch_size == 20
+        assert extractor._batch_size == 10
         assert extractor._max_retries == 3
-        assert extractor._timeout == 60.0
+        assert extractor._timeout == 120.0
         assert extractor._temperature == 0.1
 
     def test_valid_semantic_relations(self):
