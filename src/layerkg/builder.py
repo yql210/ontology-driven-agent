@@ -594,6 +594,10 @@ class LayerKGBuilder:
             d["end_line"] = entity.end_line
         if entity.language:
             d["language"] = entity.language
+        if entity.docstring:
+            d["docstring"] = entity.docstring
+        if entity.parameters:
+            d["parameters"] = entity.parameters
         return d
 
     @staticmethod
