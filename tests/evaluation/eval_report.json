@@ -1,0 +1,685 @@
+{
+  "timestamp": "2026-05-11T09:03:39.178655",
+  "eval_set_version": "1.0",
+  "summary": {
+    "total": 25,
+    "correct": 18,
+    "accuracy": 0.72,
+    "avg_score": 0.798,
+    "by_level": {
+      "L1": {
+        "total": 10,
+        "correct": 10,
+        "avg_score": 0.94
+      },
+      "L2": {
+        "total": 10,
+        "correct": 6,
+        "avg_score": 0.76
+      },
+      "L3": {
+        "total": 5,
+        "correct": 2,
+        "avg_score": 0.59
+      }
+    }
+  },
+  "details": [
+    {
+      "id": "L1-001",
+      "question": "ConceptAligner 类定义在哪个文件中？",
+      "level": 1,
+      "expected_tools": [
+        "semantic_search"
+      ],
+      "actual_tools": [
+        "semantic_search",
+        "graph_query"
+      ],
+      "expected_answer": {
+        "type": "contains",
+        "value": "aligner.py"
+      },
+      "actual_answer": "**`ConceptAligner` 类定义在文件 `src/layerkg/aligner.py` 中。**\n\n详细信息如下：\n\n| 属性 | 内容 |\n|------|------|\n| **文件路径** | `src/layerkg/aligner.py` |\n| **实体类型** | `class`（类） |\n| **代码行号** | 第 **42** 行 ～ 第 **369** 行 |\n\n该类包含以下成员方法（均位于同一文件中）：\n\n| 方法名 | 行号 |\n|--------|------|\n| `__init__` | 53-80 |\n| `_build_index` | 82-105 |\n| `add_concept` | 107-127 |\n| `align` | 129-175 |\n| `align_batch` | 177-186 |\n| `_exact_match` | 188-206 |\n| `_alias_match` | 208-227 |\n| `_vector_match` | 229-282 |\n| `_graph_structure_match` | 284-353 |\n| `list_concepts` | 355-369 |\n\n从方法名可以看出，`ConceptAligner` 是一个概念对齐器，支持精确匹配、别名匹配、向量匹配和图结构匹配等多种对齐策略。",
+      "tool_match": true,
+      "answer_match": 1.0,
+      "score": 1.0,
+      "duration_sec": 11.24,
+      "error": null
+    },
+    {
+      "id": "L1-002",
+      "question": "知识图谱中有多少个 ConceptEntity 类型的实体？",
+      "level": 1,
+      "expected_tools": [
+        "graph_query"
+      ],
+      "actual_tools": [
+        "graph_query"
+      ],
+      "expected_answer": {
+        "type": "exact",
+        "value": "54"
+      },
+      "actual_answer": "知识图谱中共有 **54 个** `ConceptEntity` 类型的实体。",
+      "tool_match": true,
+      "answer_match": 1.0,
+      "score": 1.0,
+      "duration_sec": 2.12,
+      "error": null
+    },
+    {
+      "id": "L1-003",
+      "question": "列出所有已注册的概念实体名称。",
+      "level": 1,
+      "expected_tools": [
+        "list_concepts"
+      ],
+      "actual_tools": [
+        "list_concepts"
+      ],
+      "expected_answer": {
+        "type": "list",
+        "value": [
+          "Pipeline Pattern",
+          "Cache Pattern",
+          "Strategy Pattern",
+          "Data Model"
+        ]
+      },
+      "actual_answer": "以下是该知识图谱中所有已注册的概念实体（共 **54 个**），按类型分类：\n\n---\n\n### 📐 设计模式 (Design Patterns) — 21 个\n| 概念名称 | 类型 |\n|---------|------|\n| Pipeline Pattern | 设计模式 |\n| Cache Pattern | 设计模式 |\n| Strategy Pattern | 设计模式 |\n| Enum Pattern | 设计模式 |\n| Repository Pattern | 设计模式 |\n| Iterator Pattern | 设计模式 |\n| Adapter Pattern | 设计模式 |\n| Context Manager Pattern | 设计模式 |\n| Builder Pattern | 设计模式 |\n| Factory Pattern | 设计模式 |\n| Index Pattern | 设计模式 |\n| State Management Pattern | 设计模式 |\n| Dependency Injection | 设计模式 |\n| Dependency Injection Pattern | 设计模式 |\n| Batch Processing Pattern | 设计模式 |\n| Idempotency Pattern | 设计模式 |\n| Lazy Initialization Pattern | 设计模式 |\n| Singleton Pattern | 设计模式 |\n| Label Propagation Algorithm | 设计模式 |\n| Resource Management Pattern | 设计模式 |\n| semantic_impact | 设计模式 |\n\n### 🧮 数据模型 (Data Models) — 6 个\n- Data Model、Data Model Pattern、Domain Modeling Pattern\n- **UpdateReport**、**ExtractedRelation**、**ParseResult**、**DocParseResult**、**DocEntity**、**CodeEntity**\n\n### ⚙️ 流程 (Processes) — 10 个\n- Semantic Search、Batch Processing、Vector Search、Filter-Based Deletion\n- Incremental Processing、Incremental Update Orchestrator、Graph Traversal Algorithm\n- Graph Traversal、Community Detection Algorithm、Idempotency\n- API Integration Pattern、Query Language Abstraction、Documentation Management Pattern\n\n### 🏢 业务概念 (Business Concepts) — 8 个\n- Data Validation、Configuration Management、Error Handling\n- Data Validation Pattern、Business Rule Enforcement、Error Handling Pattern\n- Data Integrity Management、Risk Assessment、Dependency Analysis\n- SchemaValidationError、Resource Management\n\n---\n\n如果需要进一步了解某个概念实体关联了哪些代码实体，我可以帮你查询！",
+      "tool_match": true,
+      "answer_match": 1.0,
+      "score": 1.0,
+      "duration_sec": 7.97,
+      "error": null
+    },
+    {
+      "id": "L1-004",
+      "question": "获取代码库的模块层次结构。",
+      "level": 1,
+      "expected_tools": [
+        "get_module_tree"
+      ],
+      "actual_tools": [
+        "get_module_tree"
+      ],
+      "expected_answer": {
+        "type": "contains",
+        "value": "module_0"
+      },
+      "actual_answer": "好的！以下是 **LayerKG 代码库的模块层次结构**：\n\n---\n\n## 📁 LayerKG 模块树\n\n| 模块名称 | 实体数量 | 内聚度 |\n|---------|:-------:|:------:|\n| **🟢 layerkg**（主模块） | **27** | **0.94** |\n| **aligner.py** - 对齐器 | 13 | 1.0 |\n| **change_detector.py** - 变更检测 | 29 | 1.0 |\n| **chroma_store.py** - 向量存储 | 21 | 1.0 |\n| **cli.py** - 命令行接口 | 5 | 1.0 |\n| **extractor** - 提取器子模块 | 19 | 0.92 |\n| **graph_store.py** - 图存储 | 10 | 1.0 |\n| **impact_propagator.py** - 影响传播分析 | 20 | 1.0 |\n| **mcp_server.py** - MCP 服务器 | 18 | 1.0 |\n| **module_clustering.py** - 模块聚类 | 13 | 1.0 |\n| **neo4j_store.py** - Neo4j 存储 | 16 | 1.0 |\n| **parser** - 解析器子模块 | 16 | 0.93 |\n| **relation.py** - 关系定义 | 9 | 1.0 |\n| **base.py** - 基础类 | 5 | 1.0 |\n| **module_0**（未归类的其他实体） | 69 | 0.64 |\n\n---\n\n### 📊 数据概况\n\n- **总模块数**：14 个（含 module_0 未归类模块）\n- **总实体数**：约 **270+** 个代码实体（函数/类）\n- **高内聚模块**：绝大多数模块内聚度为 **1.0**，说明模块内部实体高度相关\n\n### 🧩 核心模块说明\n\n| 模块 | 说明 |\n|------|------|\n| **layerkg** | 主入口模块，包含核心编排逻辑 |\n| **aligner.py** | 概念对齐器，负责代码与概念的关联 |\n| **change_detector.py** | 变更检测引擎 |\n| **chroma_store.py** | 基于 ChromaDB 的向量存储 |\n| **extractor** | 代码解析提取器子模块 |\n| **impact_propagator.py** | 变更影响传播分析 |\n| **mcp_server.py** | MCP 协议服务器 |\n| **neo4j_store.py** | Neo4j 图数据库存储层 |\n| **parser** | 代码解析器子模块 |\n| **relation.py** | 实体关系定义 |\n| **base.py** | 基础类/接口 |\n\n需要进一步查看某个模块的详细信息吗？",
+      "tool_match": true,
+      "answer_match": 1.0,
+      "score": 1.0,
+      "duration_sec": 10.04,
+      "error": null
+    },
+    {
+      "id": "L1-005",
+      "question": "Neo4jGraphStore 类继承自哪个类？",
+      "level": 1,
+      "expected_tools": [
+        "graph_query"
+      ],
+      "actual_tools": [
+        "graph_query",
+        "get_context"
+      ],
+      "expected_answer": {
+        "type": "contains",
+        "value": "GraphStore"
+      },
+      "actual_answer": "## 答案\n\n`Neo4jGraphStore` 类继承自 **`GraphStore`** 类。\n\n详细信息如下：\n\n| 类名 | 父类 | 源文件 |\n|------|------|--------|\n| `Neo4jGraphStore` | `GraphStore` | `src/layerkg/neo4j_store.py`（第 25-345 行） |\n| `GraphStore` | — | `src/layerkg/graph_store.py`（第 5-121 行） |\n\n**`GraphStore`** 是一个**抽象基类**，根据其文档字符串（docstring）的描述：\n\n> *\"图存储抽象基类。所有图数据库适配器（Neo4j、内存实现等）必须继承此类并实现全部抽象方法。\"*\n\n这表明代码库中采用了**模板方法设计模式**，`Neo4jGraphStore` 作为 Neo4j 数据库的具体实现，必须实现 `GraphStore` 中定义的全部抽象方法。",
+      "tool_match": true,
+      "answer_match": 1.0,
+      "score": 1.0,
+      "duration_sec": 10.18,
+      "error": null
+    },
+    {
+      "id": "L1-006",
+      "question": "PythonParser 类定义在哪个文件中？",
+      "level": 1,
+      "expected_tools": [
+        "semantic_search"
+      ],
+      "actual_tools": [
+        "graph_query"
+      ],
+      "expected_answer": {
+        "type": "contains",
+        "value": "python_parser.py"
+      },
+      "actual_answer": "## `PythonParser` 类信息\n\n`PythonParser` 类定义在以下文件中：\n\n**文件路径**：`src/layerkg/parser/python_parser.py`\n\n**详细信息**：\n| 属性 | 值 |\n|------|-----|\n| 实体类型 | `class`（类） |\n| 行号范围 | 第 **38** 行 ~ 第 **622** 行 |\n| 源文件 | `src/layerkg/parser/python_parser.py` |\n\n该类包含以下主要方法：\n\n| 方法名 | 行号 | 功能描述 |\n|--------|------|----------|\n| `__init__` | 41-43 | 构造函数 |\n| `language` | 46-48 | 返回语言类型 |\n| `parse_file` | 50-66 | 解析文件入口 |\n| `parse_source` | 68-129 | 解析源代码 |\n| `_walk` | 131-183 | 遍历 AST 节点 |\n| `_extract_function` | 185-248 | 提取函数定义 |\n| `_extract_class` | 250-330 | 提取类定义 |\n| `_extract_import` | 332-374 | 提取 import 语句 |\n| `_extract_import_from` | 376-457 | 提取 from...import 语句 |\n| `_extract_calls` | 459-500 | 提取函数调用 |\n| `_extract_callee_name` | 502-534 | 提取被调用函数名 |\n| `_extract_docstring` | 536-578 | 提取文档字符串 |\n| `_extract_parameters` | 580-622 | 提取函数参数 |\n\n整个类共约 **585 行代码**，是 LayerKG 项目中用于解析 Python 代码的核心解析器类。",
+      "tool_match": false,
+      "answer_match": 1.0,
+      "score": 0.7,
+      "duration_sec": 7.93,
+      "error": null
+    },
+    {
+      "id": "L1-007",
+      "question": "GitChangeDetector 类有哪些子方法？",
+      "level": 1,
+      "expected_tools": [
+        "graph_query"
+      ],
+      "actual_tools": [
+        "semantic_search",
+        "get_context",
+        "graph_query"
+      ],
+      "expected_answer": {
+        "type": "contains",
+        "value": "full_scan"
+      },
+      "actual_answer": "`GitChangeDetector` 类（位于 `src/layerkg/change_detector.py`，第 131~442 行）共包含以下 **13 个子方法**：\n\n### 公开方法\n| 方法名 | 说明 |\n|---|---|\n| `__init__` | 构造函数，初始化变更检测器 |\n| `full_scan` | 全量扫描代码库，检测所有变更 |\n| `update_cache` | 更新 SHA256 缓存 |\n| `detect_changes` | 检测代码变更（通过 git diff + SHA256 缓存） |\n\n### 私有/辅助方法\n| 方法名 | 说明 |\n|---|---|\n| `_parse_git_status` | 解析 git status 输出 |\n| `_is_supported` | 判断文件类型是否支持 |\n| `_compute_sha256` | 计算文件的 SHA256 哈希值 |\n| `_is_doc_line` | 判断某行是否为文档注释 |\n| `_analyze_diff_hunks` | 分析 diff hunks，判断变更粒度 |\n| `_walk_supported_files` | 遍历支持的文件 |\n| `_git_diff_name_status` | 获取 git diff 的文件名和状态 |\n| `_classify_change` | 分类变更类型（新增/修改/删除） |\n| `_classify_modification` | 分类修改的粒度（签名级/函数体级/仅文档） |\n\n该类的核心思路是：通过 **git diff** 获取文件变更列表，结合 **SHA256 缓存** 判断是否真正变更，再通过 **diff hunks 分析** 判断变更粒度（签名级 vs 函数体级 vs 仅文档）。",
+      "tool_match": true,
+      "answer_match": 1.0,
+      "score": 1.0,
+      "duration_sec": 11.11,
+      "error": null
+    },
+    {
+      "id": "L1-008",
+      "question": "概念实体中有哪些类型是 design_pattern 的？",
+      "level": 1,
+      "expected_tools": [
+        "graph_query"
+      ],
+      "actual_tools": [
+        "list_concepts"
+      ],
+      "expected_answer": {
+        "type": "list",
+        "value": [
+          "Pipeline Pattern",
+          "Strategy Pattern",
+          "Repository Pattern"
+        ]
+      },
+      "actual_answer": "好的，我来整理一下。在知识图谱的概念实体中，**类型为 `design_pattern`（设计模式）** 的实体共有 **17 个**，具体如下：\n\n| 编号 | 概念名称 |\n|:---:|:---|\n| 1 | **Pipeline Pattern**（管道模式） |\n| 2 | **Cache Pattern**（缓存模式） |\n| 3 | **Strategy Pattern**（策略模式） |\n| 4 | **Enum Pattern**（枚举模式） |\n| 5 | **Repository Pattern**（仓储模式） |\n| 6 | **Iterator Pattern**（迭代器模式） |\n| 7 | **Adapter Pattern**（适配器模式） |\n| 8 | **Context Manager Pattern**（上下文管理器模式） |\n| 9 | **Builder Pattern**（构建器模式） |\n| 10 | **Dependency Injection**（依赖注入模式） |\n| 11 | **Factory Pattern**（工厂模式） |\n| 12 | **Index Pattern**（索引模式） |\n| 13 | **State Management Pattern**（状态管理模式） |\n| 14 | **semantic_impact**（语义影响模式） |\n| 15 | **Resource Management Pattern**（资源管理模式） |\n| 16 | **Batch Processing Pattern**（批处理模式） |\n| 17 | **Idempotency Pattern**（幂等性模式） |\n| 18 | **Lazy Initialization Pattern**（懒加载模式） |\n| 19 | **Singleton Pattern**（单例模式） |\n| 20 | **Label Propagation Algorithm**（标签传播算法模式） |\n| 21 | **Dependency Injection Pattern**（依赖注入模式，与第10项略有不同命名） |\n\n总计 **21 个**设计模式类型的概念实体（注意其中 `Dependency Injection` 和 `Dependency Injection Pattern` 是两个独立实体，但含义相近）。\n\n这些设计模式覆盖了：\n- **创建型模式**：Factory Pattern、Singleton Pattern、Builder Pattern、Lazy Initialization Pattern\n- **结构型模式**：Adapter Pattern、Repository Pattern\n- **行为型模式**：Strategy Pattern、Iterator Pattern、State Management Pattern、Pipeline Pattern、Cache Pattern\n- **其他架构/企业模式**：Dependency Injection、Context Manager Pattern、Idempotency Pattern、Batch Processing Pattern 等",
+      "tool_match": false,
+      "answer_match": 1.0,
+      "score": 0.7,
+      "duration_sec": 8.85,
+      "error": null
+    },
+    {
+      "id": "L1-009",
+      "question": "LayerKGError 有哪些子类？",
+      "level": 1,
+      "expected_tools": [
+        "graph_query"
+      ],
+      "actual_tools": [
+        "semantic_search",
+        "graph_query",
+        "get_context"
+      ],
+      "expected_answer": {
+        "type": "list",
+        "value": [
+          "SchemaValidationError",
+          "StoreError",
+          "EmbeddingError",
+          "ExtractionError"
+        ]
+      },
+      "actual_answer": "好的，信息非常清楚了。以下是完整的 LayerKGError 异常层次结构：\n\n---\n\n## `LayerKGError` 的子类\n\n`LayerKGError` 定义在 **`src/layerkg/exceptions.py`** 文件中，是 LayerKG 的**基础异常类**（文档字符串为：\"LayerKG 基础异常。\"），它有 **4 个直接子类**：\n\n| 子类 | 文档说明 |\n|------|---------|\n| **`SchemaValidationError`** | Schema 校验失败 |\n| **`StoreError`** | 存储操作失败 |\n| **`EmbeddingError`** | 嵌入向量生成失败 |\n| **`ExtractionError`** | 语义关系提取失败 |\n\n### 层次结构\n```\nException\n └── LayerKGError                   (基础异常)\n      ├── SchemaValidationError      (Schema 校验失败)\n      ├── StoreError                 (存储操作失败)\n      ├── EmbeddingError             (嵌入向量生成失败)\n      └── ExtractionError            (语义关系提取失败)\n```\n\n这些异常子类目前没有进一步派生子类，它们都直接继承自 `LayerKGError`，均定义在 `src/layerkg/exceptions.py` 中。",
+      "tool_match": true,
+      "answer_match": 1.0,
+      "score": 1.0,
+      "duration_sec": 16.84,
+      "error": null
+    },
+    {
+      "id": "L1-010",
+      "question": "导出图数据中的节点数量是多少？",
+      "level": 1,
+      "expected_tools": [
+        "export_graph"
+      ],
+      "actual_tools": [
+        "export_graph"
+      ],
+      "expected_answer": {
+        "type": "contains",
+        "value": "382"
+      },
+      "actual_answer": "现在有了完整的答案。\n\n导出的图数据中，**节点（nodes）总数为 382 个**，边（edges）总数为 **500 条**。\n\n这些节点按照标签（Label）分类如下：\n\n| 标签类型 | 说明 | 数量（大致） |\n|---------|------|:----------:|\n| **CodeEntity** | 代码实体（函数、类等） | 约占大部分 |\n| **ConceptEntity** | 概念/设计模式实体 | 数十个 |\n| **ModuleEntity** | 模块实体 | 多个 |\n\n从导出的数据中可以看到，节点涵盖了诸如 `ConceptAligner`、`GitChangeDetector`、`ChromaStore`、`SemanticExtractor` 等多个核心类及其方法，以及 **Pipeline Pattern**、**Strategy Pattern**、**Builder Pattern** 等设计模式概念，还有各模块的层次结构。",
+      "tool_match": true,
+      "answer_match": 1.0,
+      "score": 1.0,
+      "duration_sec": 10.29,
+      "error": null
+    },
+    {
+      "id": "L2-001",
+      "question": "ConceptAligner 类使用了哪些设计模式？",
+      "level": 2,
+      "expected_tools": [
+        "semantic_search",
+        "graph_query"
+      ],
+      "actual_tools": [
+        "semantic_search",
+        "get_context",
+        "graph_query",
+        "list_concepts"
+      ],
+      "expected_answer": {
+        "type": "list",
+        "value": [
+          "Pipeline Pattern",
+          "Strategy Pattern",
+          "Cache Pattern"
+        ]
+      },
+      "actual_answer": "现在信息已经足够完整了。让我来回答你的问题。\n\n---\n\n## ConceptAligner 类使用的设计模式\n\n`ConceptAligner` 类位于 `src/layerkg/aligner.py`（第 42-369 行），它是一个**概念对齐器**，用于解决术语漂移问题。通过知识图谱分析，它使用了以下设计模式：\n\n---\n\n### 1️⃣ **管道模式（Pipeline Pattern）** — 核心架构\n\n- **关系**：`ConceptAligner` —[:DERIVED_FROM]→ `Pipeline Pattern`\n- **说明**：类的文档字符串明确描述了**三步对齐流水线**：\n  1. **精确匹配**（`_exact_match`）— term == concept.name\n  2. **别名匹配**（`_alias_match`）— term in concept.aliases\n  3. **向量相似度**（`_vector_match`）— ChromaDB 语义搜索\n- 这三个步骤按固定顺序依次执行，前一步失败则进入下一步，是典型的 Pipeline 模式。\n\n---\n\n### 2️⃣ **策略模式（Strategy Pattern）** — 对齐方法\n\n- **关系**：`ConceptAligner.align` 方法 —[:DERIVED_FROM]→ `Strategy Pattern`\n- **说明**：`align()` 方法将不同的匹配算法封装为独立的私有方法：\n  - `_exact_match()` — 精确匹配策略\n  - `_alias_match()` — 别名匹配策略\n  - `_vector_match()` — 向量搜索策略\n  - 再结合 `_graph_structure_match()` — 图结构匹配策略\n- 这些策略**可互换、可组合**，`align()` 方法按优先级依次委托，体现了策略模式的思想。\n\n---\n\n### 3️⃣ **缓存模式（Cache Pattern）** — 性能优化\n\n- **说明**：`add_concept()` 方法更新内部的 `_concepts` 字典，避免对已知术语重复计算匹配结果，充当了**缓存**的作用。这在知识图谱的概念列表中也被标记为 `Cache Pattern`。\n\n---\n\n### 4️⃣ **索引模式（Index Pattern）** — 查找加速\n\n- **方法**：`_build_index(concepts)` \n- **说明**：该方法为精确匹配和别名匹配构建**内存索引**（`_exact_index`、`_alias_index`），将概念列表转换为 `{term: concept}` 的字典结构，便于 O(1) 查找，体现了 Index 模式。\n\n---\n\n### 📋 设计模式总结\n\n| 设计模式 | 体现位置 | 作用 |\n|---------|---------|------|\n| **管道模式** | 类整体架构 | 三步对齐流水线（精确→别名→向量） |\n| **策略模式** | `align()` 方法 | 将不同匹配算法封装为可替换的策略 |\n| **缓存模式** | `add_concept()` / `_concepts` | 缓存已知概念避免重复计算 |\n| **索引模式** | `_build_index()` | 构建内存索引加速查找 |\n\n这四种模式相互配合，使得 ConceptAligner 既能高效地对齐术语（索引+缓存），又能灵活扩展新的匹配策略（策略模式），并确保有清晰的处理流程（管道模式）。",
+      "tool_match": true,
+      "answer_match": 1.0,
+      "score": 1.0,
+      "duration_sec": 24.83,
+      "error": null
+    },
+    {
+      "id": "L2-002",
+      "question": "哪些类使用了 Strategy Pattern？这个模式还关联了哪些概念？",
+      "level": 2,
+      "expected_tools": [
+        "graph_query",
+        "list_concepts"
+      ],
+      "actual_tools": [
+        "semantic_search",
+        "list_concepts",
+        "graph_query",
+        "get_context"
+      ],
+      "expected_answer": {
+        "type": "list",
+        "value": [
+          "ConceptAligner",
+          "Strategy Pattern"
+        ]
+      },
+      "actual_answer": "好的，现在我掌握了所有信息，可以给你一个全面的回答了。\n\n---\n\n## 🔍 Strategy Pattern（策略模式）分析报告\n\n### 📌 什么是策略模式在项目中的应用\n\n在 LayerKG 项目中，**Strategy Pattern** 被广泛使用，其核心思想是：**定义一系列算法（策略），把它们封装起来，并可互相替换**。项目中多处采用「优先级链 + 多策略尝试」的方式来实现。\n\n---\n\n### 🏛️ 使用 Strategy Pattern 的核心类（3个）\n\n| 类名 | 文件路径 | 说明 |\n|------|----------|------|\n| **`BaseParser`** | `src/layerkg/parser/base.py`（第52-81行） | **源码解析器抽象基类** — 定义了解析策略的统一接口 |\n| **`DocParser`** | `src/layerkg/parser/doc_parser.py`（第25-192行） | **Markdown/RST 文档解析器** — 实现了具体的文档解析策略 |\n| **`ImpactPropagator`** | `src/layerkg/impact_propagator.py`（第161-435行） | **影响传播器** — 使用权重矩阵+深度衰减表作为传播策略，支持不同的传播算法策略 |\n\n---\n\n### 🔧 使用 Strategy Pattern 的关键函数（8个）\n\n| 函数名 | 文件 | 策略含义 |\n|--------|------|----------|\n| **`PythonParser.parse_source`** | parser 模块 | 源码解析的策略实现 |\n| **`ConceptAligner.align`** | `src/layerkg/aligner.py`（第129-175行） | **经典策略模式应用** — 按优先级依次尝试：精确匹配 → 别名匹配 → 向量相似度，三种策略链式调用 |\n| **`IncrementalUpdater._update_vectors_only`** | 增量更新模块 | 向量更新的策略分支 |\n| **`IncrementalUpdater._apply_modified`** | 增量更新模块 | 修改应用的策略分支 |\n| **`ImpactReport.nodes_by_severity`** | 影响报告模块 | 按严重程度排序的策略 |\n| **`GitChangeDetector._classify_modification`** | 变更检测模块 | 变更分类的策略 |\n| **`GitChangeDetector._is_doc_line`** | 变更检测模块 | 文档行判断的策略 |\n| **`ModuleClustering._generate_module_name`** | 模块聚类 | 模块命名生成策略 |\n\n---\n\n### 🔗 关联的概念实体\n\n**Strategy Pattern 本身通过 `DERIVED_FROM` 关系与上述代码实体关联。** 在概念层面，该项目并没有将 Strategy Pattern 直接与其他设计模式/概念建立显式关联。\n\n不过，从代码实现的角度，Strategy Pattern 与以下概念密切相关：\n\n| 关联概念 | 关联方式说明 |\n|---------|-------------|\n| 🏭 **Factory Pattern**（工厂模式） | 项目中同样存在，常用于创建具体的策略对象 |\n| 💉 **Dependency Injection Pattern**（依赖注入） | 策略的注入方式常通过 DI 实现 |\n| 🔄 **Pipeline Pattern**（管道模式） | 策略链可以组合成处理管道 |\n| 🧩 **Adapter Pattern**（适配器模式） | 用于统一不同策略的接口 |\n| 📊 **Data Model**（数据模型） | `ParseResult`、`DocParseResult` 等是策略的输出模型 |\n| 🔬 **Semantic Search**（语义搜索） | `ConceptAligner.align` 中的向量相似度策略依赖语义搜索 |\n\n---\n\n### 💡 典型策略模式使用示例：`ConceptAligner.align`\n\n这是最典型的策略模式实现，采用 **优先级链策略（Priority Chain Strategy）**：\n\n```\n1️⃣ 精确匹配  ── 如果成功 → 直接返回\n    ↓ 失败\n2️⃣ 别名匹配  ── ",
+      "tool_match": true,
+      "answer_match": 1.0,
+      "score": 1.0,
+      "duration_sec": 27.8,
+      "error": null
+    },
+    {
+      "id": "L2-003",
+      "question": "ChromaStore 类中有哪些方法？它们的功能是什么？",
+      "level": 2,
+      "expected_tools": [
+        "get_context",
+        "semantic_search"
+      ],
+      "actual_tools": [
+        "semantic_search",
+        "graph_query",
+        "get_context"
+      ],
+      "expected_answer": {
+        "type": "list",
+        "value": [
+          "search",
+          "put_entity",
+          "delete_entity"
+        ]
+      },
+      "actual_answer": "以下是 `ChromaStore` 类的完整方法列表及功能说明。该类定义在 `src/layerkg/chroma_store.py` 文件（第 120~337 行），是一个 **ChromaDB 向量存储** 类。\n\n---\n\n## 1. 生命周期方法\n\n| 方法 | 行号 | 功能 |\n|---|---|---|\n| **`__init__`** | 123-148 | 初始化 ChromaStore。参数：`persist_dir`（持久化目录，None 为内存模式）、`ollama_url`（Ollama API 地址）、`embedding_model`（嵌入模型名）、`collection_name`（集合名） |\n| **`__enter__`** | 333-334 | 上下文管理器入口，支持 `with` 语句 |\n| **`__exit__`** | 336-337 | 上下文管理器出口，支持 `with` 语句 |\n| **`close`** | 329-331 | 关闭资源，释放后不再可用 |\n\n---\n\n## 2. 数据写入方法\n\n| 方法 | 行号 | 功能 |\n|---|---|---|\n| **`put_entity`** | 152-173 | **存储单个实体嵌入**。自动调用 embedding function 生成向量。参数：`entity_id`、`text`（待嵌入文本）、`metadata`。当 text 为空或纯空白时抛出 `ValueError` |\n| **`put_entities_batch`** | 175-207 | **批量存储实体嵌入**。接收 `(entity_id, text, metadata)` 元组列表，空文本项会被跳过，数据按 `batch_size`（默认 50）分批次写入 |\n\n---\n\n## 3. 查询/搜索方法\n\n| 方法 | 行号 | 功能 |\n|---|---|---|\n| **`search`** | 211-234 | **语义搜索**。对 `query_text` 自动生成查询向量并搜索。支持 `n_results`（返回数量）和 `where`（metadata 过滤条件）。返回包含 `id, text, metadata, distance` 的结果列表 |\n| **`search_by_embedding`** | 236-259 | **按嵌入向量搜索**。跳过 embedding function，直接使用预生成的向量进行检索。参数与 `search` 类似，但接收 `embedding` 向量代替文本 |\n| **`get_entity`** | 261-277 | **按 ID 获取实体**。返回包含 `id, text, metadata` 的字典，实体不存在时返回 `None` |\n| **`count`** | 313-325 | **统计实体数量**。可通过 `where` 参数过滤，`None` 时返回总数 |\n\n---\n\n## 4. 删除方法\n\n| 方法 | 行号 | 功能 |\n|---|---|---|\n| **`delete_entity`** | 281-294 | **删除单个实体嵌入**。成功返回 `True`，实体不存在返回 `False` |\n| **`delete_entities_by_metadata`** | 296-309 | **按 metadata 条件批量删除**。返回删除的实体数量 |\n\n---\n\n## 类结构总结\n\n```\nChromaStore (ChromaDB 向量存储)\n│\n├── 生命周期\n│   ├── __init__()      → 初始化连接和集合\n│   ├── close()         → 关闭资源\n│   ├── __enter__()     → 支持 with 语句\n│   └── __exit__()      → 支持 with 语句\n│\n├── 写入\n│   ├── put_entity()            → 单条写入\n│   └── put_entities_batch()    → 批量写入\n│\n├── 查询\n│   ├── search()               → 文本语义搜索\n│   ├── search_by_embedding()  → 向量搜索\n│   ├── get_entity()           → 按 ID 查询\n│   └── count()                → 统计数量\n│\n└── 删除\n    ├── delete_entity()                → 按 ",
+      "tool_match": true,
+      "answer_match": 1.0,
+      "score": 1.0,
+      "duration_sec": 18.89,
+      "error": null
+    },
+    {
+      "id": "L2-004",
+      "question": "GitChangeDetector.full_scan 方法调用了哪些类？",
+      "level": 2,
+      "expected_tools": [
+        "graph_query",
+        "get_context"
+      ],
+      "actual_tools": [
+        "semantic_search",
+        "graph_query",
+        "get_context"
+      ],
+      "expected_answer": {
+        "type": "list",
+        "value": [
+          "info",
+          "ChangedFile"
+        ]
+      },
+      "actual_answer": "根据图数据库的查询结果，`GitChangeDetector.full_scan` 方法调用了以下**2个类/函数**：\n\n---\n\n### 1️⃣ `ChangedFile`（类）\n- **文件路径**: `src/layerkg/change_detector.py`（第 35–63 行）\n- **说明**: 这是一个数据类，用于表示变更的文件信息（如文件路径、变更类型、SHA256 等）。\n\n### 2️⃣ `info`（函数）\n- **文件路径**: `src/layerkg/cli.py`（第 87–98 行）\n- **说明**: 这是一个辅助函数，用于输出/记录信息。\n\n---\n\n**总结**：`GitChangeDetector.full_scan`（位于 `src/layerkg/change_detector.py` 第 270-299 行，是一个\"全量扫描\"方法，不依赖 git diff，直接遍历文件系统并对比 SHA256 缓存）调用了：\n1. **`ChangedFile`** 类 — 用于创建变更文件记录对象\n2. **`info`** 函数 — 用于信息输出或日志记录",
+      "tool_match": true,
+      "answer_match": 1.0,
+      "score": 1.0,
+      "duration_sec": 10.9,
+      "error": null
+    },
+    {
+      "id": "L2-005",
+      "question": "layerkg 模块包含多少个代码实体？",
+      "level": 2,
+      "expected_tools": [
+        "get_module_tree",
+        "graph_query"
+      ],
+      "actual_tools": [
+        "get_module_tree"
+      ],
+      "expected_answer": {
+        "type": "contains",
+        "value": "49"
+      },
+      "actual_answer": "根据 `get_module_tree` 的查询结果，**`layerkg` 模块**包含 **27 个代码实体**。\n\n这些实体直接归属于 `layerkg` 根模块（作为整体包入口层），此外该项目的其他子模块分布如下：\n\n| 模块/文件 | 实体数量 |\n|---|---|\n| **layerkg（根模块）** | **27** |\n| aligner.py | 13 |\n| change_detector.py | 29 |\n| chroma_store.py | 21 |\n| cli.py | 5 |\n| extractor | 19 |\n| relation.py | 9 |\n| graph_store.py | 10 |\n| impact_propagator.py | 20 |\n| mcp_server.py | 18 |\n| module_clustering.py | 13 |\n| neo4j_store.py | 16 |\n| parser | 16 |\n| base.py | 5 |\n| module_1（聚类模块） | 69 |\n\n总结：**`layerkg` 模块本身包含 27 个代码实体**，模块内聚度为 **0.94**，表明这些实体之间的关联性非常高。",
+      "tool_match": false,
+      "answer_match": 0.0,
+      "score": 0.0,
+      "duration_sec": 5.88,
+      "error": null
+    },
+    {
+      "id": "L2-006",
+      "question": "Semantic Search 相关的概念有哪些？",
+      "level": 2,
+      "expected_tools": [
+        "list_concepts",
+        "semantic_search"
+      ],
+      "actual_tools": [
+        "list_concepts",
+        "semantic_search",
+        "get_context",
+        "graph_query"
+      ],
+      "expected_answer": {
+        "type": "list",
+        "value": [
+          "Semantic Search",
+          "Vector Search"
+        ]
+      },
+      "actual_answer": "现在我对 Semantic Search 相关的概念和实现有了全面的了解，以下是完整总结：\n\n---\n\n## 🔍 \"Semantic Search\" 相关概念全景\n\n### 一、核心概念实体\n\n在 LayerKG 项目中，\"**Semantic Search**\" 被定义为一个 **process（流程）** 类型的概念实体，其描述为：*\"该函数显式调用 ChromaDB 进行语义搜索，体现了基于向量的检索过程。\"*\n\n语义相近的概念还有：\n- **Vector Search**（向量搜索）— 另一个关联的 process 概念\n- **Semantic Search Pattern**（语义搜索模式）— 设计模式类型\n\n### 二、直接关联的代码实现\n\nSemantic Search 概念由以下两个函数 **派生（DERIVED_FROM）**：\n\n| 函数 | 所在文件 | 说明 |\n|---|---|---|\n| **`query`** | `src/layerkg/cli.py:63` | CLI 层入口，接收 `text`, `entity_type`, `limit`，对外提供语义搜索命令行能力 |\n| **`ConceptAligner._vector_match`** | `src/layerkg/aligner.py:229` | 概念对齐中的向量匹配，限定 `entity_type=\"concept\"`，用于术语匹配 |\n\n### 三、底层搜索基础设施\n\n**`Vector Search`** 概念派生的核心实现：\n\n| 函数 | 所在文件 | 说明 |\n|---|---|---|\n| **`ChromaStore.search`** | `src/layerkg/chroma_store.py:211` | 主搜索入口，ChromaDB 自动生成 query embedding |\n| **`ChromaStore.search_by_embedding`** | `src/layerkg/chroma_store.py` | 基于已有 embedding 的搜索 |\n\n### 四、语义搜索调用链\n\n```\nCLI/用户输入\n   ↓\nsemantic_search()          ← MCP Server 接口 (src/layerkg/mcp_server.py:100)\n   ↓\nquery()                    ← CLI 接口 (src/layerkg/cli.py:63)\n   ↓\nChromaStore.search()       ← 向量数据库检索 (src/layerkg/chroma_store.py:211)\n```\n\n### 五、\"Semantic\" 模块体系\n\n`src/layerkg/extractor/semantic.py` 模块包含丰富的语义提取能力：\n\n| 组件 | 类型 | 说明 |\n|---|---|---|\n| **`semantic`** | module | 语义提取模块 |\n| **`SemanticRelation`** | class (dataclass) | 语义关系数据模型 |\n| **`SemanticExtractor`** | **class** | 核心的**语义关系提取器**，包含大量方法 |\n| → `extract()` | 方法 | 主提取入口 |\n| → `extract_batch()` | 方法 | 批量提取 |\n| → `_call_llm()` | 方法 | 调用大语言模型 |\n| → `_build_prompt()` | 方法 | 构建提示词 |\n| → `_parse_response()` | 方法 | 解析 LLM 返回结果 |\n| → `_validate_relation()` | 方法 | 验证关系有效性 |\n| → `_extract_cross_type_relations()` | 方法 | 跨类型关系提取 |\n| → `_create_batches()` | 方法 | 创建批处理 |\n\n### 六、语义关联模式\n\n**`SEMANTIC_IMPACT`** 关系类型也与此密切相关：\n- 被定义为 `semantic_impact` 设计模式\n- `SemanticExtractor` 与某些实体间存在 `SEMANTIC_IMPACT` 关系\n- `ChromaStore.search` 也存在 `SEMANTIC_IMPACT` 语义影响关系\n\n---\n\n### 📊 总结\n\nSemantic Search 在 LayerKG 中是一个**多层次、端到端**的概念体系，",
+      "tool_match": true,
+      "answer_match": 1.0,
+      "score": 1.0,
+      "duration_sec": 32.2,
+      "error": null
+    },
+    {
+      "id": "L2-007",
+      "question": "OllamaEmbeddingFunction 类定义在哪个文件中？",
+      "level": 2,
+      "expected_tools": [
+        "semantic_search",
+        "get_context"
+      ],
+      "actual_tools": [
+        "semantic_search",
+        "graph_query"
+      ],
+      "expected_answer": {
+        "type": "contains",
+        "value": "chroma_store.py"
+      },
+      "actual_answer": "`OllamaEmbeddingFunction` 类定义在以下文件中：\n\n**文件路径：** `src/layerkg/chroma_store.py`\n\n该类是一个自定义的 ChromaDB 嵌入函数，具体信息如下：\n\n| 成员 | 行号范围 | 说明 |\n|------|---------|------|\n| `OllamaEmbeddingFunction` (class) | 第 16-74 行 | 类定义 |\n| `__init__` | 第 19-24 行 | 构造函数 |\n| `__call__` | 第 26-52 行 | 调用方法（生成嵌入向量） |\n| `dimension` | 第 55-70 行 | 获取嵌入维度 |\n| `close` | 第 72-74 行 | 关闭方法 |",
+      "tool_match": false,
+      "answer_match": 1.0,
+      "score": 0.6,
+      "duration_sec": 5.47,
+      "error": null
+    },
+    {
+      "id": "L2-008",
+      "question": "RelationExtractor 类中有哪些方法和属性？",
+      "level": 2,
+      "expected_tools": [
+        "get_context",
+        "graph_query"
+      ],
+      "actual_tools": [
+        "get_context",
+        "graph_query",
+        "semantic_search"
+      ],
+      "expected_answer": {
+        "type": "list",
+        "value": [
+          "extract",
+          "relations"
+        ]
+      },
+      "actual_answer": "现在我已经获得了足够的信息，以下是 `RelationExtractor` 类的完整总结：\n\n---\n\n## RelationExtractor 类详情\n\n**文件路径：** `src/layerkg/extractor/relation.py`（第 23-159 行）\n\n**类说明：** 关系提取器，聚合多个文件的解析结果并转换为 ID 级关系。核心职责：\n1. 聚合多个文件的 `ExtractedRelation`\n2. 将名称级关系转换为 ID 级关系（`schema.Relation`）\n3. 过滤无效关系（源/目标实体不在已知集合中）\n\n---\n\n### 包含的方法\n\n| 方法 | 行号 | 说明 |\n|---|---|---|\n| **`__init__(self)`** | 32-34 | 初始化提取器 |\n| **`add_parse_result(self, entities, relations)`** | 36-43 | 添加一个文件的解析结果（实体列表 + 关系列表） |\n| **`resolve(self, all_entities)`** | 45-72 | 将名称级关系转换为 ID 级关系，过滤无效关系。同名实体优先匹配同文件 |\n| **`resolve_with_unresolved(self, all_entities)`** | 74-102 | 与 resolve 类似，但额外返回未解析的外部导入列表（返回二元组） |\n| **`_resolve_relation(self, rel, name_to_ids, file_index)`** | 104-144 | **私有方法**，解析单个关系的源和目标 ID。对 `imports/contains/calls` 优先匹配同文件实体 |\n| **`_build_name_map(self, entities)`** | 147-159 | **私有方法**，构建实体名称到 ID 的多值映射字典 |\n\n---\n\n### 类属性\n\n从代码结构来看，该类是实例方法驱动的，**没有定义类级别（静态）属性**。它的工作数据通过 `add_parse_result()` 传入并保存在实例内部。如果你需要了解实例属性的具体细节，我可以进一步查看其 `__init__` 方法的实现代码。",
+      "tool_match": true,
+      "answer_match": 1.0,
+      "score": 1.0,
+      "duration_sec": 14.97,
+      "error": null
+    },
+    {
+      "id": "L2-009",
+      "question": "检测 HEAD~1 的 Git 变更，并分析这些变更影响了哪些代码实体？",
+      "level": 2,
+      "expected_tools": [
+        "detect_changes",
+        "graph_query"
+      ],
+      "actual_tools": [
+        "detect_changes",
+        "get_module_tree",
+        "graph_query",
+        "semantic_search",
+        "get_context",
+        "impact_analysis"
+      ],
+      "expected_answer": {
+        "type": "contains",
+        "value": "changed_files"
+      },
+      "actual_answer": "现在我已经掌握了足够的信息，下面来做一个全面的分析总结。\n\n---\n\n## 🔍 HEAD~1 变更分析与影响报告\n\n### 一、变更文件概览（共 9 个文件）\n\n| 状态 | 文件 | 说明 |\n|:---:|:---|:---:|\n| 🔄 M | `.chroma/chroma.sqlite3` | Chroma 向量数据库文件（自动变更） |\n| ➕ A | `docs/plans/phase3-day3-plan.md` | 新增文档/计划 |\n| 🔄 M | `pyproject.toml` | 项目配置文件变更 |\n| 🔄 M | `src/layerkg/agent/graph.py` | **Agent 图模块** - 修改 |\n| 🔄 M | `src/layerkg/agent/prompt.py` | **Agent 提示词模块** - 修改 |\n| 🔄 M | `src/layerkg/agent/tools.py` | **Agent 工具模块** - 修改 |\n| 🔄 M | `src/layerkg/cli.py` | **CLI 命令行接口** - 修改 |\n| ➕ A | `tests/integration/test_agent_graph_e2e.py` | 新增集成测试 |\n| ➕ A | `tests/integration/test_agent_tools_e2e.py` | 新增集成测试 |\n\n### 二、受影响的代码实体\n\n#### 1️⃣ `src/layerkg/cli.py` 中的代码实体（7 个）\n| 实体 | 类型 | 行号 |\n|:---|:---|:---:|\n| `cli` | **module** | 0-132 |\n| `main` | **function** | 14-20 |\n| `build` | **function** | 29-56 |\n| `query` | **function** | 63-83 |\n| `info` | **function** | 87-98 |\n| `update` | **function** | 106-111 |\n| `serve` | **function** | 123-132 |\n\n#### 2️⃣ Agent 模块（`graph.py`, `prompt.py`, `tools.py`）\n这些文件是 LayerKG Agent 的核心模块，虽然它们的实体未在图数据库中明确记录，但从模块结构看属于 **Agent 子系统**，与 `cli.py` 的 `serve` 函数有关联。\n\n#### 3️⃣ 导入依赖链（影响传播）\n通过影响分析，`cli.py` 的变更会通过 **IMPORTS** 关系传播到：\n\n**第 1 层（直接影响 - 中等严重性）：**\n- `LayerKGBuilder` → 构建器模块\n- `layerkg` → 主模块\n- `builder` → 构建器子模块\n- `IncrementalUpdater` → 增量更新器（`src/layerkg/incremental_updater.py`）\n- `LayerKGConfig` → 配置模块（`src/layerkg/config.py`）\n\n**第 2 层（间接影响 - 低严重性）：**\n- `ImpactReport` → 影响传播器（`src/layerkg/impact_propagator.py`）\n- `ChangeType` → 变更检测器（`src/layerkg/change_detector.py`）\n- `UpdateReport` → 更新报告\n\n**第 3 层（间接影响 - 低严重性）：**\n- `GraphStore` → 图存储（`src/layerkg/graph_store.py`）\n- `ChangedFile` → 变更文件类型（`change_detector.py`）\n\n#### 4️⃣ 新增的测试文件\n- `test_agent_graph_e2e.py` → 测试 Agent 图流程\n- `test_agent_tools_e2e.py` → 测试 Agent 工具功能\n\n### 三、整体影响范围总结\n\n```\n变更影响传播图（共波及约 30+ 实体）：\n\ncli.py 变更\n  ├─→ LayerKGBuilder (builder 模块)\n  ├─→ LayerKGConfig (config.py)\n  ├─→ IncrementalUpdater → UpdateReport\n  │     └─→ ChangeDetector → ChangedFile\n  ├─→ Agen",
+      "tool_match": true,
+      "answer_match": 0.0,
+      "score": 0.4,
+      "duration_sec": 39.4,
+      "error": null
+    },
+    {
+      "id": "L2-010",
+      "question": "ImpactPropagator 类和哪些实体有关系？",
+      "level": 2,
+      "expected_tools": [
+        "semantic_search",
+        "get_context"
+      ],
+      "actual_tools": [
+        "get_context",
+        "graph_query"
+      ],
+      "expected_answer": {
+        "type": "contains",
+        "value": "ImpactPropagator"
+      },
+      "actual_answer": "现在我已经获取到所有信息，让我为你整理 `ImpactPropagator` 类的关系图谱。\n\n---\n\n## ImpactPropagator 类的关系分析\n\n`ImpactPropagator` 类位于 **`src/layerkg/impact_propagator.py`**（第 161-435 行），它与以下实体存在关系：\n\n### 1️⃣ 内部包含（CONTAINS）— 该类包含的方法\n| 关系 | 目标实体 | 说明 |\n|:---:|:---|:---|\n| ← **CONTAINS** | `ImpactPropagator.__init__` | 构造函数，初始化图存储、权重矩阵等 |\n| ← **CONTAINS** | `ImpactPropagator.propagate` | 主传播方法 |\n| ← **CONTAINS** | `ImpactPropagator.compute_impact` | 计算影响 |\n| ← **CONTAINS** | `ImpactPropagator._bidirectional_bfs` | 双向 BFS 核心算法 |\n| ← **CONTAINS** | `ImpactPropagator._compute_score` | 分值计算 |\n| ← **CONTAINS** | `ImpactPropagator._merge_impacts` | 合并影响结果 |\n| ← **CONTAINS** | `ImpactPropagator.map_files_to_nodes` | 文件到节点映射 |\n| ← **CONTAINS** | `ImpactPropagator._classify_severity` | 严重程度分类 |\n\n这些方法都是 ImpactPropagator 类内部定义的成员方法。\n\n### 2️⃣ 被所属模块包含\n| 关系 | 源实体 | 说明 |\n|:---:|:---|:---|\n| ← **CONTAINS** | `impact_propagator`（模块） | ImpactPropagator 定义在该模块中 |\n\n### 3️⃣ 派生关系（DERIVED_FROM）\n| 关系 | 目标实体 | 说明 |\n|:---:|:---|:---|\n| **DERIVED_FROM →** | **「Strategy Pattern」(概念)** | ImpactPropagator 派生自**策略模式**设计模式概念 |\n\n### 4️⃣ 语义影响（SEMANTIC_IMPACT）\n| 关系 | 目标实体 | 说明 |\n|:---:|:---|:---|\n| **SEMANTIC_IMPACT →** | **「Incremental Update Orchestrator」(概念)** | ImpactPropagator 对**增量更新编排器**这一业务流程有语义影响 |\n\n### 5️⃣ 被外部调用（CALLS）\n| 关系 | 调用方 | 说明 |\n|:---:|:---|:---|\n| ← **CALLS** | `IncrementalUpdater._get_impact_propagator` | 增量更新器中的方法调用了 ImpactPropagator |\n\n> 📍 位于 `src/layerkg/incremental_updater.py`\n\n### 6️⃣ 被导入（IMPORTS）\n| 关系 | 导入方 | 说明 |\n|:---:|:---|:---|\n| ← **IMPORTS** | `__init__`（模块） | `src/layerkg/__init__.py` 中导入了 ImpactPropagator |\n\n---\n\n### 总结\n\n`ImpactPropagator` 是影响传播的核心类，它：\n- 🏗 **内部** 包含 8 个成员方法（CONTAINS）\n- 📁 被 `impact_propagator` 模块所包含\n- 🎯 实现了**策略模式**设计模式（DERIVED_FROM）\n- 🔗 对**增量更新编排器**有语义影响（SEMANTIC_IMPACT）\n- 📞 被 `IncrementalUpdater._get_impact_propagator` 调用\n- 📦 被 `__init__.py` 导入导出\n\n如果你需要进一步分析某个具体方法或调用链，可以告诉我！",
+      "tool_match": false,
+      "answer_match": 1.0,
+      "score": 0.6,
+      "duration_sec": 26.03,
+      "error": null
+    },
+    {
+      "id": "L3-001",
+      "question": "分析 ConceptAligner 类的整体设计：它使用了哪些设计模式，有哪些核心方法，这些方法之间的关系是什么？",
+      "level": 3,
+      "expected_tools": [
+        "get_context",
+        "graph_query",
+        "semantic_search"
+      ],
+      "actual_tools": [
+        "get_context",
+        "semantic_search",
+        "graph_query",
+        "list_concepts",
+        "get_module_tree"
+      ],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": [
+          "Pipeline",
+          "Strategy",
+          "Cache",
+          "align",
+          "add_concept",
+          "list_concepts"
+        ]
+      },
+      "actual_answer": "现在我已经掌握了足够的信息，下面来给出完整的分析。\n\n---\n\n## ConceptAligner 类的整体设计分析\n\n### 一、基本信息\n\n| 属性 | 内容 |\n|---|---|\n| **文件路径** | `src/layerkg/aligner.py`（第 42-369 行） |\n| **所属模块** | `layerkg` 包下的独立子模块 `aligner.py`（内聚度 1.0） |\n| **职责** | **概念对齐器**：解决\"术语漂移\"（Term Drift）问题——即同一个概念在代码中出现不同表述时，将其统一对齐到标准概念 |\n\n---\n\n### 二、使用的设计模式\n\n#### 1. 🏗 **Pipeline Pattern（流水线模式）** —— 核心架构\n\n`ConceptAligner` 直接派生自 `Pipeline Pattern` 设计模式（图中 `DERIVED_FROM` 关系）。其核心方法 `align()` 采用**三步/四步级联流水线**：\n```\nterm → 精确匹配 → 别名匹配 → 向量匹配 → (可选)图结构匹配 → 结果\n```\n每一层是上一层的**降级方案**（fallback），优先级由高到低。一旦某一层匹配成功，流水线立即短路返回。\n\n#### 2. 🎯 **Strategy Pattern（策略模式）**\n\n`align()` 方法关联了 `Strategy Pattern` 概念（图中 `DERIVED_FROM`）。每种匹配算法（精确、别名、向量、图结构）被封装为独立的私有方法，它们共享相同的输入/输出协议（均返回 `AlignResult`），可在 `align()` 中按顺序链式调用。\n\n#### 3. 📦 **Data Model Pattern**\n\n`AlignResult` 数据类（第 14-29 行）派生自 `Data Model` 概念，封装了匹配结果的全部信息（`concept_id`、`concept_name`、`match_type`、`confidence`、`aliases`），有清晰的职责分离。\n\n#### 4. 🔧 **Index Pattern（索引模式）**\n\n`_build_index()` 方法在内存中构建**精确匹配**和**别名匹配**的哈希索引，实现 O(1) 查询时间的快速查找，是一种典型的\"索引预构建\"设计。\n\n---\n\n### 三、核心方法及关系\n\n| 方法 | 行号 | 可见性 | 职责 |\n|---|---|---|---|\n| `__init__()` | 53-80 | 公开 | 初始化对齐器，接收 ChromaDB、概念列表、阈值等依赖 |\n| `_build_index()` | 82-105 | 私有 | 构建精确匹配和别名匹配的内存索引 |\n| `add_concept()` | 107-127 | 公开 | **动态**添加新概念到索引（支持增量） |\n| **`align()`** | 129-175 | **公开（核心）** | **三步流水线入口**：精确→别名→向量 |\n| `align_batch()` | 177-186 | 公开 | 批量对齐，循环调用 `align()` |\n| `_exact_match()` | 188-206 | 私有 | 精确匹配（term == concept.name） |\n| `_alias_match()` | 208-227 | 私有 | 别名匹配（term in concept.aliases，大小写不敏感） |\n| `_vector_match()` | 229-282 | 私有 | 向量语义搜索（ChromaDB cosine distance） |\n| `_graph_structure_match()` | 284-353 | 私有 | **图结构匹配**（Jaccard 重叠度计算，可选） |\n| `list_concepts()` | 355-369 | 公开 | 列出所有已注册概念 |\n\n#### **方法调用关系图**\n\n```\n                          ┌──────────────────┐\n                          │   align_batch()  │  ← 批量入口\n                          │ (循环调用align)   │\n                          └────────┬─────────┘\n                                   │\n                     ",
+      "tool_match": true,
+      "answer_match": 0.8333333333333334,
+      "score": 0.9166666666666667,
+      "duration_sec": 43.19,
+      "error": null
+    },
+    {
+      "id": "L3-002",
+      "question": "分析代码库中的错误处理体系：有哪些异常类，它们的继承关系是什么？",
+      "level": 3,
+      "expected_tools": [
+        "graph_query",
+        "semantic_search",
+        "get_context"
+      ],
+      "actual_tools": [
+        "semantic_search",
+        "list_concepts",
+        "graph_query",
+        "get_context"
+      ],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": [
+          "LayerKGError",
+          "SchemaValidationError",
+          "StoreError",
+          "EmbeddingError",
+          "ExtractionError",
+          "EXTENDS"
+        ]
+      },
+      "actual_answer": "现在我已经收集了所有必要的信息。下面是完整的分析报告：\n\n---\n\n## 📊 代码库错误处理体系分析\n\n### 一、异常类定义（`src/layerkg/exceptions.py`）\n\n所有的异常类都定义在 **`src/layerkg/exceptions.py`** 文件中，采用**分层继承结构**，以 `LayerKGError` 为根：\n\n```\nException (Python 内置)\n └── LayerKGError                         # LayerKG 基础异常\n      ├── SchemaValidationError            # Schema 校验失败\n      ├── StoreError                       # 存储操作失败\n      ├── EmbeddingError                   # 嵌入向量生成失败\n      └── ExtractionError                  # 语义关系提取失败\n```\n\n### 二、异常类详情\n\n| 异常类 | 行号 | 说明 |\n|--------|------|------|\n| `LayerKGError` | 3-4 | **基类**，所有自定义异常的父类 |\n| `SchemaValidationError` | 7-8 | Schema 校验失败时抛出 |\n| `StoreError` | 11-12 | 存储操作失败时抛出 |\n| `EmbeddingError` | 15-16 | 嵌入向量生成失败时抛出 |\n| `ExtractionError` | 19-20 | 语义关系提取失败时抛出 |\n\n### 三、异常使用场景\n\n#### 1️⃣ `SchemaValidationError` — 使用最广泛（7 处调用）\n所有数据模型的 `__post_init__` 方法中校验失败时抛出：\n- **`CodeEntity.__post_init__`** — 代码实体属性校验\n- **`ConceptEntity.__post_init__`** — 概念实体属性校验\n- **`DocEntity.__post_init__`** — 文档实体属性校验\n- **`ResourceEntity.__post_init__`** — 资源实体属性校验\n- **`ModuleEntity.__post_init__`** — 模块实体属性校验\n- **`ChangeSetEntity.__post_init__`** — 变更集实体属性校验\n- **`Relation.__post_init__`** — 关系实体属性校验\n\n这些全部位于 **`src/layerkg/schema.py`**，属于**数据验证**（Data Validation）概念。\n\n#### 2️⃣ `EmbeddingError` — 嵌入层使用\n在 **`src/layerkg/chroma_store.py`** 中被调用：\n- **`OllamaEmbeddingFunction.__call__`** — 调用嵌入模型生成向量时\n- **`OllamaEmbeddingFunction.dimension`** — 获取向量维度时\n\n#### 3️⃣ `ExtractionError` — 语义提取层使用\n在 **`src/layerkg/extractor/semantic.py`** 中被调用：\n- **`SemanticExtractor._call_llm`** — LLM 调用失败时\n- **`SemanticExtractor._parse_response`** — 解析 LLM 响应失败时\n\n#### 4️⃣ `StoreError` — 存储层使用\n目前图数据库中暂无显式 CALLS 调用，但被设计为存储操作（如 ChromaDB、Neo4j 等）的统一错误类型。\n\n### 四、架构设计特点\n\n| 特性 | 说明 |\n|------|------|\n| **分层设计** | 通过继承 `LayerKGError` 实现统一异常体系，便于全局捕获与处理 |\n| **模块对齐** | 异常类按功能层级划分（Schema → 存储 → 嵌入 → 提取），与模块结构一致 |\n| **语义明确** | 每个异常类的 docstring 清晰说明了错误场景 |\n| **检查型（非运行时）** | 主要在设计时/校验阶段抛出，而非运行时意外错误 |\n\n### 五、扩展建议\n\n如果需要添加新的异常类，可以遵循已有模式：\n```python\nclass N",
+      "tool_match": true,
+      "answer_match": 0.8333333333333334,
+      "score": 0.9166666666666667,
+      "duration_sec": 37.62,
+      "error": null
+    },
+    {
+      "id": "L3-003",
+      "question": "分析代码库的模块划分：有哪些主要模块，每个模块包含哪些实体？",
+      "level": 3,
+      "expected_tools": [
+        "get_module_tree",
+        "graph_query",
+        "export_graph"
+      ],
+      "actual_tools": [
+        "get_module_tree",
+        "graph_query",
+        "list_concepts"
+      ],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": [
+          "module_0",
+          "layerkg",
+          "parser",
+          "extractor",
+          "agent"
+        ]
+      },
+      "actual_answer": "好的，现在我已经获取了所有数据，下面为你做完整的模块划分分析。\n\n---\n\n## 📦 LayerKG 代码库模块划分分析\n\n### 一、总体概况\n\nLayerKG 是一个**代码知识图谱构建与管理平台**，共包含 **12 个功能模块**（含核心包 `layerkg` 和一个通用聚类模块 `module_4`），总实体数约 **220+ 个**。整体模块凝聚力（cohesion）非常高。\n\n---\n\n### 二、各模块详情\n\n#### 1️⃣ **核心包 — `layerkg`**（核心领域模型）\n| 内聚度 | 实体数 |\n|--------|--------|\n| 0.94 | 27 |\n\n**包含的主要实体：**\n- **数据模型类：** `CodeEntity`, `ConceptEntity`, `DocEntity`, `ModuleEntity`, `ResourceEntity`, `Relation`, `ChangeSetEntity`\n- **错误类：** `LayerKGError`, `EmbeddingError`, `ExtractionError`, `StoreError`, `SchemaValidationError`\n- **核心编排器：** `IncrementalUpdater`（包含 `update`, `_apply_added`, `_apply_deleted`, `_apply_modified` 等 20+ 方法）\n- **报告类：** `UpdateReport`\n- **工具函数：** `query`\n- **子模块：** `schema`, `exceptions`, `incremental_updater`\n\n> 💡 **设计模式：** 采用**数据模型模式**定义领域实体，**Builder 模式**构建知识图谱，**增量处理模式**更新数据。\n\n---\n\n#### 2️⃣ **概念对齐器 — `aligner.py`**\n| 内聚度 | 实体数 |\n|--------|--------|\n| 1.0 | 13 |\n\n**包含的主要实体：**\n- **类：** `ConceptAligner`, `AlignResult`\n- **方法：** `ConceptAligner.__init__`, `align`, `align_batch`, `add_concept`, `list_concepts`\n- **匹配策略：** `_exact_match`, `_alias_match`, `_vector_match`, `_graph_structure_match`, `_build_index`\n\n> 💡 **设计模式：** 实现了**策略模式**——通过 `_exact_match`、`_alias_match`、`_vector_match`、`_graph_structure_match` 四种不同的匹配策略进行概念对齐。\n\n---\n\n#### 3️⃣ **变更检测器 — `change_detector.py`**\n| 内聚度 | 实体数 |\n|--------|--------|\n| 1.0 | 29 |\n\n**包含的主要实体：**\n- **枚举类：** `ChangeType`, `GitStatus`\n- **核心类：** `GitChangeDetector`（10+ 方法，如 `detect_changes`, `full_scan`, `update_cache`）\n- **缓存类：** `SHA256Cache`（`get`, `set`, `save`, `load`, `has_changed`, `remove`, `size`）\n- **数据类：** `ChangedFile`, `_CacheEntry`\n\n> 💡 **设计模式：** 实现**缓存模式**（SHA256Cache）+ **工厂模式**（GitChangeDetector 内部方法分类）。\n\n---\n\n#### 4️⃣ **向量存储 — `chroma_store.py`**\n| 内聚度 | 实体数 |\n|--------|--------|\n| 1.0 | 21 |\n\n**包含的主要实体：**\n- **核心类：** `ChromaStore`（`put_entity`, `search`, `search_by_embedding`, `delete_entity`, `count`, `close` 等）\n- **嵌入函数：** `OllamaEmbeddingFunction`（`__call__`, `dimension`, `close`）\n- ",
+      "tool_match": false,
+      "answer_match": 0.8,
+      "score": 0.4,
+      "duration_sec": 52.36,
+      "error": null
+    },
+    {
+      "id": "L3-004",
+      "question": "分析数据流：从代码变更检测到知识图谱更新，涉及哪些类和方法？",
+      "level": 3,
+      "expected_tools": [
+        "detect_changes",
+        "graph_query",
+        "semantic_search",
+        "get_context"
+      ],
+      "actual_tools": [
+        "semantic_search",
+        "list_concepts",
+        "get_module_tree",
+        "get_context",
+        "graph_query"
+      ],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": [
+          "GitChangeDetector",
+          "PythonParser",
+          "RelationExtractor",
+          "Neo4jGraphStore",
+          "ChromaStore"
+        ]
+      },
+      "actual_answer": "现在我已经收集了足够的信息，让我来绘制完整的数据流图。下面是完整的分析结果。\n\n---\n\n## 数据流分析：从代码变更检测到知识图谱更新\n\n整个数据流是一个**四阶段流水线（Pipeline Pattern）**，由 `IncrementalUpdater` 类编排。涉及 **4 个核心模块、3 个数据模型、约 30+ 个方法**。以下是完整分析：\n\n---\n\n### 🏗️ 总体架构\n\n```\nCLI 入口 ──→ IncrementalUpdater.update() ──→ UpdateReport\n                  │\n        ┌─────────┼─────────┬─────────┐\n        ▼         ▼         ▼         ▼\n    Stage 1    Stage 2    Stage 3    Stage 4\n  变更检测    影响传播   选择性重生成  验证持久化\n```\n\n---\n\n### 📦 涉及的模块与文件\n\n| 模块文件 | 核心类 | 角色 |\n|---|---|---|\n| `src/layerkg/cli.py` | `update()` 函数 | CLI 入口 |\n| `src/layerkg/change_detector.py` | `GitChangeDetector`, `ChangedFile` | **Stage 1**: 变更检测 |\n| `src/layerkg/impact_propagator.py` | `ImpactPropagator`, `ImpactReport` | **Stage 2**: 影响传播 |\n| `src/layerkg/incremental_updater.py` | `IncrementalUpdater`, `UpdateReport` | 编排器（四阶段） |\n| `src/layerkg/neo4j_store.py` | `Neo4jGraphStore` | 图持久化 |\n| `src/layerkg/chroma_store.py` | `ChromaStore` | 向量持久化 |\n| `src/layerkg/parser/` | AST 解析器 | 源码解析 |\n| `src/layerkg/module_clustering.py` | 聚类算法 | 模块重聚类 |\n\n---\n\n### 🌀 完整数据流（逐阶段）\n\n#### **Stage 0：入口触发**\n\n| 调用方法 | 说明 |\n|---|---|\n| `cli.update()` | CLI 入口，调用 `IncrementalUpdater.update()` |\n| `IncrementalUpdater.__init__()` | 初始化配置、repo_path |\n| `IncrementalUpdater.update(since, full_scan, dry_run)` | **四阶段主方法**，返回 `UpdateReport` |\n\n---\n\n#### **Stage 1：变更检测**（`change_detector.py`）\n\n```\nIncrementalUpdater._detect_changes()\n    │\n    ├──→ _get_change_detector()          # Lazy init GitChangeDetector\n    │       │\n    │       ├──→ GitChangeDetector.__init__()    # 初始化 repo_path、SHA256 缓存\n    │       └──→ (返回实例)\n    │\n    ├──→ GitChangeDetector.detect_changes(since)   # Git diff 检测\n    │       │\n    │       ├──→ _git_diff_name_status(since)      # 调用 git diff --name-status\n    │       ├──→ _classify_change(file, status)    # 逐文件分类\n    │       │       │\n    │       │       ├──→ _compute_sha256()         # 计算文件 SHA256\n    │       │       ├──→ _classify_modification()  # 修改类型判断\n    │       │       │       │\n    │",
+      "tool_match": false,
+      "answer_match": 0.6,
+      "score": 0.3,
+      "duration_sec": 92.16,
+      "error": null
+    },
+    {
+      "id": "L3-005",
+      "question": "分析设计模式在代码库中的应用：哪些类使用了哪些设计模式？这些模式之间有什么关联？",
+      "level": 3,
+      "expected_tools": [
+        "list_concepts",
+        "graph_query",
+        "semantic_search"
+      ],
+      "actual_tools": [
+        "list_concepts",
+        "get_module_tree",
+        "graph_query"
+      ],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": [
+          "Pipeline Pattern",
+          "Cache Pattern",
+          "Strategy Pattern",
+          "Repository Pattern",
+          "Builder Pattern",
+          "Adapter Pattern"
+        ]
+      },
+      "actual_answer": "现在我已经收集了足够的数据，让我来做一个综合分析。\n\n---\n\n## 📊 设计模式在 LayerKG 代码库中的应用分析\n\n### 一、设计模式概览\n\n代码库中注册了 **18 种设计模式**，共有 **60+ 个代码实体**与之关联。以下是详细的分类分析：\n\n---\n\n### 二、各设计模式及对应的实现类/函数\n\n#### 1️⃣ **策略模式（Strategy Pattern）— 使用最广泛（11个实体）**\n| 代码实体 | 所在文件 | 类型 |\n|---------|---------|:----:|\n| `BaseParser` | `parser/base.py` | 抽象策略接口 |\n| `PythonParser.parse_source` | `parser/python_parser.py` | 具体策略 |\n| `DocParser` | `parser/doc_parser.py` | 具体策略 |\n| `ImpactPropagator` | `impact_propagator.py` | 策略容器 |\n| `ConceptAligner.align` | `aligner.py` | 对齐策略 |\n| `IncrementalUpdater._apply_modified` | `incremental_updater.py` | 更新策略 |\n| `IncrementalUpdater._update_vectors_only` | `incremental_updater.py` | 更新策略 |\n| `GitChangeDetector._classify_modification` | `change_detector.py` | 变更分类策略 |\n| `ModuleClustering._generate_module_name` | `module_clustering.py` | 命名策略 |\n| `ImpactReport.nodes_by_severity` | `impact_propagator.py` | 排序策略 |\n| `GitChangeDetector._is_doc_line` | `change_detector.py` | 行判定策略 |\n\n**💡 特点**：策略模式是整个系统的**核心架构模式**，在各模块中都有广泛应用。\n\n#### 2️⃣ **仓库模式（Repository Pattern）— 10个实体**\n| 代码实体 | 所在文件 |\n|---------|---------|\n| `GraphStore` | `graph_store.py` | 抽象仓库接口 |\n| `Neo4jGraphStore` | `neo4j_store.py` | Neo4j 具体实现 |\n| `ChromaStore` | `chroma_store.py` | ChromaDB 具体实现 |\n| `GitChangeDetector` | `change_detector.py` | Git 变更仓库 |\n| `GitChangeDetector.full_scan` | `change_detector.py` | 全量扫描 |\n| `IncrementalUpdater._apply_added` | `incremental_updater.py` | 新增操作 |\n| `IncrementalUpdater._apply_deleted` | `incremental_updater.py` | 删除操作 |\n| `ChromaStore.count` | `chroma_store.py` | 计数操作 |\n| `ModuleClustering._load_graph` | `module_clustering.py` | 图加载 |\n| `_get_neo4j` | `mcp_server.py` | DI 获取仓库 |\n\n**💡 特点**：数据存储层全面采用仓库模式，将具体数据库（Neo4j、ChromaDB）抽象化。\n\n#### 3️⃣ **缓存模式（Cache Pattern）— 7个实体**\n| 代码实体 | 所在文件 | 用途 |\n|---------|---------|:----:|\n| `SHA256Cache` | `change_detector.py` | 文件哈希缓存 |\n| `_CacheEntry` | `change_detector.py` | 缓存条目 |\n| `ImpactReport` | `impact_propagator.py` | 影响分析结果缓存 |\n| `OllamaEmbeddingFuncti",
+      "tool_match": false,
+      "answer_match": 0.8333333333333334,
+      "score": 0.4166666666666667,
+      "duration_sec": 62.58,
+      "error": null
+    }
+  ]
+}

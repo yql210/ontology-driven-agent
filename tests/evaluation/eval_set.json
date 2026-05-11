@@ -1,0 +1,351 @@
+{
+  "version": "1.0",
+  "created": "2026-05-10",
+  "questions": [
+    {
+      "id": "L1-001",
+      "level": 1,
+      "question": "ConceptAligner 类定义在哪个文件中？",
+      "expected_tools": ["semantic_search"],
+      "expected_answer": {
+        "type": "contains",
+        "value": "aligner.py"
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (c:CodeEntity {name: 'ConceptAligner'}) RETURN c.file_path AS file"
+      }
+    },
+    {
+      "id": "L1-002",
+      "level": 1,
+      "question": "知识图谱中有多少个 ConceptEntity 类型的实体？",
+      "expected_tools": ["graph_query"],
+      "expected_answer": {
+        "type": "exact",
+        "value": "54"
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (c:ConceptEntity) RETURN count(c) AS count"
+      }
+    },
+    {
+      "id": "L1-003",
+      "level": 1,
+      "question": "列出所有已注册的概念实体名称。",
+      "expected_tools": ["list_concepts"],
+      "expected_answer": {
+        "type": "list",
+        "value": ["Pipeline Pattern", "Cache Pattern", "Strategy Pattern", "Data Model"]
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (c:ConceptEntity) RETURN c.name AS name ORDER BY name"
+      }
+    },
+    {
+      "id": "L1-004",
+      "level": 1,
+      "question": "获取代码库的模块层次结构。",
+      "expected_tools": ["get_module_tree"],
+      "expected_answer": {
+        "type": "contains",
+        "value": "module_0"
+      },
+      "validation": {
+        "method": "contains_check",
+        "value": "module_0"
+      }
+    },
+    {
+      "id": "L1-005",
+      "level": 1,
+      "question": "Neo4jGraphStore 类继承自哪个类？",
+      "expected_tools": ["graph_query"],
+      "expected_answer": {
+        "type": "contains",
+        "value": "GraphStore"
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (a:CodeEntity {name: 'Neo4jGraphStore'})-[:EXTENDS]->(b) RETURN b.name AS parent"
+      }
+    },
+    {
+      "id": "L1-006",
+      "level": 1,
+      "question": "PythonParser 类定义在哪个文件中？",
+      "expected_tools": ["semantic_search"],
+      "expected_answer": {
+        "type": "contains",
+        "value": "python_parser.py"
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (c:CodeEntity {name: 'PythonParser'}) RETURN c.file_path AS file"
+      }
+    },
+    {
+      "id": "L1-007",
+      "level": 1,
+      "question": "GitChangeDetector 类有哪些子方法？",
+      "expected_tools": ["graph_query"],
+      "expected_answer": {
+        "type": "contains",
+        "value": "full_scan"
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (n:CodeEntity) WHERE n.name STARTS WITH 'GitChangeDetector.' RETURN n.name AS method"
+      }
+    },
+    {
+      "id": "L1-008",
+      "level": 1,
+      "question": "概念实体中有哪些类型是 design_pattern 的？",
+      "expected_tools": ["graph_query"],
+      "expected_answer": {
+        "type": "list",
+        "value": ["Pipeline Pattern", "Strategy Pattern", "Repository Pattern"]
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (c:ConceptEntity {entity_type: 'design_pattern'}) RETURN c.name AS name ORDER BY name"
+      }
+    },
+    {
+      "id": "L1-009",
+      "level": 1,
+      "question": "LayerKGError 有哪些子类？",
+      "expected_tools": ["graph_query"],
+      "expected_answer": {
+        "type": "list",
+        "value": ["SchemaValidationError", "StoreError", "EmbeddingError", "ExtractionError"]
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (e:CodeEntity)-[:EXTENDS]->(p:CodeEntity {name: 'LayerKGError'}) RETURN e.name AS name ORDER BY name"
+      }
+    },
+    {
+      "id": "L1-010",
+      "level": 1,
+      "question": "导出图数据中的节点数量是多少？",
+      "expected_tools": ["export_graph"],
+      "expected_answer": {
+        "type": "contains",
+        "value": "382"
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (n) RETURN count(n) AS count"
+      }
+    },
+    {
+      "id": "L2-001",
+      "level": 2,
+      "question": "ConceptAligner 类使用了哪些设计模式？",
+      "expected_tools": ["semantic_search", "graph_query"],
+      "expected_answer": {
+        "type": "list",
+        "value": ["Pipeline Pattern", "Strategy Pattern", "Cache Pattern"]
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (c:CodeEntity) WHERE c.name STARTS WITH 'ConceptAligner' MATCH (c)-[:DERIVED_FROM]->(p:ConceptEntity) RETURN DISTINCT p.name AS pattern"
+      }
+    },
+    {
+      "id": "L2-002",
+      "level": 2,
+      "question": "哪些类使用了 Strategy Pattern？这个模式还关联了哪些概念？",
+      "expected_tools": ["graph_query", "list_concepts"],
+      "expected_answer": {
+        "type": "list",
+        "value": ["ConceptAligner", "Strategy Pattern"]
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (c:CodeEntity)-[:DERIVED_FROM]->(p:ConceptEntity {name: 'Strategy Pattern'}) RETURN c.name AS name"
+      }
+    },
+    {
+      "id": "L2-003",
+      "level": 2,
+      "question": "ChromaStore 类中有哪些方法？它们的功能是什么？",
+      "expected_tools": ["get_context", "semantic_search"],
+      "expected_answer": {
+        "type": "list",
+        "value": ["search", "put_entity", "delete_entity"]
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (n:CodeEntity) WHERE n.name STARTS WITH 'ChromaStore.' AND n.entity_type = 'function' RETURN n.name AS method ORDER BY method"
+      }
+    },
+    {
+      "id": "L2-004",
+      "level": 2,
+      "question": "GitChangeDetector.full_scan 方法调用了哪些类？",
+      "expected_tools": ["graph_query", "get_context"],
+      "expected_answer": {
+        "type": "list",
+        "value": ["info", "ChangedFile"]
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (a:CodeEntity {name: 'GitChangeDetector.full_scan'})-[:CALLS]->(b) RETURN b.name AS name"
+      }
+    },
+    {
+      "id": "L2-005",
+      "level": 2,
+      "question": "layerkg 模块包含多少个代码实体？",
+      "expected_tools": ["get_module_tree", "graph_query"],
+      "expected_answer": {
+        "type": "contains",
+        "value": "49"
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (c:CodeEntity) WHERE c.file_path STARTS WITH 'src/layerkg/' RETURN count(c) AS count"
+      }
+    },
+    {
+      "id": "L2-006",
+      "level": 2,
+      "question": "Semantic Search 相关的概念有哪些？",
+      "expected_tools": ["list_concepts", "semantic_search"],
+      "expected_answer": {
+        "type": "list",
+        "value": ["Semantic Search", "Vector Search"]
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (c:ConceptEntity) WHERE c.name CONTAINS 'Search' RETURN c.name AS name"
+      }
+    },
+    {
+      "id": "L2-007",
+      "level": 2,
+      "question": "OllamaEmbeddingFunction 类定义在哪个文件中？",
+      "expected_tools": ["semantic_search", "get_context"],
+      "expected_answer": {
+        "type": "contains",
+        "value": "chroma_store.py"
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (c:CodeEntity {name: 'OllamaEmbeddingFunction'}) RETURN c.file_path AS file, c.entity_type AS type"
+      }
+    },
+    {
+      "id": "L2-008",
+      "level": 2,
+      "question": "RelationExtractor 类中有哪些方法和属性？",
+      "expected_tools": ["get_context", "graph_query"],
+      "expected_answer": {
+        "type": "list",
+        "value": ["extract", "relations"]
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (n:CodeEntity) WHERE n.name STARTS WITH 'RelationExtractor.' AND n.entity_type = 'function' RETURN n.name AS name ORDER BY name"
+      }
+    },
+    {
+      "id": "L2-009",
+      "level": 2,
+      "question": "检测 HEAD~1 的 Git 变更，并分析这些变更影响了哪些代码实体？",
+      "expected_tools": ["detect_changes", "graph_query"],
+      "expected_answer": {
+        "type": "contains",
+        "value": "changed_files"
+      },
+      "validation": {
+        "method": "contains_check",
+        "value": "changed_files"
+      }
+    },
+    {
+      "id": "L2-010",
+      "level": 2,
+      "question": "ImpactPropagator 类和哪些实体有关系？",
+      "expected_tools": ["semantic_search", "get_context"],
+      "expected_answer": {
+        "type": "contains",
+        "value": "ImpactPropagator"
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (c:CodeEntity {name: 'ImpactPropagator'})-[:SEMANTIC_IMPACT]->(t) RETURN t.name AS target LIMIT 5"
+      }
+    },
+    {
+      "id": "L3-001",
+      "level": 3,
+      "question": "分析 ConceptAligner 类的整体设计：它使用了哪些设计模式，有哪些核心方法，这些方法之间的关系是什么？",
+      "expected_tools": ["get_context", "graph_query", "semantic_search"],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": ["Pipeline", "Strategy", "Cache", "align", "add_concept", "list_concepts"]
+      },
+      "validation": {
+        "method": "keyword_coverage"
+      }
+    },
+    {
+      "id": "L3-002",
+      "level": 3,
+      "question": "分析代码库中的错误处理体系：有哪些异常类，它们的继承关系是什么？",
+      "expected_tools": ["graph_query", "semantic_search", "get_context"],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": ["LayerKGError", "SchemaValidationError", "StoreError", "EmbeddingError", "ExtractionError", "EXTENDS"]
+      },
+      "validation": {
+        "method": "keyword_coverage"
+      }
+    },
+    {
+      "id": "L3-003",
+      "level": 3,
+      "question": "分析代码库的模块划分：有哪些主要模块，每个模块包含哪些实体？",
+      "expected_tools": ["get_module_tree", "graph_query", "export_graph"],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": ["module_0", "layerkg", "parser", "extractor", "agent"]
+      },
+      "validation": {
+        "method": "keyword_coverage"
+      }
+    },
+    {
+      "id": "L3-004",
+      "level": 3,
+      "question": "分析数据流：从代码变更检测到知识图谱更新，涉及哪些类和方法？",
+      "expected_tools": ["detect_changes", "graph_query", "semantic_search", "get_context"],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": ["GitChangeDetector", "PythonParser", "RelationExtractor", "Neo4jGraphStore", "ChromaStore"]
+      },
+      "validation": {
+        "method": "keyword_coverage"
+      }
+    },
+    {
+      "id": "L3-005",
+      "level": 3,
+      "question": "分析设计模式在代码库中的应用：哪些类使用了哪些设计模式？这些模式之间有什么关联？",
+      "expected_tools": ["list_concepts", "graph_query", "semantic_search"],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": ["Pipeline Pattern", "Cache Pattern", "Strategy Pattern", "Repository Pattern", "Builder Pattern", "Adapter Pattern"]
+      },
+      "validation": {
+        "method": "keyword_coverage"
+      }
+    }
+  ]
+}
