@@ -37,3 +37,40 @@ export interface ToolCall {
   status: 'running' | 'completed' | 'failed'
   error?: string
 }
+
+// ========= Graph Types =========
+
+export interface GraphNode {
+  id: string
+  name: string
+  neo4jLabel: string
+  entity_type?: string
+}
+
+export interface GraphEdge {
+  source: string
+  target: string
+  type: string
+}
+
+export interface GraphData {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+}
+
+export interface GraphStats {
+  node_count: number
+  edge_count: number
+  by_type: Record<string, number>
+}
+
+export interface NodeDetail {
+  id: string
+  name: string
+  neo4jLabel: string
+  properties: Record<string, unknown>
+  relations: {
+    incoming: Array<{ source_id: string; source_name: string; type: string }>
+    outgoing: Array<{ target_id: string; target_name: string; type: string }>
+  }
+}
