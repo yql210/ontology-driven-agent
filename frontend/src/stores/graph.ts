@@ -58,7 +58,7 @@ export const useGraphStore = defineStore('graph', {
       this.isLoading = true
       this.error = null
       try {
-        const newData = await fetchGraph({ center: name, depth: 1, limit: 50 })
+        const newData = await fetchGraph({ center: name, depth: 2, limit: 50 })
         // 合并新节点和边
         const existingIds = new Set(this.graphData.nodes.map((n) => n.id))
         for (const node of newData.nodes) {
