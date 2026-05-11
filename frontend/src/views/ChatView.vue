@@ -31,6 +31,7 @@ function handleSend(message: string) {
         v-for="msg in chatStore.messages"
         :key="msg.id"
         :message="msg"
+        :thread-id="chatStore.threadId"
       />
     </div>
     <ChatInput :disabled="chatStore.isLoading" @send="handleSend" />

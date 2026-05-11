@@ -3,7 +3,7 @@ import type { Message } from '../api/types'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import ToolCallBlock from './ToolCallBlock.vue'
 
-defineProps<{ message: Message }>()
+defineProps<{ message: Message; threadId?: string | null }>()
 </script>
 
 <template>
@@ -15,6 +15,9 @@ defineProps<{ message: Message }>()
         <ToolCallBlock v-for="tc in message.toolCalls" :key="tc.id" :tool-call="tc" />
       </div>
       <span v-if="message.isStreaming" class="cursor">▊</span>
+      <router-link v-if="threadId && !message.isStreaming && message.role === 'assistant'" :to="`/traces/${threadId}`" class="trace-link">
+        📊 查看 Trace →
+      </router-link>
     </div>
   </div>
 </template>
@@ -42,6 +45,16 @@ defineProps<{ message: Message }>()
 .message.error .bubble { background: #fff3cd; color: #856404; }
 .cursor {
   animation: blink 0.7s infinite;
+}
+.trace-link {
+  display: inline-block;
+  margin-top: 8px;
+  color: #3498db;
+  text-decoration: none;
+  font-size: 13px;
+}
+.trace-link:hover {
+  text-decoration: underline;
 }
 @keyframes blink {
   0%, 100% { opacity: 1; }

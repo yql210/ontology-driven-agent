@@ -8,6 +8,7 @@
       <div class="nav-links">
         <router-link to="/">对话</router-link>
         <router-link to="/graph">图谱</router-link>
+        <router-link to="/traces">Traces</router-link>
       </div>
     </nav>
     <router-view />

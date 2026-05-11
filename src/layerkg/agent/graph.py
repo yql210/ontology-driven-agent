@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -58,22 +59,6 @@ async def _agent_node(state: AgentState) -> dict[str, list[BaseMessage]]:
     return {"messages": [response]}
 
 
-def _get_langfuse_handler():
-    """创建 Langfuse 回调 handler（可选，无 key 时返回 None）"""
-    from layerkg.agent._helpers import get_config
-
-    cfg = get_config()
-    if not cfg.langfuse_public_key or not cfg.langfuse_secret_key:
-        return None
-    from langfuse.callback import CallbackHandler
-
-    return CallbackHandler(
-        public_key=cfg.langfuse_public_key,
-        secret_key=cfg.langfuse_secret_key,
-        host=cfg.langfuse_host,
-    )
-
-
 def create_agent() -> Any:
     """创建 ReAct Agent 编排图（带对话记忆）"""
     graph = StateGraph(AgentState)
@@ -96,14 +81,10 @@ def create_agent() -> Any:
 
 def _make_config(thread_id: str = "default") -> dict[str, Any]:
     """生成 Agent 运行配置"""
-    config: dict[str, Any] = {
+    return {
         "configurable": {"thread_id": thread_id},
         "recursion_limit": 50,
     }
-    handler = _get_langfuse_handler()
-    if handler:
-        config["callbacks"] = [handler]
-    return config
 
 
 async def run_query(question: str, thread_id: str = "default") -> str:
@@ -133,13 +114,32 @@ async def run_query(question: str, thread_id: str = "default") -> str:
     return "无法生成回答。"
 
 
-async def run_query_stream(question: str, thread_id: str | None = None) -> AsyncGenerator[dict]:
-    """流式运行 Agent，yield 事件字典。"""
+async def run_query_stream(
+    question: str,
+    thread_id: str | None = None,
+    trace_collector: Any | None = None,
+) -> AsyncGenerator[dict]:
+    """流式运行 Agent，yield 事件字典。
+
+    Args:
+        question: 用户问题。
+        thread_id: 会话线程 ID。
+        trace_collector: TraceCollector 实例（可选）。
+
+    Yields:
+        事件字典: {"type": "token"|"tool_start"|"tool_end"|"error", ...}
+    """
     thread_id = thread_id or "default"
     agent = create_agent()
     config = _make_config(thread_id)
 
+    # 开始 trace
+    if trace_collector:
+        await trace_collector.start_trace(thread_id, question)
+
     try:
+        tool_start_time: dict[str, float] = {}
+
         async for event in agent.astream_events(
             {"messages": [HumanMessage(content=question)]},
             config=config,
@@ -150,9 +150,55 @@ async def run_query_stream(question: str, thread_id: str | None = None) -> Async
                 chunk = event["data"]["chunk"]
                 if hasattr(chunk, "content") and chunk.content:
                     yield {"type": "token", "content": chunk.content}
+            elif kind == "on_chat_model_end":
+                output = event["data"].get("output", {})
+                content = ""
+                if hasattr(output, "content"):
+                    content = str(output.content)[:200]
+                if trace_collector and content:
+                    await trace_collector.add_step(
+                        thread_id, type="thinking", content=content
+                    )
             elif kind == "on_tool_start":
-                yield {"type": "tool_start", "tool": event["name"], "args": event["data"].get("input", {})}
+                tool_name = event["name"]
+                args = event["data"].get("input", {})
+                tool_start_time[tool_name] = time.time()
+                yield {"type": "tool_start", "tool": tool_name, "args": args}
+                if trace_collector:
+                    await trace_collector.add_step(
+                        thread_id,
+                        type="tool_call",
+                        content=f"调用 {tool_name}",
+                        tool_name=tool_name,
+                        tool_args=args,
+                    )
             elif kind == "on_tool_end":
-                yield {"type": "tool_end", "tool": event["name"]}
+                tool_name = event["name"]
+                output = event["data"].get("output", "")
+                duration = None
+                if tool_name in tool_start_time:
+                    duration = (time.time() - tool_start_time[tool_name]) * 1000
+                    del tool_start_time[tool_name]
+                yield {
+                    "type": "tool_end",
+                    "tool": tool_name,
+                    "result": str(output)[:500],
+                }
+                if trace_collector:
+                    await trace_collector.add_step(
+                        thread_id,
+                        type="tool_result",
+                        content=f"{tool_name} 返回结果",
+                        tool_name=tool_name,
+                        tool_result=str(output)[:500],
+                        duration_ms=duration,
+                    )
     except Exception as e:
+        if trace_collector:
+            await trace_collector.end_trace(thread_id, status="failed")
         yield {"type": "error", "message": str(e)}
+        return
+
+    # 正常结束
+    if trace_collector:
+        await trace_collector.end_trace(thread_id, status="completed")

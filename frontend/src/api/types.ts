@@ -3,7 +3,7 @@ export type SSEEventType = 'token' | 'tool_start' | 'tool_end' | 'error' | 'done
 
 export interface SSETokenEvent { type: 'token'; content: string }
 export interface SSEToolStartEvent { type: 'tool_start'; tool: string; args: Record<string, unknown> }
-export interface SSEToolEndEvent { type: 'tool_end'; tool: string }
+export interface SSEToolEndEvent { type: 'tool_end'; tool: string; result?: string }
 export interface SSEErrorEvent { type: 'error'; message: string }
 export interface SSEDoneEvent { type: 'done'; thread_id: string }
 export type SSEEvent = SSETokenEvent | SSEToolStartEvent | SSEToolEndEvent | SSEErrorEvent | SSEDoneEvent
@@ -73,4 +73,33 @@ export interface NodeDetail {
     incoming: Array<{ source_id: string; source_name: string; type: string }>
     outgoing: Array<{ target_id: string; target_name: string; type: string }>
   }
+}
+
+// ========= Trace Types =========
+
+export interface TraceStep {
+  step_id: number
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'final'
+  content: string
+  tool_name?: string
+  tool_args?: string
+  tool_result?: string
+  duration_ms?: number
+}
+
+export interface TraceInfo {
+  thread_id: string
+  query: string
+  status: 'running' | 'completed' | 'failed'
+  steps: TraceStep[]
+  total_duration_ms?: number
+}
+
+export interface TraceListItem {
+  thread_id: string
+  query: string
+  status: 'running' | 'completed' | 'failed'
+  step_count: number
+  total_duration_ms?: number
+  created_at: number
 }

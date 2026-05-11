@@ -8,8 +8,12 @@ from pydantic import BaseModel, field_validator
 from sse_starlette import EventSourceResponse, ServerSentEvent
 
 from layerkg.agent.graph import run_query
+from layerkg.agent.trace import TraceCollector
 
 router = APIRouter()
+
+# TraceCollector 单例，由 app.py 注入
+collector: TraceCollector | None = None
 
 
 class ChatRequest(BaseModel):
@@ -49,7 +53,11 @@ async def chat_stream(req: ChatRequest):
     async def event_generator():
         try:
             async with asyncio.timeout(120):
-                async for event in run_query_stream(req.message, thread_id=thread_id):
+                async for event in run_query_stream(
+                    req.message,
+                    thread_id=thread_id,
+                    trace_collector=collector,
+                ):
                     yield ServerSentEvent(
                         data=json.dumps(event, ensure_ascii=False),
                         event=event["type"],

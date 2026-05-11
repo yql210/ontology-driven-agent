@@ -15,8 +15,6 @@ class TestAgentGraphStructure:
                 agent_llm_model="test",
                 agent_base_url="http://test",
                 agent_api_key="k",
-                langfuse_public_key="",
-                langfuse_secret_key="",
             )
             from layerkg.agent.graph import create_agent
 
@@ -25,16 +23,11 @@ class TestAgentGraphStructure:
 
     def test_make_config_includes_thread_id(self):
         """_make_config 包含 thread_id 和 recursion_limit"""
-        with patch("layerkg.agent._helpers.get_config") as mock_cfg:
-            mock_cfg.return_value = MagicMock(
-                langfuse_public_key="",
-                langfuse_secret_key="",
-            )
-            from layerkg.agent.graph import _make_config
+        from layerkg.agent.graph import _make_config
 
-            config = _make_config("test-thread")
-            assert config["configurable"]["thread_id"] == "test-thread"
-            assert config["recursion_limit"] == 50
+        config = _make_config("test-thread")
+        assert config["configurable"]["thread_id"] == "test-thread"
+        assert config["recursion_limit"] == 50
 
     def test_all_tools_registered_in_graph(self):
         """图节点包含 agent 和 tools"""
@@ -43,8 +36,6 @@ class TestAgentGraphStructure:
                 agent_llm_model="test",
                 agent_base_url="http://test",
                 agent_api_key="k",
-                langfuse_public_key="",
-                langfuse_secret_key="",
             )
             from layerkg.agent.graph import create_agent
 

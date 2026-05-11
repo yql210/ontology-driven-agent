@@ -18,7 +18,6 @@ dependencies = [
     "langchain-ollama>=0.2,<0.3",
     "langchain-anthropic>=0.3.22",
     "langchain-openai",
-    "langfuse>=4.6.1",
     "fastapi>=0.136.1",
     "uvicorn>=0.46.0",
     "sse-starlette>=3.4.2",
@@ -28,6 +27,7 @@ dependencies = [
 dev = [
     "ruff>=0.11",
     "pytest>=8.0",
+    "pytest-asyncio>=0.24",
     "pytest-cov>=6.0",
     "pyright>=1.1",
 ]
@@ -81,6 +81,8 @@ markers = [
     "slow: 耗时超过1秒的测试",
 ]
 addopts = "-v --tb=short"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
@@ -95,5 +97,6 @@ reportMissingTypeStubs = false
 
 [dependency-groups]
 dev = [
+    "pytest-asyncio>=1.3.0",
     "pytest-mock>=3.15.1",
 ]
