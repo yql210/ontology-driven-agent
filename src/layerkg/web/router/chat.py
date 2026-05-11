@@ -56,12 +56,12 @@ async def chat_stream(req: ChatRequest):
                     )
         except TimeoutError:
             yield ServerSentEvent(
-                data=json.dumps({"error": "Agent timeout"}),
+                data=json.dumps({"type": "error", "message": "Agent timeout"}),
                 event="error",
             )
         except Exception as e:
             yield ServerSentEvent(
-                data=json.dumps({"error": str(e)}),
+                data=json.dumps({"type": "error", "message": str(e)}),
                 event="error",
             )
         yield ServerSentEvent(
