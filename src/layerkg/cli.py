@@ -134,6 +134,29 @@ def serve(transport: str, port: int) -> None:
 
 
 @main.command()
+@click.option("--host", default="0.0.0.0", help="监听地址")
+@click.option("--port", default=8000, help="监听端口")
+@click.option("--reload", is_flag=True, help="开发模式热重载")
+def web(host: str, port: int, reload: bool) -> None:
+    """启动 LayerKG Web API Server"""
+    import uvicorn
+
+    if reload:
+        uvicorn.run(
+            "layerkg.web.app:create_app",
+            host=host,
+            port=port,
+            reload=True,
+            factory=True,
+        )
+    else:
+        from layerkg.web.app import create_app
+
+        app = create_app()
+        uvicorn.run(app, host=host, port=port)
+
+
+@main.command()
 @click.argument("question", required=False)
 @click.option("--interactive", "-i", is_flag=True, help="交互式对话模式")
 def ask(question: str | None, interactive: bool) -> None:

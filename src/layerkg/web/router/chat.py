@@ -1,0 +1,72 @@
+import asyncio
+import json
+import time
+from uuid import uuid4
+
+from fastapi import APIRouter
+from pydantic import BaseModel, field_validator
+from sse_starlette import EventSourceResponse, ServerSentEvent
+
+from layerkg.agent.graph import run_query
+
+router = APIRouter()
+
+
+class ChatRequest(BaseModel):
+    message: str
+    thread_id: str | None = None
+
+    @field_validator("message")
+    @classmethod
+    def message_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            msg = "message cannot be empty"
+            raise ValueError(msg)
+        return v[:2000]
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    thread_id: str
+    duration_ms: int
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat_sync(req: ChatRequest) -> ChatResponse:
+    start = time.time()
+    thread_id = req.thread_id or str(uuid4())
+    answer = await run_query(req.message, thread_id=thread_id)
+    duration_ms = int((time.time() - start) * 1000)
+    return ChatResponse(answer=answer, thread_id=thread_id, duration_ms=duration_ms)
+
+
+@router.post("/chat/stream")
+async def chat_stream(req: ChatRequest):
+    from layerkg.agent.graph import run_query_stream
+
+    thread_id = req.thread_id or str(uuid4())
+
+    async def event_generator():
+        try:
+            async with asyncio.timeout(120):
+                async for event in run_query_stream(req.message, thread_id=thread_id):
+                    yield ServerSentEvent(
+                        data=json.dumps(event, ensure_ascii=False),
+                        event=event["type"],
+                    )
+        except TimeoutError:
+            yield ServerSentEvent(
+                data=json.dumps({"error": "Agent timeout"}),
+                event="error",
+            )
+        except Exception as e:
+            yield ServerSentEvent(
+                data=json.dumps({"error": str(e)}),
+                event="error",
+            )
+        yield ServerSentEvent(
+            data=json.dumps({"thread_id": thread_id}),
+            event="done",
+        )
+
+    return EventSourceResponse(event_generator())

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncGenerator
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -130,3 +131,28 @@ async def run_query(question: str, thread_id: str = "default") -> str:
 
             return json.dumps(content, ensure_ascii=False)
     return "无法生成回答。"
+
+
+async def run_query_stream(question: str, thread_id: str | None = None) -> AsyncGenerator[dict]:
+    """流式运行 Agent，yield 事件字典。"""
+    thread_id = thread_id or "default"
+    agent = create_agent()
+    config = _make_config(thread_id)
+
+    try:
+        async for event in agent.astream_events(
+            {"messages": [HumanMessage(content=question)]},
+            config=config,
+            version="v2",
+        ):
+            kind = event["event"]
+            if kind == "on_chat_model_stream":
+                chunk = event["data"]["chunk"]
+                if hasattr(chunk, "content") and chunk.content:
+                    yield {"type": "token", "content": chunk.content}
+            elif kind == "on_tool_start":
+                yield {"type": "tool_start", "tool": event["name"], "args": event["data"].get("input", {})}
+            elif kind == "on_tool_end":
+                yield {"type": "tool_end", "tool": event["name"]}
+    except Exception as e:
+        yield {"type": "error", "message": str(e)}
