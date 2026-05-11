@@ -100,12 +100,12 @@ class TestEvalSetFormat:
         assert "questions" in eval_set_data
 
     def test_question_count(self, eval_set_data: dict):
-        """验证共有 25 道题"""
+        """验证共有 35 道题"""
         questions = eval_set_data["questions"]
-        assert len(questions) == 25
+        assert len(questions) == 35
 
     def test_level_distribution(self, eval_set_data: dict):
-        """验证等级分布：L1:10, L2:10, L3:5"""
+        """验证等级分布：L1:12, L2:14, L3:9"""
         questions = eval_set_data["questions"]
         level_counts = {1: 0, 2: 0, 3: 0}
         for q in questions:
@@ -113,9 +113,9 @@ class TestEvalSetFormat:
             assert level in [1, 2, 3], f"Invalid level: {level}"
             level_counts[level] += 1
 
-        assert level_counts[1] == 10, f"Expected 10 L1 questions, got {level_counts[1]}"
-        assert level_counts[2] == 10, f"Expected 10 L2 questions, got {level_counts[2]}"
-        assert level_counts[3] == 5, f"Expected 5 L3 questions, got {level_counts[3]}"
+        assert level_counts[1] == 12, f"Expected 12 L1 questions, got {level_counts[1]}"
+        assert level_counts[2] == 14, f"Expected 14 L2 questions, got {level_counts[2]}"
+        assert level_counts[3] == 9, f"Expected 9 L3 questions, got {level_counts[3]}"
 
     def test_required_fields(self, eval_set_data: dict):
         """验证每题都有必需字段"""

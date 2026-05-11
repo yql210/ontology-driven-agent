@@ -12,21 +12,21 @@ def test_tool_match_exact():
     """测试工具精确匹配"""
     expected = ["semantic_search", "graph_query"]
     actual = ["semantic_search", "graph_query", "get_context"]
-    assert calculate_tool_match(expected, actual) is True
+    assert calculate_tool_match(expected, actual) == 1.0
 
 
 def test_tool_match_exact_only():
     """测试工具精确匹配（没有额外工具）"""
     expected = ["semantic_search"]
     actual = ["semantic_search"]
-    assert calculate_tool_match(expected, actual) is True
+    assert calculate_tool_match(expected, actual) == 1.0
 
 
 def test_tool_match_partial():
     """测试工具部分匹配（实际缺少预期工具）"""
     expected = ["semantic_search", "graph_query"]
     actual = ["semantic_search"]
-    assert calculate_tool_match(expected, actual) is False
+    assert calculate_tool_match(expected, actual) == 0.5
 
 
 def test_answer_match_exact():

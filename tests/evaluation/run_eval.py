@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -42,11 +43,14 @@ def extract_tool_calls(messages: list[dict]) -> list[str]:
     return tools_called
 
 
-def calculate_tool_match(expected: list[str], actual: list[str]) -> bool:
-    """检查工具调用是否匹配（actual 包含 expected 中的所有工具）"""
+def calculate_tool_match(expected: list[str], actual: list[str]) -> float:
+    """计算工具调用覆盖率（0.0-1.0）"""
+    if not expected:
+        return 1.0
     expected_set = set(expected)
     actual_set = set(actual)
-    return expected_set.issubset(actual_set)
+    covered = expected_set & actual_set
+    return round(len(covered) / len(expected_set), 2)
 
 
 def calculate_answer_match(expected: dict, actual: str) -> float:
@@ -56,7 +60,13 @@ def calculate_answer_match(expected: dict, actual: str) -> float:
 
     if answer_type == "exact":
         expected_value = str(expected.get("value", "")).lower().strip()
-        return 1.0 if expected_value in actual_lower else 0.0
+        if expected_value not in actual_lower:
+            return 0.0
+        words = re.findall(r"[a-z_]+", actual_lower)
+        for w in words:
+            if expected_value in w and w != expected_value:
+                return 0.0
+        return 1.0
 
     elif answer_type == "contains":
         expected_value = str(expected.get("value", "")).lower()
@@ -184,7 +194,7 @@ async def run_single_question(
             "actual_tools": [],
             "expected_answer": expected_answer,
             "actual_answer": "",
-            "tool_match": False,
+            "tool_match": 0.0,
             "answer_match": 0.0,
             "score": 0.0,
             "duration_sec": round(duration, 2),
@@ -200,7 +210,7 @@ async def run_single_question(
             "actual_tools": [],
             "expected_answer": expected_answer,
             "actual_answer": "",
-            "tool_match": False,
+            "tool_match": 0.0,
             "answer_match": 0.0,
             "score": 0.0,
             "duration_sec": round(duration, 2),

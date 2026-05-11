@@ -196,7 +196,26 @@ def get_module_tree() -> str:
     """
     clustering = get_clustering()
     tree = clustering.get_module_tree()
-    return json.dumps(tree, ensure_ascii=False, indent=2)
+
+    # 将 entity_ids (UUID) 转换为实体名称
+    neo4j = get_neo4j()
+    enriched_tree = {}
+    for module_name, info in tree.items():
+        entity_names = []
+        for eid in info.get("entities", [])[:10]:
+            try:
+                node = neo4j.get_node(eid)
+                if node and node.get("name"):
+                    entity_names.append(node["name"])
+            except Exception:
+                pass
+        enriched_tree[module_name] = {
+            "entity_count": info.get("entity_count", 0),
+            "cohesion": round(info.get("cohesion", 0.0), 3),
+            "entity_sample": entity_names,
+        }
+
+    return json.dumps(enriched_tree, ensure_ascii=False, indent=2)
 
 
 @tool

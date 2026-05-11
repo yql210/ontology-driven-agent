@@ -1,6 +1,7 @@
 {
   "version": "1.0",
   "created": "2026-05-10",
+  "total_questions": 35,
   "questions": [
     {
       "id": "L1-001",
@@ -342,6 +343,142 @@
       "expected_answer": {
         "type": "fuzzy",
         "keywords": ["Pipeline Pattern", "Cache Pattern", "Strategy Pattern", "Repository Pattern", "Builder Pattern", "Adapter Pattern"]
+      },
+      "validation": {
+        "method": "keyword_coverage"
+      }
+    },
+    {
+      "id": "L1-011",
+      "level": 1,
+      "question": "Neo4jGraphStore 继承自哪个类？",
+      "expected_tools": ["graph_query"],
+      "expected_answer": {
+        "type": "exact",
+        "value": "GraphStore"
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (a:CodeEntity {name: 'Neo4jGraphStore'})-[:EXTENDS]->(b) RETURN b.name AS parent"
+      }
+    },
+    {
+      "id": "L1-012",
+      "level": 1,
+      "question": "LayerKGError 有哪些子类？请列出所有继承自 LayerKGError 的类名。",
+      "expected_tools": ["graph_query"],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": ["SchemaValidationError", "StoreError", "EmbeddingError", "ExtractionError"]
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (e:CodeEntity)-[:EXTENDS]->(p:CodeEntity {name: 'LayerKGError'}) RETURN e.name AS name ORDER BY name"
+      }
+    },
+    {
+      "id": "L2-011",
+      "level": 2,
+      "question": "哪些代码实体使用了 Pipeline Pattern 设计模式？请列出关联的实体名。",
+      "expected_tools": ["graph_query", "list_concepts"],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": ["PythonParser", "IncrementalUpdater", "ConceptAligner"]
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (c:CodeEntity)-[:DERIVED_FROM]->(p:ConceptEntity {name: 'Pipeline Pattern'}) RETURN c.name AS name"
+      }
+    },
+    {
+      "id": "L2-012",
+      "level": 2,
+      "question": "找出 ConceptAligner 类中被调用次数最多的方法，并列出调用它的实体。",
+      "expected_tools": ["graph_query", "get_context"],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": ["ConceptAligner", "调用"]
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (m:CodeEntity) WHERE m.name STARTS WITH 'ConceptAligner.' MATCH (c)-[:CALLS]->(m) RETURN c.name AS caller"
+      }
+    },
+    {
+      "id": "L2-013",
+      "level": 2,
+      "question": "Strategy Pattern 设计模式关联了哪些代码实体？请分析这个模式在项目中的具体体现。",
+      "expected_tools": ["graph_query", "list_concepts"],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": ["Strategy", "PythonParser", "DocParser", "BaseParser"]
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (c:CodeEntity)-[:DERIVED_FROM]->(p:ConceptEntity {name: 'Strategy Pattern'}) RETURN c.name AS name"
+      }
+    },
+    {
+      "id": "L2-014",
+      "level": 2,
+      "question": "查看项目的模块结构树，说明哪个模块包含的实体最多。",
+      "expected_tools": ["get_module_tree", "graph_query"],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": ["模块", "实体"]
+      },
+      "validation": {
+        "method": "cypher_verify",
+        "cypher": "MATCH (c:CodeEntity) WHERE c.module IS NOT NULL RETURN c.module AS module, count(c) AS count ORDER BY count DESC LIMIT 1"
+      }
+    },
+    {
+      "id": "L3-006",
+      "level": 3,
+      "question": "请分析 LayerKG 项目中使用了哪些设计模式，每种模式分别关联了哪些代码实体，并解释这些模式如何体现在代码结构中。",
+      "expected_tools": ["list_concepts", "graph_query", "semantic_search"],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": ["Pipeline", "Strategy", "Cache", "设计模式"]
+      },
+      "validation": {
+        "method": "keyword_coverage"
+      }
+    },
+    {
+      "id": "L3-007",
+      "level": 3,
+      "question": "分析 LayerKGError 的四个子类（SchemaValidationError, StoreError, EmbeddingError, ExtractionError），分别找出它们可能被哪些函数调用或抛出，描述错误传播路径。",
+      "expected_tools": ["graph_query", "get_context", "semantic_search"],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": ["Error", "调用", "抛出"]
+      },
+      "validation": {
+        "method": "keyword_coverage"
+      }
+    },
+    {
+      "id": "L3-008",
+      "level": 3,
+      "question": "获取模块结构树，找出内聚度最高和最低的模块，分析它们的实体组成和功能特征。",
+      "expected_tools": ["get_module_tree", "graph_query", "semantic_search"],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": ["内聚", "模块", "cohesion"]
+      },
+      "validation": {
+        "method": "keyword_coverage"
+      }
+    },
+    {
+      "id": "L3-009",
+      "level": 3,
+      "question": "如果 ConceptAligner 的 align 方法发生了变更，请分析可能的影响范围，找出所有受影响的实体，并评估影响的严重程度。",
+      "expected_tools": ["impact_analysis", "graph_query", "get_context"],
+      "expected_answer": {
+        "type": "fuzzy",
+        "keywords": ["ConceptAligner", "影响", "变更"]
       },
       "validation": {
         "method": "keyword_coverage"
