@@ -96,6 +96,7 @@ async def test_trace_failed_status(trace_collector: TraceCollector):
     async def mock_astream_events(*args, **kwargs):  # type: ignore[misc]
         """Mock astream_events to raise an exception."""
         raise ValueError("Test error")
+        yield  # makes this an async generator function
 
     with patch("layerkg.agent.graph.create_agent") as mock_create_agent:
         mock_agent = MagicMock()
