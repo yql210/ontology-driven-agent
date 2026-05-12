@@ -174,7 +174,13 @@ async def run_query_stream(
                     )
             elif kind == "on_tool_end":
                 tool_name = event["name"]
-                output = event["data"].get("output", "")
+                raw_output = event["data"].get("output", "")
+                # Extract pure content from ToolMessage objects
+                output_str = (
+                    str(raw_output.content)
+                    if hasattr(raw_output, "content")
+                    else str(raw_output)
+                )
                 duration = None
                 if tool_name in tool_start_time:
                     duration = (time.time() - tool_start_time[tool_name]) * 1000
@@ -182,7 +188,7 @@ async def run_query_stream(
                 yield {
                     "type": "tool_end",
                     "tool": tool_name,
-                    "result": str(output)[:500],
+                    "result": output_str[:500],
                 }
                 if trace_collector:
                     await trace_collector.add_step(
@@ -190,7 +196,7 @@ async def run_query_stream(
                         type="tool_result",
                         content=f"{tool_name} 返回结果",
                         tool_name=tool_name,
-                        tool_result=str(output)[:500],
+                        tool_result=output_str[:500],
                         duration_ms=duration,
                     )
     except Exception as e:

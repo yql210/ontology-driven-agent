@@ -51,6 +51,7 @@ async def chat_stream(req: ChatRequest):
     thread_id = req.thread_id or str(uuid4())
 
     async def event_generator():
+        trace_ended = False
         try:
             async with asyncio.timeout(120):
                 async for event in run_query_stream(
@@ -63,15 +64,30 @@ async def chat_stream(req: ChatRequest):
                         event=event["type"],
                     )
         except TimeoutError:
+            if collector:
+                await collector.end_trace(thread_id, status="failed")
+                trace_ended = True
             yield ServerSentEvent(
                 data=json.dumps({"type": "error", "message": "Agent timeout"}),
                 event="error",
             )
         except Exception as e:
+            if collector:
+                await collector.end_trace(thread_id, status="failed")
+                trace_ended = True
             yield ServerSentEvent(
                 data=json.dumps({"type": "error", "message": str(e)}),
                 event="error",
             )
+        finally:
+            # Ensure trace is closed on client disconnect (CancelledError)
+            if collector and not trace_ended:
+                try:
+                    trace = await collector.get_trace(thread_id)
+                    if trace and trace.status == "running":
+                        await collector.end_trace(thread_id, status="completed")
+                except Exception:
+                    pass
         yield ServerSentEvent(
             data=json.dumps({"thread_id": thread_id}),
             event="done",
