@@ -67,6 +67,55 @@ class TestChatStream:
             resp = client.post("/api/chat/stream", json={"message": "test", "thread_id": "t1"})
             assert resp.status_code == 200
 
+    def test_stream_done_after_normal(self, client):
+        """正常路径最后收到 done 事件"""
+        async def fake_stream(*args, **kwargs):
+            yield {"type": "token", "content": "Hello"}
+            yield {"type": "tool_start", "tool": "search", "args": {}}
+            yield {"type": "tool_end", "tool": "search", "result": "ok"}
+
+        with patch("layerkg.agent.graph.run_query_stream", return_value=fake_stream()):
+            resp = client.post("/api/chat/stream", json={"message": "test"})
+            assert resp.status_code == 200
+            content = resp.text
+            # Should have "done" event
+            assert "event: done" in content
+            # done event should be near the end (check by finding its position)
+            done_idx = content.find("event: done")
+            # done should come after the token/tool events
+            assert content.find("token") < done_idx or content.find("tool") < done_idx
+
+    def test_stream_error_no_done(self, client):
+        """异常路径：error 事件后没有 done"""
+        async def fake_stream_error(*args, **kwargs):
+            yield {"type": "token", "content": "Hello"}
+            raise ValueError("Something went wrong")
+
+        with patch("layerkg.agent.graph.run_query_stream", return_value=fake_stream_error()):
+            resp = client.post("/api/chat/stream", json={"message": "test"})
+            assert resp.status_code == 200
+            content = resp.text
+            # Should have error event
+            assert "event: error" in content
+            # Should NOT have done event (because error occurred)
+            assert "event: done" not in content
+
+    def test_stream_timeout_no_done(self, client):
+        """超时路径：timeout error 后没有 done"""
+
+        async def fake_stream_timeout(*args, **kwargs):
+            yield {"type": "token", "content": "Starting"}
+            raise TimeoutError()
+
+        with patch("layerkg.agent.graph.run_query_stream", return_value=fake_stream_timeout()):
+            resp = client.post("/api/chat/stream", json={"message": "test"})
+            assert resp.status_code == 200
+            content = resp.text
+            # Should have error event
+            assert "event: error" in content
+            # Should NOT have done event
+            assert "event: done" not in content
+
 
 # ===== Graph API Tests =====
 
@@ -153,14 +202,16 @@ def graph_client():
     """Create test client with mocked graph store."""
     mock_store = MockGraphStore()
 
-    with patch("layerkg.neo4j_store.GraphDatabase"):
-        with patch("layerkg.web.app.Neo4jGraphStore", return_value=mock_store):
-            from layerkg.web.app import create_app
+    with (
+        patch("layerkg.neo4j_store.GraphDatabase"),
+        patch("layerkg.web.app.Neo4jGraphStore", return_value=mock_store),
+    ):
+        from layerkg.web.app import create_app
 
-            app = create_app()
-            # Override the graph_store with mock
-            app.state.graph_store = mock_store
-            yield TestClient(app)
+        app = create_app()
+        # Override the graph_store with mock
+        app.state.graph_store = mock_store
+        yield TestClient(app)
 
 
 class TestGraphStats:
@@ -185,20 +236,22 @@ class TestGraphStats:
 
         mock_store.query = empty_query
 
-        with patch("layerkg.neo4j_store.GraphDatabase"):
-            with patch("layerkg.web.app.Neo4jGraphStore", return_value=mock_store):
-                from layerkg.web.app import create_app
+        with (
+            patch("layerkg.neo4j_store.GraphDatabase"),
+            patch("layerkg.web.app.Neo4jGraphStore", return_value=mock_store),
+        ):
+            from layerkg.web.app import create_app
 
-                app = create_app()
-                app.state.graph_store = mock_store
-                client = TestClient(app)
+            app = create_app()
+            app.state.graph_store = mock_store
+            client = TestClient(app)
 
-                resp = client.get("/api/graph/stats")
-                assert resp.status_code == 200
-                data = resp.json()
-                assert data["node_count"] == 0
-                assert data["edge_count"] == 0
-                assert data["by_type"] == {}
+            resp = client.get("/api/graph/stats")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["node_count"] == 0
+            assert data["edge_count"] == 0
+            assert data["by_type"] == {}
 
 
 class TestGetGraph:
@@ -234,18 +287,20 @@ class TestGetGraph:
 
         mock_store.query = filtered_query
 
-        with patch("layerkg.neo4j_store.GraphDatabase"):
-            with patch("layerkg.web.app.Neo4jGraphStore", return_value=mock_store):
-                from layerkg.web.app import create_app
+        with (
+            patch("layerkg.neo4j_store.GraphDatabase"),
+            patch("layerkg.web.app.Neo4jGraphStore", return_value=mock_store),
+        ):
+            from layerkg.web.app import create_app
 
-                app = create_app()
-                app.state.graph_store = mock_store
-                client = TestClient(app)
+            app = create_app()
+            app.state.graph_store = mock_store
+            client = TestClient(app)
 
-                resp = client.get("/api/graph?type=CodeEntity")
-                assert resp.status_code == 200
-                data = resp.json()
-                assert len(data["nodes"]) >= 0
+            resp = client.get("/api/graph?type=CodeEntity")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert len(data["nodes"]) >= 0
 
     def test_get_graph_center_mode(self, graph_client):
         """Center expansion mode."""
@@ -269,19 +324,21 @@ class TestGetGraph:
 
         mock_store.query = empty_center_query
 
-        with patch("layerkg.neo4j_store.GraphDatabase"):
-            with patch("layerkg.web.app.Neo4jGraphStore", return_value=mock_store):
-                from layerkg.web.app import create_app
+        with (
+            patch("layerkg.neo4j_store.GraphDatabase"),
+            patch("layerkg.web.app.Neo4jGraphStore", return_value=mock_store),
+        ):
+            from layerkg.web.app import create_app
 
-                app = create_app()
-                app.state.graph_store = mock_store
-                client = TestClient(app)
+            app = create_app()
+            app.state.graph_store = mock_store
+            client = TestClient(app)
 
-                resp = client.get("/api/graph?center=nonexistent")
-                assert resp.status_code == 200
-                data = resp.json()
-                assert data["nodes"] == []
-                assert data["edges"] == []
+            resp = client.get("/api/graph?center=nonexistent")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["nodes"] == []
+            assert data["edges"] == []
 
 
 class TestNodeDetail:

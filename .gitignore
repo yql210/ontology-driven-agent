@@ -16,3 +16,5 @@ build/
 frontend/node_modules/
 frontend/dist/
 chroma.sqlite3
+.chroma/
+*.traces.db

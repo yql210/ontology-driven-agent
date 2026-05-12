@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -9,9 +11,10 @@ from layerkg.agent.trace import TraceCollector
 
 
 @pytest.fixture
-def trace_collector() -> TraceCollector:
-    """Create a TraceCollector for testing."""
-    return TraceCollector(max_traces=10, max_age_seconds=60)
+def trace_collector(tmp_path: Path) -> TraceCollector:
+    """Create a TraceCollector with isolated temporary database."""
+    db_path = tmp_path / "test_traces.db"
+    return TraceCollector(max_traces=10, max_age_seconds=60, persist_path=str(db_path))
 
 
 @pytest.fixture
@@ -154,14 +157,19 @@ def test_get_mermaid(test_client: TestClient):
 
 
 @pytest.mark.unit
-def test_no_collector_returns_empty_list():
+def test_no_collector_returns_empty_list(tmp_path: Path):
     """Test API returns empty list when collector is None."""
     from layerkg.web import app as app_module
     from layerkg.web.router import trace as trace_router
 
-    # Save original and set to None
-    original_collector = trace_router.collector
-    trace_router.collector = None
+    # Save original
+    original_app_collector = app_module._trace_collector
+    original_router_collector = trace_router.collector
+
+    # Create app with fresh collector using empty database
+    db_path = tmp_path / "empty_test.db"
+    empty_collector = TraceCollector(max_traces=10, persist_path=str(db_path))
+    app_module._trace_collector = empty_collector
 
     app = app_module.create_app()
     client = TestClient(app)
@@ -170,16 +178,21 @@ def test_no_collector_returns_empty_list():
     assert response.json() == []
 
     # Restore
-    trace_router.collector = original_collector
+    app_module._trace_collector = original_app_collector
+    trace_router.collector = original_router_collector
 
 
 @pytest.mark.unit
-def test_no_collector_returns_404_for_get():
+def test_no_collector_returns_404_for_get(tmp_path: Path):
     """Test API returns 404 when collector is None for get trace."""
     from layerkg.web import app as app_module
+    from layerkg.web.router import trace as trace_router
 
-    # Save original and set to None at module level (app sets router.collector from this)
-    original_collector = app_module._trace_collector
+    # Save original
+    original_app_collector = app_module._trace_collector
+    original_router_collector = trace_router.collector
+
+    # Set module-level collector to None to simulate uninitialized state
     app_module._trace_collector = None
 
     app = app_module.create_app()
@@ -189,4 +202,5 @@ def test_no_collector_returns_404_for_get():
     assert "not initialized" in response.json()["detail"]
 
     # Restore
-    app_module._trace_collector = original_collector
+    app_module._trace_collector = original_app_collector
+    trace_router.collector = original_router_collector

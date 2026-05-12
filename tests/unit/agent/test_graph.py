@@ -67,3 +67,52 @@ def test_create_agent_has_correct_nodes() -> None:
             node_names = set(graph.nodes.keys())
             assert "agent" in node_names
             assert "tools" in node_names
+
+
+# ===== LLM Singleton Tests =====
+
+
+def test_llm_singleton() -> None:
+    """验证多次调用 _get_llm() 返回同一实例"""
+    with patch("layerkg.agent._helpers.get_config") as mock_get_config:
+        mock_config = MagicMock()
+        mock_config.agent_llm_model = "gpt-4"
+        mock_config.agent_base_url = "https://api.example.com"
+        mock_config.agent_api_key = "test-key"
+        mock_get_config.return_value = mock_config
+
+        from layerkg.agent.graph import _get_llm, _reset_llm
+
+        # Reset first
+        _reset_llm()
+
+        # First call creates instance
+        llm1 = _get_llm()
+        assert llm1 is not None
+
+        # Second call returns same instance
+        llm2 = _get_llm()
+        assert llm1 is llm2
+
+
+def test_llm_reset() -> None:
+    """验证 _reset_llm() 后创建新实例"""
+    with patch("layerkg.agent._helpers.get_config") as mock_get_config:
+        mock_config = MagicMock()
+        mock_config.agent_llm_model = "gpt-4"
+        mock_config.agent_base_url = "https://api.example.com"
+        mock_config.agent_api_key = "test-key"
+        mock_get_config.return_value = mock_config
+
+        from layerkg.agent.graph import _get_llm, _reset_llm
+
+        # Get first instance
+        llm1 = _get_llm()
+        assert llm1 is not None
+
+        # Reset
+        _reset_llm()
+
+        # Get new instance — should be different object
+        llm2 = _get_llm()
+        assert llm1 is not llm2

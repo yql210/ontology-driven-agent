@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -269,3 +272,185 @@ async def test_end_trace_nonexistent(trace_collector: TraceCollector):
     """Test ending a trace that doesn't exist."""
     log = await trace_collector.end_trace("non-existent", status="completed")
     assert log is None
+
+
+# ===== SQLite Persistence Tests =====
+
+
+@pytest.mark.asyncio
+async def test_trace_persist_on_end(tmp_path: Path):
+    """Test that end_trace writes to SQLite."""
+    db_path = tmp_path / "test.db"
+    collector = TraceCollector(max_traces=10, max_age_seconds=60, persist_path=str(db_path))
+
+    await collector.start_trace("thread-1", "test query")
+    await collector.add_step("thread-1", "thinking", "thinking content")
+    await collector.end_trace("thread-1", status="completed")
+
+    # Verify SQLite has the record
+    db = sqlite3.connect(str(db_path))
+    rows = db.execute("SELECT thread_id, data FROM traces").fetchall()
+    db.close()
+
+    assert len(rows) == 1
+    assert rows[0][0] == "thread-1"
+    data = json.loads(rows[0][1])
+    assert data["query"] == "test query"
+    assert data["status"] == "completed"
+    assert len(data["steps"]) == 1
+    assert data["steps"][0]["content"] == "thinking content"
+
+
+@pytest.mark.asyncio
+async def test_trace_load_from_db(tmp_path: Path):
+    """Test that TraceCollector loads existing traces from SQLite."""
+    db_path = tmp_path / "test.db"
+
+    # Manually create a trace in SQLite
+    db = sqlite3.connect(str(db_path))
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS traces (thread_id TEXT PRIMARY KEY, data TEXT NOT NULL)"
+    )
+    trace_data = {
+        "thread_id": "existing-thread",
+        "query": "existing query",
+        "status": "completed",
+        "created_at": 1234567890.0,
+        "total_duration_ms": 5000,
+        "steps": [
+            {"step_id": 0, "type": "thinking", "content": "thought", "tool_name": None,
+             "tool_args": None, "tool_result": None, "duration_ms": None}
+        ],
+    }
+    db.execute(
+        "INSERT INTO traces (thread_id, data) VALUES (?, ?)",
+        ("existing-thread", json.dumps(trace_data)),
+    )
+    db.commit()
+    db.close()
+
+    # Create new collector — should load from DB
+    collector = TraceCollector(max_traces=10, max_age_seconds=60, persist_path=str(db_path))
+
+    retrieved = await collector.get_trace("existing-thread")
+    assert retrieved is not None
+    assert retrieved.thread_id == "existing-thread"
+    assert retrieved.query == "existing query"
+    assert retrieved.status == "completed"
+    assert len(retrieved.steps) == 1
+    assert retrieved.steps[0].content == "thought"
+
+
+@pytest.mark.asyncio
+async def test_trace_db_corrupted(tmp_path: Path):
+    """Test that corrupted data is gracefully ignored."""
+    db_path = tmp_path / "test.db"
+
+    # Create DB with corrupted data
+    db = sqlite3.connect(str(db_path))
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS traces (thread_id TEXT PRIMARY KEY, data TEXT NOT NULL)"
+    )
+    # Valid trace
+    db.execute(
+        "INSERT INTO traces (thread_id, data) VALUES (?, ?)",
+        ("valid-thread", '{"thread_id": "valid-thread", "query": "ok", "status": "running"}'),
+    )
+    # Invalid JSON
+    db.execute(
+        "INSERT INTO traces (thread_id, data) VALUES (?, ?)",
+        ("bad-json", "not a json"),
+    )
+    # Missing required field
+    db.execute(
+        "INSERT INTO traces (thread_id, data) VALUES (?, ?)",
+        ("missing-field", '{"query": "no thread_id"}'),
+    )
+    db.commit()
+    db.close()
+
+    # Should load only valid trace, ignore corrupted
+    collector = TraceCollector(max_traces=10, max_age_seconds=60, persist_path=str(db_path))
+
+    assert await collector.get_trace("valid-thread") is not None
+    assert await collector.get_trace("bad-json") is None
+    assert await collector.get_trace("missing-field") is None
+
+
+@pytest.mark.asyncio
+async def test_trace_clean_rewrites_db(tmp_path: Path):
+    """Test that cleaning old traces rewrites SQLite."""
+    db_path = tmp_path / "test.db"
+    collector = TraceCollector(max_traces=3, max_age_seconds=60, persist_path=str(db_path))
+
+    # Create 4 traces (triggers cleanup at 90% = ~3 traces)
+    await collector.start_trace("t1", "q1")
+    await collector.end_trace("t1")
+    await asyncio.sleep(0.01)
+    await collector.start_trace("t2", "q2")
+    await collector.end_trace("t2")
+    await asyncio.sleep(0.01)
+    await collector.start_trace("t3", "q3")
+    await collector.end_trace("t3")
+    await asyncio.sleep(0.01)
+    # This 4th start triggers cleanup
+    await collector.start_trace("t4", "q4")
+    await collector.end_trace("t4")
+
+    # Verify SQLite only has recent traces (cleanup + rewrite happened)
+    db = sqlite3.connect(str(db_path))
+    rows = db.execute("SELECT thread_id FROM traces").fetchall()
+    db.close()
+
+    thread_ids = [r[0] for r in rows]
+    # Should have at most 3 traces, oldest ones deleted
+    assert len(thread_ids) <= 3
+    # Oldest trace should be gone
+    assert "t1" not in thread_ids
+
+
+@pytest.mark.asyncio
+async def test_trace_delete_removes_from_db(tmp_path: Path):
+    """Test that delete_trace removes from SQLite."""
+    db_path = tmp_path / "test.db"
+    collector = TraceCollector(max_traces=10, max_age_seconds=60, persist_path=str(db_path))
+
+    await collector.start_trace("thread-1", "test")
+    await collector.end_trace("thread-1")
+
+    # Verify it's in DB
+    db = sqlite3.connect(str(db_path))
+    rows_before = db.execute("SELECT thread_id FROM traces").fetchall()
+    db.close()
+    assert len(rows_before) == 1
+
+    # Delete
+    await collector.delete_trace("thread-1")
+
+    # Verify removed from DB
+    db = sqlite3.connect(str(db_path))
+    rows_after = db.execute("SELECT thread_id FROM traces").fetchall()
+    db.close()
+    assert len(rows_after) == 0
+
+
+@pytest.mark.asyncio
+async def test_trace_start_not_persisted(tmp_path: Path):
+    """Test that start_trace doesn't write to SQLite (only end_trace does)."""
+    db_path = tmp_path / "test.db"
+    collector = TraceCollector(max_traces=10, max_age_seconds=60, persist_path=str(db_path))
+
+    await collector.start_trace("thread-1", "test query")
+
+    # SQLite should be empty
+    db = sqlite3.connect(str(db_path))
+    rows = db.execute("SELECT thread_id FROM traces").fetchall()
+    db.close()
+    assert len(rows) == 0
+
+    # After end_trace, it should be persisted
+    await collector.end_trace("thread-1")
+    db = sqlite3.connect(str(db_path))
+    rows = db.execute("SELECT thread_id FROM traces").fetchall()
+    db.close()
+    assert len(rows) == 1

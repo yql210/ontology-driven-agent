@@ -63,6 +63,11 @@ async def chat_stream(req: ChatRequest):
                         data=json.dumps(event, ensure_ascii=False),
                         event=event["type"],
                     )
+            # 正常结束 → yield done
+            yield ServerSentEvent(
+                data=json.dumps({"thread_id": thread_id}),
+                event="done",
+            )
         except TimeoutError:
             if collector:
                 await collector.end_trace(thread_id, status="failed")
@@ -80,7 +85,7 @@ async def chat_stream(req: ChatRequest):
                 event="error",
             )
         finally:
-            # Ensure trace is closed on client disconnect (CancelledError)
+            # 只做 trace 清理，不 yield 事件
             if collector and not trace_ended:
                 try:
                     trace = await collector.get_trace(thread_id)
@@ -88,9 +93,5 @@ async def chat_stream(req: ChatRequest):
                         await collector.end_trace(thread_id, status="completed")
                 except Exception:
                     pass
-        yield ServerSentEvent(
-            data=json.dumps({"thread_id": thread_id}),
-            event="done",
-        )
 
     return EventSourceResponse(event_generator())

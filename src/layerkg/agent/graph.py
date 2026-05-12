@@ -19,6 +19,9 @@ from layerkg.agent.tools import ALL_TOOLS
 # 全局 checkpointer 单例 — 支持跨调用对话记忆
 _checkpointer: MemorySaver | None = None
 
+# 全局 LLM 单例 — 避免重复创建连接
+_llm: ChatOpenAI | None = None
+
 
 def _get_checkpointer() -> MemorySaver:
     """获取全局 MemorySaver 单例"""
@@ -26,6 +29,20 @@ def _get_checkpointer() -> MemorySaver:
     if _checkpointer is None:
         _checkpointer = MemorySaver()
     return _checkpointer
+
+
+def _get_llm() -> ChatOpenAI:
+    """获取全局 LLM 单例"""
+    global _llm
+    if _llm is None:
+        _llm = _create_llm()
+    return _llm
+
+
+def _reset_llm() -> None:
+    """重置全局 LLM（测试用）"""
+    global _llm
+    _llm = None
 
 
 class AgentState(MessagesState):
@@ -49,7 +66,7 @@ def _create_llm() -> ChatOpenAI:
 
 async def _agent_node(state: AgentState) -> dict[str, list[BaseMessage]]:
     """LLM 推理节点"""
-    llm = _create_llm()
+    llm = _get_llm()
     llm_with_tools = llm.bind_tools(ALL_TOOLS)
     messages: list[BaseMessage] = [
         SystemMessage(content=AGENT_SYSTEM_PROMPT),
