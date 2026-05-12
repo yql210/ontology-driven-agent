@@ -65,6 +65,7 @@ export const useChatStore = defineStore('chat', () => {
                 for (let i = calls.length - 1; i >= 0; i--) {
                   if (calls[i].tool === event.tool && calls[i].status === 'running') {
                     calls[i].status = 'completed'
+                    if (event.result) calls[i].result = event.result
                     break
                   }
                 }

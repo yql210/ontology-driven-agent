@@ -1,7 +1,8 @@
 """pytest 共享 fixtures."""
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 @pytest.fixture(autouse=True)

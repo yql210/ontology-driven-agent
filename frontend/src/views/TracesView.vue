@@ -9,6 +9,8 @@ const traces = ref<TraceListItem[]>([])
 const loading = ref(true)
 const showMermaid = ref(false)
 const mermaidCode = ref('')
+const mermaidSvg = ref('')
+let mermaidInitialized = false
 
 async function loadTraces() {
   loading.value = true
@@ -26,21 +28,28 @@ async function showAgentGraph() {
   if (!mermaidCode.value) {
     try {
       mermaidCode.value = await getMermaid()
-      renderMermaid()
     } catch (e) {
       console.error('Failed to load mermaid:', e)
+      return
     }
-  } else {
-    renderMermaid()
   }
+  await renderMermaid()
 }
 
-function renderMermaid() {
-  // Dynamic import mermaid to avoid SSR issues
-  import('mermaid').then((mermaid) => {
-    mermaid.default.initialize({ startOnLoad: false, theme: 'dark' })
-    mermaid.default.contentLoaded()
-  })
+async function renderMermaid() {
+  try {
+    const mermaid = await import('mermaid')
+    if (!mermaidInitialized) {
+      mermaid.default.initialize({ startOnLoad: false, theme: 'dark' })
+      mermaidInitialized = true
+    }
+    const id = `mermaid-${Date.now()}`
+    const { svg } = await mermaid.default.render(id, mermaidCode.value)
+    mermaidSvg.value = svg
+  } catch (e) {
+    console.error('Mermaid render error:', e)
+    mermaidSvg.value = '<p class="mermaid-error">流程图渲染失败</p>'
+  }
 }
 
 function formatTime(ms: number): string {
@@ -112,9 +121,7 @@ onMounted(() => {
             <h2>Agent Graph</h2>
             <button class="close-btn" @click="showMermaid = false">&times;</button>
           </header>
-          <div class="modal-body">
-            <pre class="mermaid">{{ mermaidCode }}</pre>
-          </div>
+          <div class="modal-body" v-html="mermaidSvg"></div>
         </div>
       </div>
     </Teleport>
@@ -286,13 +293,17 @@ onMounted(() => {
   padding: 20px;
   overflow: auto;
   max-height: calc(80vh - 60px);
+  background: #1a252f;
 }
 
-.mermaid {
-  display: flex;
-  justify-content: center;
-  background: #1a252f;
-  padding: 20px;
-  border-radius: 4px;
+.modal-body :deep(svg) {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-error {
+  color: #e74c3c;
+  text-align: center;
+  padding: 40px;
 }
 </style>

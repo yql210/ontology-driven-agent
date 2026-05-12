@@ -14,8 +14,15 @@ const expanded = ref(false)
       <span class="tool-status">{{ toolCall.status === 'running' ? '⏳' : '✅' }}</span>
       <span class="tool-toggle">{{ expanded ? '▾' : '▸' }}</span>
     </div>
-    <div v-if="expanded && toolCall.args" class="tool-args">
-      <pre>{{ JSON.stringify(toolCall.args, null, 2) }}</pre>
+    <div v-if="expanded" class="tool-body">
+      <div v-if="toolCall.args" class="tool-args">
+        <div class="section-label">参数</div>
+        <pre>{{ JSON.stringify(toolCall.args, null, 2) }}</pre>
+      </div>
+      <div v-if="toolCall.result" class="tool-result">
+        <div class="section-label">结果</div>
+        <pre>{{ toolCall.result }}</pre>
+      </div>
     </div>
   </div>
 </template>
@@ -37,6 +44,10 @@ const expanded = ref(false)
   gap: 6px;
   font-size: 0.85em;
 }
+.tool-body {
+  display: flex;
+  flex-direction: column;
+}
 .tool-args pre {
   margin: 0;
   padding: 8px 10px;
@@ -44,5 +55,23 @@ const expanded = ref(false)
   color: #d4d4d4;
   font-size: 0.8em;
   border-radius: 0 0 4px 4px;
+}
+.tool-result {
+  margin-top: 4px;
+}
+.tool-result pre {
+  margin: 0;
+  padding: 8px 10px;
+  background: #1a3a1a;
+  color: #d4d4d4;
+  font-size: 0.8em;
+  border-radius: 0 0 4px 4px;
+}
+.section-label {
+  padding: 4px 10px;
+  font-size: 0.75em;
+  color: #95a5a6;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 </style>

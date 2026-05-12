@@ -36,6 +36,7 @@ export interface ToolCall {
   args?: Record<string, unknown>
   status: 'running' | 'completed' | 'failed'
   error?: string
+  result?: string
 }
 
 // ========= Graph Types =========

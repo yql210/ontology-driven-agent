@@ -19,6 +19,48 @@ class TestHealth:
         assert resp.json() == {"status": "ok"}
 
 
+class TestCORS:
+    """Test CORS middleware configuration."""
+
+    def test_cors_default_origins(self, client):
+        """Default origins should include localhost:5173."""
+        resp = client.get("/health", headers={"Origin": "http://localhost:5173"})
+        assert resp.status_code == 200
+        # Check CORS header is present
+        assert "access-control-allow-origin" in resp.headers
+
+    @patch.dict("os.environ", {"CORS_ORIGINS": "http://localhost:3000,http://localhost:8080"})
+    def test_cors_custom_origins(self):
+        """Custom origins from env should be respected."""
+        # Re-create app with patched env
+        from layerkg.web.app import create_app
+
+        app = create_app()
+        test_client = TestClient(app)
+
+        # Test allowed origin
+        resp = test_client.get("/health", headers={"Origin": "http://localhost:3000"})
+        assert resp.status_code == 200
+        # Check CORS header
+        assert "access-control-allow-origin" in resp.headers
+
+    @patch.dict("os.environ", {"CORS_ORIGINS": "http://localhost:5173"})
+    def test_cors_wildcard_blocked(self):
+        """With explicit origins, wildcard should NOT be used."""
+        from layerkg.web.app import create_app
+
+        app = create_app()
+        test_client = TestClient(app)
+
+        # Test disallowed origin
+        resp = test_client.get("/health", headers={"Origin": "http://evil.com"})
+        assert resp.status_code == 200
+        # Origin should NOT be in allowed headers since it's not in the list
+        allow_header = resp.headers.get("access-control-allow-origin", "")
+        # The specific evil origin should NOT be reflected
+        assert allow_header != "http://evil.com"
+
+
 class TestChatSync:
     @patch("layerkg.web.router.chat.run_query", new_callable=AsyncMock)
     def test_chat_sync_returns_answer(self, mock_run, client):

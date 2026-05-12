@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -27,9 +28,13 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="LayerKG Agent", version="0.1.0", lifespan=lifespan)
 
+    # CORS origins from env, default to localhost:5173
+    cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:5173")
+    cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=cors_origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )
