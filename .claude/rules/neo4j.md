@@ -55,7 +55,7 @@ session.run(f"MERGE (n:CodeEntity {{id: '{entity.id}'}})")
 ### 实体及标签
 | Dataclass | Neo4j Label | 类型字段值 |
 |-----------|-------------|-----------|
-| CodeEntity | CodeEntity | function, class, interface, module, file |
+| CodeEntity | CodeEntity | function, class, interface, module, file, enum, record, field |
 | ConceptEntity | ConceptEntity | business_concept, design_pattern, api_contract, data_model, process |
 | DocEntity | DocEntity | readme, module_doc, api_doc, comment, wiki, architecture_doc |
 | ResourceEntity | ResourceEntity | image, diagram, pdf, config, schema_file, log |

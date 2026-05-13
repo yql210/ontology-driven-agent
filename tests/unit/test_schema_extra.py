@@ -9,6 +9,7 @@ from layerkg.schema import (
     RELATION_TYPE_TO_NEO4J,
     VALID_RELATION_TYPES,
     ChangeSetEntity,
+    CodeEntity,
     ModuleEntity,
     Relation,
 )
@@ -148,3 +149,27 @@ def test_relation_type_to_neo4j_values():
     """Test that Neo4j mapping values are UPPER_CASE."""
     for key, value in RELATION_TYPE_TO_NEO4J.items():
         assert value == value.upper(), f"Mapping '{key}': '{value}' is not upper case"
+
+
+# ── CodeEntity: Java 类型支持 ─────────────────────────────────
+
+
+@pytest.mark.unit
+def test_code_entity_accepts_enum():
+    """Test that CodeEntity accepts 'enum' entity_type (Java support)."""
+    e = CodeEntity(name="Color", entity_type="enum")
+    assert e.entity_type == "enum"
+
+
+@pytest.mark.unit
+def test_code_entity_accepts_record():
+    """Test that CodeEntity accepts 'record' entity_type (Java support)."""
+    e = CodeEntity(name="Point", entity_type="record")
+    assert e.entity_type == "record"
+
+
+@pytest.mark.unit
+def test_code_entity_accepts_field():
+    """Test that CodeEntity accepts 'field' entity_type (Java support)."""
+    e = CodeEntity(name="x", entity_type="field")
+    assert e.entity_type == "field"

@@ -34,6 +34,9 @@ ENTITY_TYPE_TO_LABEL: dict[str, str] = {
     "interface": "CodeEntity",
     "module": "CodeEntity",
     "file": "CodeEntity",
+    "enum": "CodeEntity",
+    "record": "CodeEntity",
+    "field": "CodeEntity",
     "readme": "DocEntity",
     "module_doc": "DocEntity",
     "api_doc": "DocEntity",
@@ -66,6 +69,9 @@ _CODE_ENTITY_TYPES = frozenset(
         "interface",
         "module",
         "file",
+        "enum",
+        "record",
+        "field",
     }
 )
 

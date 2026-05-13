@@ -13,7 +13,7 @@ class CodeEntity:
 
     Attributes:
         name: 实体名称（非空）。
-        entity_type: 实体类型，必须是 function/class/interface/module/file 之一。
+        entity_type: 实体类型，必须是 function/class/interface/module/file/enum/record/field 之一。
         id: UUID v4 标识符，自动生成。
         file_path: 源文件路径（可选）。
         start_line: 起始行号（可选）。
@@ -37,7 +37,7 @@ class CodeEntity:
     parameters: str | None = None
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
-    VALID_ENTITY_TYPES = {"function", "class", "interface", "module", "file"}
+    VALID_ENTITY_TYPES = {"function", "class", "interface", "module", "file", "enum", "record", "field"}
 
     def __post_init__(self) -> None:
         """校验字段。"""
