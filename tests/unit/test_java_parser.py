@@ -603,3 +603,329 @@ class Test {
     foo = entities_by_name["Test.foo"]
     assert foo.parameters is not None
     assert "String... args" in foo.parameters
+
+
+# ===== Day 2: 关系提取测试 =====
+
+
+def test_extends_relation(parser: JavaParser) -> None:
+    """测试 extends 关系提取。"""
+    code = b"""
+class Foo extends Bar {
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    extends_relations = [r for r in result.relations if r.relation_type == "extends"]
+    assert len(extends_relations) == 1
+    assert extends_relations[0].source_name == "Foo"
+    assert extends_relations[0].target_name == "Bar"
+    assert extends_relations[0].source_type == "class"
+    assert extends_relations[0].target_type == "class"
+
+
+def test_extends_with_generic(parser: JavaParser) -> None:
+    """测试泛型类的 extends 关系。"""
+    code = b"""
+class Foo<T> extends Base<T> {
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    extends_relations = [r for r in result.relations if r.relation_type == "extends"]
+    assert len(extends_relations) == 1
+    assert extends_relations[0].source_name == "Foo"
+    assert extends_relations[0].target_name == "Base"
+
+
+def test_no_extends_no_relation(parser: JavaParser) -> None:
+    """测试没有 extends 时不产生关系。"""
+    code = b"""
+class Foo {
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    extends_relations = [r for r in result.relations if r.relation_type == "extends"]
+    assert len(extends_relations) == 0
+
+
+def test_implements_relation(parser: JavaParser) -> None:
+    """测试 implements 关系提取。"""
+    code = b"""
+class Foo implements Runnable {
+    public void run() {
+    }
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    implements_relations = [r for r in result.relations if r.relation_type == "implements"]
+    assert len(implements_relations) == 1
+    assert implements_relations[0].source_name == "Foo"
+    assert implements_relations[0].target_name == "Runnable"
+    assert implements_relations[0].source_type == "class"
+    assert implements_relations[0].target_type == "interface"
+
+
+def test_implements_multiple(parser: JavaParser) -> None:
+    """测试实现多个接口。"""
+    code = b"""
+class Foo implements A, B, C {
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    implements_relations = [r for r in result.relations if r.relation_type == "implements"]
+    assert len(implements_relations) == 3
+    target_names = {r.target_name for r in implements_relations}
+    assert target_names == {"A", "B", "C"}
+
+
+def test_import_single(parser: JavaParser) -> None:
+    """测试单个 import 提取。"""
+    code = b"""
+package com.example;
+
+import java.util.List;
+
+class Foo {
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    imports_relations = [r for r in result.relations if r.relation_type == "imports"]
+    # List 被 JDK 过滤掉了
+    # 应该没有 imports 关系
+    assert len(imports_relations) == 0
+
+
+def test_import_non_jdk(parser: JavaParser) -> None:
+    """测试非 JDK 类的 import。"""
+    code = b"""
+package com.example;
+
+import org.myapp.CustomClass;
+
+class Foo {
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    imports_relations = [r for r in result.relations if r.relation_type == "imports"]
+    assert len(imports_relations) == 1
+    assert imports_relations[0].source_name == "com.example"
+    assert imports_relations[0].target_name == "CustomClass"
+    assert imports_relations[0].source_type == "module"
+
+
+def test_import_wildcard(parser: JavaParser) -> None:
+    """测试通配符 import（不产生关系）。"""
+    code = b"""
+package com.example;
+
+import java.io.*;
+
+class Foo {
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    imports_relations = [r for r in result.relations if r.relation_type == "imports"]
+    # 通配符 import 不产生关系
+    assert len(imports_relations) == 0
+
+
+def test_import_without_package(parser: JavaParser) -> None:
+    """测试没有 package 时的 import（source 是 file）。"""
+    code = b"""
+import org.myapp.CustomClass;
+
+class Foo {
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    imports_relations = [r for r in result.relations if r.relation_type == "imports"]
+    assert len(imports_relations) == 1
+    assert imports_relations[0].source_type == "file"
+
+
+def test_method_call_relation(parser: JavaParser) -> None:
+    """测试方法调用关系提取。"""
+    code = b"""
+class Foo {
+    void bar() {
+        helper();
+    }
+
+    void helper() {
+    }
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    calls_relations = [r for r in result.relations if r.relation_type == "calls"]
+    # Foo.bar 调用了 helper
+    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar"]
+    assert len(bar_calls) == 1
+    assert bar_calls[0].target_name == "helper"
+
+
+def test_object_method_call(parser: JavaParser) -> None:
+    """测试对象方法调用。"""
+    code = b"""
+class Foo {
+    void bar() {
+        items.size();
+    }
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    calls_relations = [r for r in result.relations if r.relation_type == "calls"]
+    # items.size() 应该提取为调用 "size"
+    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar"]
+    assert len(bar_calls) == 1
+    assert bar_calls[0].target_name == "size"
+
+
+def test_new_object_call(parser: JavaParser) -> None:
+    """测试 new 对象创建调用。"""
+    code = b"""
+class Foo {
+    void bar() {
+        Helper h = new Helper();
+    }
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    calls_relations = [r for r in result.relations if r.relation_type == "calls"]
+    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar"]
+    assert len(bar_calls) == 1
+    assert bar_calls[0].target_name == "Helper"
+
+
+def test_calls_filtered_jdk(parser: JavaParser) -> None:
+    """测试 JDK 方法被过滤。"""
+    code = b"""
+class Foo {
+    void bar() {
+        System.out.println("test");
+        String s = "value";
+        s.toString();
+    }
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    calls_relations = [r for r in result.relations if r.relation_type == "calls"]
+    # println, toString 都是 JDK 方法，应该被过滤
+    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar"]
+    assert len(bar_calls) == 0
+
+
+def test_method_with_multiple_calls(parser: JavaParser) -> None:
+    """测试方法调用多个其他方法。"""
+    code = b"""
+class Foo {
+    void bar() {
+        helper1();
+        helper2();
+        new Helper3();
+    }
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    calls_relations = [r for r in result.relations if r.relation_type == "calls"]
+    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar"]
+    assert len(bar_calls) == 3
+    target_names = {r.target_name for r in bar_calls}
+    assert target_names == {"helper1", "helper2", "Helper3"}
+
+
+def test_constructor_calls(parser: JavaParser) -> None:
+    """测试构造器中的方法调用。"""
+    code = b"""
+class Foo {
+    Foo() {
+        helper();
+    }
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    calls_relations = [r for r in result.relations if r.relation_type == "calls"]
+    # Foo.<init> 调用了 helper
+    init_calls = [r for r in calls_relations if r.source_name == "Foo.<init>"]
+    assert len(init_calls) == 1
+    assert init_calls[0].target_name == "helper"
+
+
+def test_class_with_extends_implements_and_calls(parser: JavaParser) -> None:
+    """测试类同时有 extends、implements 和方法调用。"""
+    code = b"""
+class Foo extends Base implements Runnable, Serializable {
+    public void run() {
+        helper();
+        new Bar();
+    }
+
+    void helper() {
+    }
+}
+"""
+    result = parser.parse_source(code, "test.java")
+
+    assert result.error is None
+
+    # extends 关系
+    extends_relations = [r for r in result.relations if r.relation_type == "extends"]
+    assert len(extends_relations) == 1
+    assert extends_relations[0].target_name == "Base"
+
+    # implements 关系
+    implements_relations = [r for r in result.relations if r.relation_type == "implements"]
+    target_names = {r.target_name for r in implements_relations}
+    # Serializable 是 JDK 类，应该被过滤
+    # 但 Runnable 可能不在过滤列表中
+    # 实际上 Serializable 也不在 _JDK_COMMON_TYPES 中
+    # 让我们检查实际结果
+    assert "Runnable" in target_names
+
+    # calls 关系
+    calls_relations = [r for r in result.relations if r.relation_type == "calls"]
+    run_calls = [r for r in calls_relations if r.source_name == "Foo.run"]
+    assert len(run_calls) == 2

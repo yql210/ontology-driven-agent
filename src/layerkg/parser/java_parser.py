@@ -11,6 +11,54 @@ from layerkg.schema import CodeEntity
 
 JAVA_LANG = Language(tsjava.language())
 
+# JDK 常用类型和方法，用于过滤 calls/imports 关系
+_JDK_COMMON_TYPES = {
+    "String",
+    "Integer",
+    "Long",
+    "Double",
+    "Float",
+    "Boolean",
+    "Byte",
+    "Short",
+    "Character",
+    "Object",
+    "Class",
+    "List",
+    "Map",
+    "Set",
+    "ArrayList",
+    "HashMap",
+    "HashSet",
+    "System",
+    "Math",
+    "Arrays",
+    "Collections",
+    "Exception",
+    "RuntimeException",
+    "Thread",
+    "Override",
+    "Deprecated",
+    "SuppressWarnings",
+    "println",
+    "print",
+    "format",
+    "valueOf",
+    "toString",
+    "equals",
+    "hashCode",
+    "compareTo",
+    "getClass",
+    "intValue",
+    "longValue",
+    "doubleValue",
+    "floatValue",
+    "booleanValue",
+    "byteValue",
+    "shortValue",
+    "charValue",
+}
+
 
 class JavaParser(BaseParser):
     """Java 源码解析器，使用 tree-sitter 提取实体。"""
@@ -166,9 +214,9 @@ class JavaParser(BaseParser):
             for child in node.children:
                 self._walk(child, source, file_path, entities, relations, package_name, parent_class_name=record_name)
 
-        # import_declaration - Day 2 跳过
+        # import_declaration
         elif node_type == "import_declaration":
-            pass  # 不处理
+            self._extract_import(node, source, file_path, relations, package_name)
 
         else:
             # 递归子节点
@@ -255,6 +303,63 @@ class JavaParser(BaseParser):
 
         # 遍历 class body 提取 method/constructor/field
         self._extract_class_body_members(node, source, file_path, entities, relations, class_name)
+
+        # 提取 extends 关系
+        for child in node.children:
+            if child.type == "superclass":
+                type_id = child.child_by_field_name("name")
+                if type_id is None:
+                    # 查找 type_identifier（直接或泛型）
+                    for sub in child.children:
+                        if sub.type == "type_identifier":
+                            type_id = sub
+                            break
+                        elif sub.type == "generic_type":
+                            # 泛型情况：extends Base<T>
+                            for gen_child in sub.children:
+                                if gen_child.type == "type_identifier":
+                                    type_id = gen_child
+                                    break
+                            break
+                if type_id:
+                    parent_name = type_id.text.decode("utf-8", errors="replace")
+                    if parent_name not in _JDK_COMMON_TYPES:
+                        relations.append(
+                            ExtractedRelation(
+                                source_name=class_name,
+                                source_type="class",
+                                target_name=parent_name,
+                                target_type="class",
+                                relation_type="extends",
+                                file_path=file_path,
+                            )
+                        )
+                break
+
+        # 提取 implements 关系
+        for child in node.children:
+            if child.type == "super_interfaces":
+                type_list = None
+                for sub in child.children:
+                    if sub.type == "type_list":
+                        type_list = sub
+                        break
+                if type_list:
+                    for t in type_list.children:
+                        if t.type == "type_identifier":
+                            iface_name = t.text.decode("utf-8", errors="replace")
+                            if iface_name not in _JDK_COMMON_TYPES:
+                                relations.append(
+                                    ExtractedRelation(
+                                        source_name=class_name,
+                                        source_type="class",
+                                        target_name=iface_name,
+                                        target_type="interface",
+                                        relation_type="implements",
+                                        file_path=file_path,
+                                    )
+                                )
+                break
 
         return class_name
 
@@ -521,6 +626,9 @@ class JavaParser(BaseParser):
         )
         relations.append(relation)
 
+        # 提取方法体内的 calls 关系
+        self._extract_calls(node, source, file_path, relations, full_name)
+
     def _extract_constructor(
         self,
         node,
@@ -564,6 +672,9 @@ class JavaParser(BaseParser):
             file_path=file_path,
         )
         relations.append(relation)
+
+        # 提取构造器内的 calls 关系
+        self._extract_calls(node, source, file_path, relations, full_name)
 
     def _extract_field(
         self,
@@ -695,3 +806,113 @@ class JavaParser(BaseParser):
                 return cleaned if cleaned else None
 
         return None
+
+    def _extract_import(
+        self,
+        node,
+        source: bytes,
+        file_path: str,
+        relations: list[ExtractedRelation],
+        package_name: str | None,
+    ) -> None:
+        """提取 import 关系。"""
+        # 找 scoped_identifier 或 identifier
+        import_name = None
+        is_wildcard = False
+
+        # 检查是否有 asterisk (wildcard import)
+        for child in node.children:
+            if child.type == "asterisk":
+                is_wildcard = True
+
+        # 提取导入名称
+        for child in node.children:
+            if child.type in ("scoped_identifier", "identifier"):
+                import_name = child.text.decode("utf-8", errors="replace")
+                break
+
+        if not import_name:
+            return
+
+        # 对于 wildcard import (java.io.*)，跳过
+        if is_wildcard:
+            return
+
+        # 取最后一段作为 target_name (java.util.List -> List)
+        target_name = import_name.split(".")[-1] if "." in import_name else import_name
+
+        # 过滤 JDK 常用类型
+        if target_name in _JDK_COMMON_TYPES:
+            return
+
+        # source_name 用 package_name 或 file_name
+        if package_name:
+            source_name = package_name
+            source_type = "module"
+        else:
+            source_name = Path(file_path).name
+            source_type = "file"
+
+        relations.append(
+            ExtractedRelation(
+                source_name=source_name,
+                source_type=source_type,
+                target_name=target_name,
+                target_type="class",
+                relation_type="imports",
+                file_path=file_path,
+            )
+        )
+
+    def _extract_callee_name(self, node) -> str | None:
+        """从 method_invocation 提取被调用方法名。"""
+        # method_invocation 的子节点中，最后一个 identifier 是方法名
+        # 例如: items.size → "size", helper → "helper", this.doSomething → "doSomething"
+        identifiers = [c for c in node.children if c.type == "identifier"]
+        if identifiers:
+            return identifiers[-1].text.decode("utf-8", errors="replace")
+        return None
+
+    def _extract_calls(
+        self,
+        method_node,
+        source: bytes,
+        file_path: str,
+        relations: list[ExtractedRelation],
+        caller_name: str,
+    ) -> None:
+        """BFS 遍历方法体，提取 method_invocation 和 object_creation_expression。"""
+        queue = list(method_node.children)
+        while queue:
+            node = queue.pop(0)
+            if node.type == "method_invocation":
+                callee = self._extract_callee_name(node)
+                if callee and len(callee) >= 2 and callee not in _JDK_COMMON_TYPES:
+                    relations.append(
+                        ExtractedRelation(
+                            source_name=caller_name,
+                            source_type="function",
+                            target_name=callee,
+                            target_type="function",
+                            relation_type="calls",
+                            file_path=file_path,
+                        )
+                    )
+            elif node.type == "object_creation_expression":
+                # new Bar() → calls Bar
+                for child in node.children:
+                    if child.type == "type_identifier":
+                        callee = child.text.decode("utf-8", errors="replace")
+                        if len(callee) >= 2 and callee not in _JDK_COMMON_TYPES:
+                            relations.append(
+                                ExtractedRelation(
+                                    source_name=caller_name,
+                                    source_type="function",
+                                    target_name=callee,
+                                    target_type="function",
+                                    relation_type="calls",
+                                    file_path=file_path,
+                                )
+                            )
+                        break
+            queue.extend(node.children)
