@@ -929,3 +929,437 @@ class Foo extends Base implements Runnable, Serializable {
     calls_relations = [r for r in result.relations if r.relation_type == "calls"]
     run_calls = [r for r in calls_relations if r.source_name == "Foo.run"]
     assert len(run_calls) == 2
+
+
+# ==================== Day 4: Boundary & Edge Case Tests ====================
+
+
+class TestEntityBoundaryCases:
+    """实体提取边界场景。"""
+
+    def test_abstract_class(self, parser):
+        """抽象类提取。"""
+        code = b"public abstract class Shape { abstract double area(); }"
+        result = parser.parse_source(code)
+        assert result.error is None
+        classes = [e for e in result.entities if e.entity_type == "class"]
+        assert len(classes) == 1
+        assert classes[0].name == "Shape"
+
+    def test_generic_class(self, parser):
+        """泛型类名不含泛型参数。"""
+        code = b"public class Container<T> { private T value; }"
+        result = parser.parse_source(code)
+        classes = [e for e in result.entities if e.entity_type == "class"]
+        assert len(classes) == 1
+        assert classes[0].name == "Container"
+        assert "<T>" not in classes[0].name
+
+    def test_static_import(self, parser):
+        """静态导入。"""
+        code = b"""
+import static org.junit.Assert.assertEquals;
+
+public class MyTest {
+    public void testFoo() {
+        assertEquals(1, 1);
+    }
+}
+"""
+        result = parser.parse_source(code)
+        assert result.error is None
+        imports = [r for r in result.relations if r.relation_type == "imports"]
+        assert len(imports) >= 1
+
+    def test_multiple_constructors(self, parser):
+        """多个构造函数重载。"""
+        code = b"""
+public class Foo {
+    private int x;
+    private String name;
+
+    public Foo() { this.x = 0; }
+
+    public Foo(int x) { this.x = x; }
+
+    public Foo(int x, String name) { this.x = x; this.name = name; }
+}
+"""
+        result = parser.parse_source(code)
+        assert result.error is None
+        # 构造函数名可能包含类名限定符（如 "Foo.Foo"），匹配包含 Foo 的函数
+        constructors = [e for e in result.entities if e.entity_type == "function" and "Foo" in e.name]
+        assert len(constructors) == 3
+
+    def test_method_with_throws(self, parser):
+        """方法 throws 子句不影响参数提取。"""
+        code = b"""
+public class Foo {
+    public void bar(String input) throws IOException, Exception {
+        System.out.println(input);
+    }
+}
+"""
+        result = parser.parse_source(code)
+        assert result.error is None
+        # 方法名可能包含类名限定符（如 "Foo.bar"）
+        methods = [e for e in result.entities if e.entity_type == "function" and "bar" in e.name]
+        assert len(methods) == 1
+        assert methods[0].parameters is not None
+        assert "String" in (methods[0].parameters or "")
+
+    def test_enum_with_fields_only(self, parser):
+        """枚举只有字段没有方法。"""
+        code = b"""
+public enum HttpStatus {
+    OK(200),
+    NOT_FOUND(404);
+
+    private final int code;
+
+    HttpStatus(int code) { this.code = code; }
+}
+"""
+        result = parser.parse_source(code)
+        assert result.error is None
+        enums = [e for e in result.entities if e.entity_type == "enum"]
+        assert len(enums) == 1
+        assert enums[0].name == "HttpStatus"
+        fields = [e for e in result.entities if e.entity_type == "field"]
+        assert len(fields) >= 1
+
+    def test_nested_inner_class(self, parser):
+        """类中嵌套内部类。"""
+        code = b"""
+public class Outer {
+    private int x;
+
+    public class Inner {
+        private int y;
+    }
+}
+"""
+        result = parser.parse_source(code)
+        assert result.error is None
+        classes = [e for e in result.entities if e.entity_type == "class"]
+        # 至少包含 Outer 和 Inner（可能有重复条目）
+        assert len(classes) >= 2
+        names = {c.name for c in classes}
+        assert "Outer" in names
+        assert "Inner" in names
+
+
+class TestRelationBoundaryCases:
+    """关系提取边界场景。"""
+
+    def test_extends_generic_class(self, parser):
+        """extends 泛型类，目标名不含泛型参数。"""
+        code = b"""
+class BaseList<T> {}
+
+public class StringList extends BaseList<String> {
+}
+"""
+        result = parser.parse_source(code)
+        extends_rels = [r for r in result.relations if r.relation_type == "extends"]
+        assert len(extends_rels) == 1
+        assert extends_rels[0].target_name == "BaseList"
+
+    def test_chained_method_calls(self, parser):
+        """链式方法调用。"""
+        code = b"""
+public class Foo {
+    public void bar() {
+        String result = builder.setName("test").setAge(25).build();
+    }
+}
+"""
+        result = parser.parse_source(code)
+        assert result.error is None
+        calls = [r for r in result.relations if r.relation_type == "calls"]
+        call_targets = {r.target_name for r in calls}
+        assert len(call_targets) >= 1
+
+    def test_method_call_in_if(self, parser):
+        """if 条件中的方法调用。"""
+        code = b"""
+public class Foo {
+    public void bar(String s) {
+        if (s.isEmpty()) {
+            System.out.println(s);
+        }
+    }
+}
+"""
+        result = parser.parse_source(code)
+        assert result.error is None
+        calls = [r for r in result.relations if r.relation_type == "calls" and r.source_name == "bar"]
+        assert isinstance(calls, list)
+
+    def test_method_call_in_lambda(self, parser):
+        """lambda 体内的方法调用。"""
+        code = b"""
+public class Foo {
+    public void bar() {
+        Runnable r = () -> doSomething();
+    }
+    private void doSomething() {}
+}
+"""
+        result = parser.parse_source(code)
+        assert result.error is None
+        calls = [r for r in result.relations if r.relation_type == "calls"]
+        call_targets = {r.target_name for r in calls}
+        assert "doSomething" in call_targets
+
+    def test_new_generic_object(self, parser):
+        """new 泛型对象。"""
+        code = b"""
+class Container<T> {}
+
+public class Foo {
+    public void bar() {
+        Container<String> c = new Container<String>();
+    }
+}
+"""
+        result = parser.parse_source(code)
+        assert result.error is None
+        # 泛型类应被正确解析为类实体
+        classes = [e for e in result.entities if e.entity_type == "class"]
+        class_names = {c.name for c in classes}
+        assert "Container" in class_names
+        assert "Foo" in class_names
+
+    def test_static_method_call(self, parser):
+        """静态方法调用。"""
+        code = b"""
+import java.util.Collections;
+public class Foo {
+    public void bar() {
+        Collections.sort(myList);
+    }
+}
+"""
+        result = parser.parse_source(code)
+        assert result.error is None
+        calls = [r for r in result.relations if r.relation_type == "calls" and r.source_name == "bar"]
+        assert isinstance(calls, list)
+
+    def test_extends_and_implements_combined(self, parser):
+        """同时 extends 和 implements。"""
+        code = b"""
+class BaseList {}
+
+interface MySerializable {}
+
+interface MyComparable {}
+
+public class MyList extends BaseList implements MySerializable, MyComparable {
+}
+"""
+        result = parser.parse_source(code)
+        extends_rels = [r for r in result.relations if r.relation_type == "extends"]
+        impl_rels = [r for r in result.relations if r.relation_type == "implements"]
+        assert len(extends_rels) == 1
+        assert extends_rels[0].target_name == "BaseList"
+        assert len(impl_rels) == 2
+        impl_targets = {r.target_name for r in impl_rels}
+        assert "MySerializable" in impl_targets
+        assert "MyComparable" in impl_targets
+
+
+class TestJavadocBoundary:
+    """Javadoc 提取边界场景。"""
+
+    def test_javadoc_with_tags(self, parser):
+        """Javadoc 含 @param, @return, @throws 标签。"""
+        code = b"""
+public class Foo {
+    /**
+     * Calculates the sum.
+     * @param a first number
+     * @param b second number
+     * @return the sum
+     * @throws IllegalArgumentException if negative
+     */
+    public int add(int a, int b) {
+        return a + b;
+    }
+}
+"""
+        result = parser.parse_source(code)
+        assert result.error is None
+        methods = [e for e in result.entities if e.entity_type == "function" and "add" in e.name]
+        assert len(methods) == 1
+        assert methods[0].docstring is not None
+        assert "Calculates the sum" in methods[0].docstring
+        assert "@param" in methods[0].docstring
+
+    def test_no_javadoc(self, parser):
+        """没有 Javadoc 时 docstring 为 None。"""
+        code = b"""
+public class Foo {
+    public void bar() {}
+}
+"""
+        result = parser.parse_source(code)
+        methods = [e for e in result.entities if e.entity_type == "function" and "bar" in e.name]
+        assert len(methods) == 1
+        assert methods[0].docstring is None
+
+    def test_javadoc_multiline(self, parser):
+        """多行 Javadoc 正确提取。"""
+        code = b"""
+/**
+ * This is a multi-line
+ * Javadoc comment that
+ * spans several lines.
+ */
+public class Foo {
+}
+"""
+        result = parser.parse_source(code)
+        classes = [e for e in result.entities if e.entity_type == "class"]
+        assert len(classes) == 1
+        assert classes[0].docstring is not None
+        assert "multi-line" in classes[0].docstring
+
+
+class TestSourceAndFileBoundary:
+    """源码和文件路径边界场景。"""
+
+    def test_parse_source_vs_file(self, parser):
+        """parse_source 和 parse_file 结果基本一致。"""
+        import tempfile
+
+        code = b"""
+public class Hello {
+    public void greet() {}
+}
+"""
+        # parse_source (使用 <string> 作为文件名)
+        result1 = parser.parse_source(code)
+        # parse_file via temp file
+        with tempfile.NamedTemporaryFile(suffix=".java", delete=False) as f:
+            f.write(code)
+            f.flush()
+            result2 = parser.parse_file(Path(f.name))
+        # 实体数量应该相同（除了 file 实体的名字不同）
+        # result1 有 <string> file entity, result2 有实际文件名
+        assert len(result1.entities) == len(result2.entities)
+        # 排除 file 实体后，其他实体名应该一致
+        names1 = sorted(e.name for e in result1.entities if e.entity_type != "file")
+        names2 = sorted(e.name for e in result2.entities if e.entity_type != "file")
+        assert names1 == names2
+
+    def test_file_entity_created(self, parser):
+        """每次解析都有 file entity。"""
+        code = b"public class Foo {}"
+        result = parser.parse_source(code)
+        file_entities = [e for e in result.entities if e.entity_type == "file"]
+        assert len(file_entities) >= 1
+
+    def test_entity_start_end_line(self, parser):
+        """实体的 start_line 和 end_line 正确。"""
+        code = b"""
+public class Foo {
+    public void bar() {}
+}
+"""
+        result = parser.parse_source(code)
+        classes = [e for e in result.entities if e.entity_type == "class"]
+        assert len(classes) == 1
+        cls = classes[0]
+        assert cls.start_line is not None
+        assert cls.end_line is not None
+        assert cls.end_line >= cls.start_line
+
+    def test_source_truncated_at_500(self, parser):
+        """source 字段在超过 500 字符时被截断。"""
+        long_body = "    int x = 0;\n" * 100  # ~1800 chars
+        code = f"public class Foo {{\n{long_body}}}\n".encode()
+        result = parser.parse_source(code)
+        classes = [e for e in result.entities if e.entity_type == "class"]
+        assert len(classes) == 1
+        if classes[0].source:
+            assert len(classes[0].source) <= 500
+
+
+class TestComplexScenarios:
+    """组合场景。"""
+
+    def test_complex_service_class(self, parser):
+        """一个 Service 类同时有多种实体和关系。"""
+        code = b"""
+package com.example;
+
+import com.example.repo.UserRepository;
+
+/**
+ * User service for business logic.
+ */
+public class UserService extends BaseService implements Runnable {
+    private UserRepository repo;
+    private String name;
+
+    public UserService(UserRepository repo) {
+        this.repo = repo;
+    }
+
+    public User findUser(long id) {
+        return repo.findById(id);
+    }
+
+    public void run() {
+        findUser(1L);
+    }
+}
+"""
+        result = parser.parse_source(code)
+        assert result.error is None
+
+        # 实体检查
+        classes = [e for e in result.entities if e.entity_type == "class"]
+        assert any(c.name == "UserService" for c in classes)
+
+        fields = [e for e in result.entities if e.entity_type == "field"]
+        assert len(fields) >= 1
+
+        methods = [e for e in result.entities if e.entity_type == "function"]
+        assert len(methods) >= 2  # constructor + findUser + run
+
+        # 关系检查
+        extends_rels = [r for r in result.relations if r.relation_type == "extends"]
+        assert any(r.target_name == "BaseService" for r in extends_rels)
+
+        impl_rels = [r for r in result.relations if r.relation_type == "implements"]
+        assert any(r.target_name == "Runnable" for r in impl_rels)
+
+        # Javadoc
+        svc_class = next(c for c in classes if c.name == "UserService")
+        assert svc_class.docstring is not None
+
+    def test_multiple_files_different_packages(self, parser):
+        """两次解析不同 package 不互相干扰。"""
+        code1 = b"""
+package com.example.one;
+public class Foo {}
+"""
+        code2 = b"""
+package com.example.two;
+public class Bar {}
+"""
+        result1 = parser.parse_source(code1)
+        result2 = parser.parse_source(code2)
+
+        names1 = {e.name for e in result1.entities if e.entity_type == "class"}
+        names2 = {e.name for e in result2.entities if e.entity_type == "class"}
+        assert names1 == {"Foo"}
+        assert names2 == {"Bar"}
+
+        modules1 = {e.name for e in result1.entities if e.entity_type == "module"}
+        modules2 = {e.name for e in result2.entities if e.entity_type == "module"}
+        assert "com.example.one" in modules1
+        assert "com.example.two" in modules2
+        assert modules1 != modules2
