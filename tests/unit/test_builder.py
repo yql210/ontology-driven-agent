@@ -60,11 +60,11 @@ class TestScanFiles:
         expected_files = 3  # module1.py, module2.py, module3.py
 
         # Act
-        py_files, _doc_files = builder._scan_files(temp_repo)
+        code_files, _doc_files = builder._scan_files(temp_repo)
 
         # Assert
-        assert len(py_files) == expected_files
-        assert all(f.suffix == ".py" for f in py_files)
+        assert len(code_files) == expected_files
+        assert all(f.suffix == ".py" for f in code_files)
 
     def test_scan_skips_hidden_dirs(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
         # Arrange
@@ -72,27 +72,27 @@ class TestScanFiles:
         cache_dir = temp_repo / "__pycache__"
 
         # Act
-        py_files, _doc_files = builder._scan_files(temp_repo)
+        code_files, _doc_files = builder._scan_files(temp_repo)
 
         # Assert
-        file_strs = [str(f) for f in py_files]
+        file_strs = [str(f) for f in code_files]
         assert not any(str(hidden_dir) in f for f in file_strs)
         assert not any(str(cache_dir) in f for f in file_strs)
 
     def test_scan_empty_dir_returns_empty(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
         # Arrange & Act
-        py_files, doc_files = builder._scan_files(tmp_path)
+        code_files, doc_files = builder._scan_files(tmp_path)
 
         # Assert
-        assert py_files == []
+        assert code_files == []
         assert doc_files == []
 
     def test_scan_returns_sorted_files(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
         # Act
-        py_files, doc_files = builder._scan_files(temp_repo)
+        code_files, doc_files = builder._scan_files(temp_repo)
 
         # Assert - 检查是否已排序
-        assert py_files == sorted(py_files)
+        assert code_files == sorted(code_files)
         assert doc_files == sorted(doc_files)
 
     def test_scan_files_skip_dirs_from_config(self, tmp_path: Path) -> None:
@@ -109,11 +109,11 @@ class TestScanFiles:
         builder = LayerKGBuilder(config)
 
         # Act
-        py_files, _doc_files = builder._scan_files(tmp_path)
+        code_files, _doc_files = builder._scan_files(tmp_path)
 
         # Assert
-        assert len(py_files) == 1
-        assert py_files[0].name == "module.py"
+        assert len(code_files) == 1
+        assert code_files[0].name == "module.py"
 
     def test_scan_files_include_docs_false(self, tmp_path: Path) -> None:
         """验证 build_include_docs=False 时 doc_files 为空。"""
@@ -123,7 +123,7 @@ class TestScanFiles:
         builder = LayerKGBuilder(config)
 
         # Act
-        _py_files, doc_files = builder._scan_files(tmp_path)
+        _code_files, doc_files = builder._scan_files(tmp_path)
 
         # Assert
         assert doc_files == []
@@ -136,11 +136,26 @@ class TestScanFiles:
         builder = LayerKGBuilder(config)
 
         # Act
-        _py_files, doc_files = builder._scan_files(tmp_path)
+        _code_files, doc_files = builder._scan_files(tmp_path)
 
         # Assert
         assert len(doc_files) == 1
         assert doc_files[0].name == "README.md"
+
+    def test_scan_files_finds_java_files(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+        """验证 _scan_files 能扫描到 .java 文件。"""
+        (tmp_path / "App.java").write_text("public class App {}")
+        code_files, _doc_files = builder._scan_files(tmp_path)
+        assert len(code_files) == 1
+        assert code_files[0].suffix == ".java"
+
+    def test_scan_files_mixed_py_and_java(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+        """验证 _scan_files 同时扫描 .py 和 .java。"""
+        (tmp_path / "main.py").write_text("print('hello')")
+        (tmp_path / "App.java").write_text("public class App {}")
+        code_files, _doc_files = builder._scan_files(tmp_path)
+        suffixes = sorted(f.suffix for f in code_files)
+        assert suffixes == [".java", ".py"]
 
 
 class TestDocTruncation:
@@ -480,7 +495,9 @@ def bar():
         test_file.write_text(sample_code)
 
         # Act
-        parse_result = builder._parser.parse_file(test_file)
+        parser = builder._get_parser(test_file)
+        assert parser is not None
+        parse_result = parser.parse_file(test_file)
 
         # Assert
         assert parse_result.error is None
@@ -514,7 +531,9 @@ def bar():
         test_file.write_text(sample_code)
 
         # Act
-        parse_result = builder._parser.parse_file(test_file)
+        parser = builder._get_parser(test_file)
+        assert parser is not None
+        parse_result = parser.parse_file(test_file)
 
         # Assert
         assert parse_result.error is None
@@ -551,7 +570,9 @@ def my_func():
         test_file.write_text(sample_code)
 
         # Act
-        parse_result = builder._parser.parse_file(test_file)
+        parser = builder._get_parser(test_file)
+        assert parser is not None
+        parse_result = parser.parse_file(test_file)
 
         # Assert
         assert parse_result.error is None
@@ -573,3 +594,57 @@ def my_func():
         # 解析结果中的 imports 关系数量
         raw_imports = [r for r in parse_result.relations if r.relation_type == "imports"]
         assert len(raw_imports) >= 2
+
+
+class TestMultiLanguageParsers:
+    """测试 Builder 多语言解析器注册和路由。"""
+
+    def test_get_parser_python(self, builder: LayerKGBuilder) -> None:
+        """验证 .py 文件路由到 PythonParser。"""
+        from layerkg.parser.python_parser import PythonParser
+
+        parser = builder._get_parser(Path("foo.py"))
+        assert parser is not None
+        assert isinstance(parser, PythonParser)
+        assert parser.language == "python"
+
+    def test_get_parser_java(self, builder: LayerKGBuilder) -> None:
+        """验证 .java 文件路由到 JavaParser。"""
+        from layerkg.parser.java_parser import JavaParser
+
+        parser = builder._get_parser(Path("Foo.java"))
+        assert parser is not None
+        assert isinstance(parser, JavaParser)
+        assert parser.language == "java"
+
+    def test_get_parser_unknown_suffix(self, builder: LayerKGBuilder) -> None:
+        """验证未知扩展名返回 None。"""
+        parser = builder._get_parser(Path("main.rs"))
+        assert parser is None
+
+    def test_stage_parse_uses_java_parser(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+        """验证 _stage_parse 能用 JavaParser 解析 .java 文件。"""
+        java_code = """
+package com.example;
+
+public class Hello {
+    public void greet() {
+        System.out.println("Hello");
+    }
+}
+"""
+        (tmp_path / "Hello.java").write_text(java_code)
+        all_entities, _doc_entities, _relations, _files_scanned, _unresolved = builder._stage_parse(tmp_path)
+        # 应该能解析出至少 class + method + module + file 实体
+        entity_types = {e.entity_type for e in all_entities}
+        assert "class" in entity_types
+        assert "function" in entity_types
+
+    def test_external_import_language_is_unknown(self, builder: LayerKGBuilder) -> None:
+        """验证外部 import 的 language 不是硬编码 python。"""
+        # 检查 _stage_write_structural 中的外部模块 language
+        # 间接验证：读取源码中第 327 行附近的 language="unknown"
+        import inspect
+
+        source = inspect.getsource(builder._stage_write_structural)
+        assert 'language="unknown"' in source or "language='unknown'" in source

@@ -17,6 +17,8 @@ from layerkg.extractor.relation import RelationExtractor
 from layerkg.extractor.semantic import SemanticExtractor, SemanticRelation
 from layerkg.module_clustering import ModuleCluster, ModuleClustering
 from layerkg.neo4j_store import Neo4jGraphStore
+from layerkg.parser.base import BaseParser
+from layerkg.parser.java_parser import JavaParser
 from layerkg.parser.python_parser import PythonParser
 from layerkg.schema import CodeEntity, ConceptEntity, DocEntity, Relation
 
@@ -138,7 +140,9 @@ class LayerKGBuilder:
             config: LayerKG 配置。
         """
         self._config = config
-        self._parser = PythonParser()
+        self._parsers: dict[str, BaseParser] = {}
+        self._register_parser(PythonParser())
+        self._register_parser(JavaParser())
         self._extractor = RelationExtractor()
         self._graph_store: Neo4jGraphStore | None = None
         self._chroma_store: ChromaStore | None = None
@@ -148,6 +152,28 @@ class LayerKGBuilder:
         self._doc_parser: DocParser | None = None
         self._logger = logging.getLogger(__name__)
         self._repo_root: Path | None = None
+
+    def _register_parser(self, parser: BaseParser) -> None:
+        """注册解析器。
+
+        Args:
+            parser: 解析器实例。
+        """
+        lang_to_ext: dict[str, str] = {"python": ".py", "java": ".java"}
+        ext = lang_to_ext.get(parser.language)
+        if ext:
+            self._parsers[ext] = parser
+
+    def _get_parser(self, file_path: Path) -> BaseParser | None:
+        """根据文件扩展名获取对应解析器。
+
+        Args:
+            file_path: 文件路径。
+
+        Returns:
+            对应的解析器，如果不存在则返回 None。
+        """
+        return self._parsers.get(file_path.suffix)
 
     def _get_graph_store(self) -> Neo4jGraphStore:
         """获取或创建 Neo4j 存储实例。
@@ -201,13 +227,23 @@ class LayerKGBuilder:
             (all_entities, doc_entities, relations, files_scanned, unresolved_imports) 五元组。
         """
         self._repo_root = repo_path
-        py_files, doc_files = self._scan_files(repo_path)
-        self._logger.info("Scanned %d Python files, %d doc files", len(py_files), len(doc_files))
+        code_files, doc_files = self._scan_files(repo_path)
+        # 统计各语言文件数
+        lang_counts: dict[str, int] = {}
+        for f in code_files:
+            lang = f.suffix.lstrip(".")
+            lang_counts[lang] = lang_counts.get(lang, 0) + 1
+        self._logger.info("Scanned %s code files, %d doc files", lang_counts, len(doc_files))
 
         all_entities: list[CodeEntity] = []
         skipped_files = 0
-        for file_path in py_files:
-            result = self._parser.parse_file(file_path)
+        for file_path in code_files:
+            parser = self._get_parser(file_path)
+            if parser is None:
+                self._logger.warning("No parser for %s, skipping", file_path.suffix)
+                skipped_files += 1
+                continue
+            result = parser.parse_file(file_path)
             if result.error:
                 self._logger.warning("Skip %s: %s", file_path, result.error)
                 skipped_files += 1
@@ -233,7 +269,7 @@ class LayerKGBuilder:
         relations, unresolved_imports = self._extractor.resolve_with_unresolved(all_entities)
         self._logger.info("Resolved %d relations, %d unresolved imports", len(relations), len(unresolved_imports))
 
-        return all_entities, doc_entities, relations, len(py_files) + len(doc_files), unresolved_imports
+        return all_entities, doc_entities, relations, len(code_files) + len(doc_files), unresolved_imports
 
     def _stage_write_structural(
         self,
@@ -291,7 +327,7 @@ class LayerKGBuilder:
                     name=ext_name,
                     entity_type="module",
                     file_path="__external__",
-                    language="python",
+                    language="unknown",
                 )
                 graph_store.merge_node("CodeEntity", self._entity_to_dict(ext_entity))
                 external_modules[ext_name] = ext_entity.id
@@ -569,23 +605,24 @@ class LayerKGBuilder:
         return result
 
     def _scan_files(self, repo_path: Path) -> tuple[list[Path], list[Path]]:
-        """扫描 Python 和文档文件，跳过隐藏目录。
+        """扫描代码文件（.py, .java）和文档文件，跳过隐藏目录。
 
         Args:
             repo_path: 仓库根目录路径。
 
         Returns:
-            (py_files, doc_files) 元组，均为已排序的路径列表。
+            (code_files, doc_files) 元组，均为已排序的路径列表。
         """
         skip_dirs = self._config.build_skip_dirs
-        py_files: list[Path] = []
+        code_files: list[Path] = []
         doc_files: list[Path] = []
 
-        # 扫描 Python 文件
-        for p in repo_path.rglob("*.py"):
-            if any(skip in p.parts or skip in p.name for skip in skip_dirs):
-                continue
-            py_files.append(p)
+        # 扫描代码文件
+        for suffix in (".py", ".java"):
+            for p in repo_path.rglob(f"*{suffix}"):
+                if any(skip in p.parts or skip in p.name for skip in skip_dirs):
+                    continue
+                code_files.append(p)
 
         # 扫描文档文件（仅在 build_include_docs 为 True 时）
         if self._config.build_include_docs:
@@ -595,7 +632,7 @@ class LayerKGBuilder:
                         continue
                     doc_files.append(p)
 
-        return sorted(py_files), sorted(doc_files)
+        return sorted(code_files), sorted(doc_files)
 
     @staticmethod
     def _entity_to_dict(entity: CodeEntity) -> dict:
