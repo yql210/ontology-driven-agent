@@ -797,7 +797,7 @@ def test_object_method_call(parser: JavaParser) -> None:
     code = b"""
 class Foo {
     void bar() {
-        items.size();
+        items.doSomething();
     }
 }
 """
@@ -806,10 +806,10 @@ class Foo {
     assert result.error is None
 
     calls_relations = [r for r in result.relations if r.relation_type == "calls"]
-    # items.size() 应该提取为调用 "size"
+    # items.doSomething() 应该提取为调用 "doSomething"
     bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar"]
     assert len(bar_calls) == 1
-    assert bar_calls[0].target_name == "size"
+    assert bar_calls[0].target_name == "doSomething"
 
 
 def test_new_object_call(parser: JavaParser) -> None:
@@ -1085,7 +1085,7 @@ public class Foo {
         code = b"""
 public class Foo {
     public void bar(String s) {
-        if (s.isEmpty()) {
+        if (s.checkValid()) {
             System.out.println(s);
         }
     }
@@ -1093,8 +1093,9 @@ public class Foo {
 """
         result = parser.parse_source(code)
         assert result.error is None
-        calls = [r for r in result.relations if r.relation_type == "calls" and r.source_name == "bar"]
-        assert isinstance(calls, list)
+        calls = [r for r in result.relations if r.relation_type == "calls" and r.source_name == "Foo.bar"]
+        assert len(calls) >= 1
+        assert calls[0].target_name == "checkValid"
 
     def test_method_call_in_lambda(self, parser):
         """lambda 体内的方法调用。"""
@@ -1132,19 +1133,19 @@ public class Foo {
         assert "Foo" in class_names
 
     def test_static_method_call(self, parser):
-        """静态方法调用。"""
+        """静态方法调用（非 JDK 方法）。"""
         code = b"""
-import java.util.Collections;
 public class Foo {
     public void bar() {
-        Collections.sort(myList);
+        Helper.process(myList);
     }
 }
 """
         result = parser.parse_source(code)
         assert result.error is None
-        calls = [r for r in result.relations if r.relation_type == "calls" and r.source_name == "bar"]
-        assert isinstance(calls, list)
+        calls = [r for r in result.relations if r.relation_type == "calls" and r.source_name == "Foo.bar"]
+        assert len(calls) >= 1
+        assert calls[0].target_name == "process"
 
     def test_extends_and_implements_combined(self, parser):
         """同时 extends 和 implements。"""
@@ -1363,3 +1364,66 @@ public class Bar {}
         assert "com.example.one" in modules1
         assert "com.example.two" in modules2
         assert modules1 != modules2
+
+
+class TestDay5Reflection:
+    """Day 5 反思修复验证测试。"""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, parser: JavaParser) -> None:
+        """设置 parser 实例。"""
+        self.parser = parser
+
+    def test_interface_extends(self):
+        """interface extends 多个接口。"""
+        code = b"public interface A extends B, C { void foo(); }"
+        result = self.parser.parse_source(code, "A.java")
+        extends_rels = [r for r in result.relations if r.relation_type == "extends"]
+        assert len(extends_rels) == 2
+        target_names = {r.target_name for r in extends_rels}
+        assert target_names == {"B", "C"}
+
+    def test_enum_implements(self):
+        """enum implements 接口。"""
+        code = b"public enum Color implements Runnable { RED, GREEN; public void run() {} }"
+        result = self.parser.parse_source(code, "Color.java")
+        impl_rels = [r for r in result.relations if r.relation_type == "implements"]
+        assert len(impl_rels) >= 1
+        assert impl_rels[0].target_name == "Runnable"
+
+    def test_record_implements(self):
+        """record implements 接口。"""
+        code = b"public record Point(int x, int y) implements MyInterface { }"
+        result = self.parser.parse_source(code, "Point.java")
+        impl_rels = [r for r in result.relations if r.relation_type == "implements"]
+        assert len(impl_rels) >= 1
+        assert impl_rels[0].target_name == "MyInterface"
+
+    def test_enum_constants_extracted(self):
+        """enum 常量被提取为 field 实体。"""
+        code = b"public enum Status { ACTIVE, INACTIVE, PENDING; }"
+        result = self.parser.parse_source(code, "Status.java")
+        fields = [e for e in result.entities if e.entity_type == "field"]
+        field_names = {f.name for f in fields}
+        assert "ACTIVE" in field_names
+        assert "INACTIVE" in field_names
+        assert "PENDING" in field_names
+        # 验证 contains 关系
+        contains = [r for r in result.relations if r.relation_type == "contains" and r.target_name == "ACTIVE"]
+        assert len(contains) == 1
+
+    def test_annotation_type(self):
+        """@interface 注解类型被提取。"""
+        code = b"public @interface MyAnnotation { String value() default \"\"; }"
+        result = self.parser.parse_source(code, "MyAnnotation.java")
+        interfaces = [e for e in result.entities if e.entity_type == "interface" and e.name == "MyAnnotation"]
+        assert len(interfaces) == 1
+
+    def test_nested_class_no_duplicate(self):
+        """内部类不被重复提取。"""
+        code = b"public class Outer { class Inner { void foo() {} } }"
+        result = self.parser.parse_source(code, "Outer.java")
+        inner_classes = [e for e in result.entities if e.name == "Inner"]
+        assert len(inner_classes) == 1, f"Expected 1 Inner class, got {len(inner_classes)}"
+        inner_methods = [e for e in result.entities if e.name == "Inner.foo"]
+        assert len(inner_methods) == 1, f"Expected 1 Inner.foo, got {len(inner_methods)}"

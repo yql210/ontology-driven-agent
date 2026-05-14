@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import tree_sitter_java as tsjava
@@ -10,6 +11,7 @@ from layerkg.parser.base import BaseParser, ExtractedRelation, ParseResult
 from layerkg.schema import CodeEntity
 
 JAVA_LANG = Language(tsjava.language())
+_logger = logging.getLogger(__name__)
 
 # JDK 常用类型和方法，用于过滤 calls/imports 关系
 _JDK_COMMON_TYPES = {
@@ -57,6 +59,35 @@ _JDK_COMMON_TYPES = {
     "byteValue",
     "shortValue",
     "charValue",
+    "size",
+    "isEmpty",
+    "get",
+    "set",
+    "add",
+    "remove",
+    "clear",
+    "sort",
+    "close",
+    "put",
+    "keySet",
+    "values",
+    "entrySet",
+    "iterator",
+    "next",
+    "hasNext",
+    "stream",
+    "map",
+    "filter",
+    "collect",
+    "of",
+    "builder",
+    "build",
+    "orElse",
+    "isPresent",
+    "getName",
+    "setName",
+    "getValue",
+    "setValue",
 }
 
 
@@ -124,9 +155,9 @@ class JavaParser(BaseParser):
                 parent_class_name=None,
             )
 
-        except Exception:
+        except Exception as e:
             # 语法错误时返回已有实体（至少有 file）
-            pass
+            _logger.warning("Parse failed for %s: %s", file_path, e)
 
         return ParseResult(
             file_path=file_path,
@@ -213,6 +244,32 @@ class JavaParser(BaseParser):
             # 递归遍历 record body
             for child in node.children:
                 self._walk(child, source, file_path, entities, relations, package_name, parent_class_name=record_name)
+
+        # annotation_type_declaration (@interface)
+        elif node_type == "annotation_type_declaration":
+            name_node = node.child_by_field_name("name")
+            if name_node:
+                anno_name = name_node.text.decode("utf-8", errors="replace")
+                entities.append(CodeEntity(
+                    name=anno_name,
+                    entity_type="interface",
+                    file_path=file_path,
+                    start_line=node.start_point[0],
+                    end_line=node.end_point[0],
+                    language="java",
+                    source=node.text.decode("utf-8", errors="replace")[:500],
+                ))
+                source_entity = parent_class_name if parent_class_name else package_name
+                source_type = "class" if parent_class_name else "module"
+                if source_entity:
+                    relations.append(ExtractedRelation(
+                        source_name=source_entity,
+                        source_type=source_type,
+                        target_name=anno_name,
+                        target_type="interface",
+                        relation_type="contains",
+                        file_path=file_path,
+                    ))
 
         # import_declaration
         elif node_type == "import_declaration":
@@ -415,6 +472,31 @@ class JavaParser(BaseParser):
         # 遍历 interface body 提取 method
         self._extract_class_body_members(node, source, file_path, entities, relations, interface_name)
 
+        # 提取 extends 关系（interface 可以 extends 多个 interface）
+        for child in node.children:
+            if child.type == "extends_interfaces":
+                type_list = None
+                for sub in child.children:
+                    if sub.type == "type_list":
+                        type_list = sub
+                        break
+                if type_list:
+                    for t in type_list.children:
+                        if t.type == "type_identifier":
+                            parent_name = t.text.decode("utf-8", errors="replace")
+                            if parent_name not in _JDK_COMMON_TYPES:
+                                relations.append(
+                                    ExtractedRelation(
+                                        source_name=interface_name,
+                                        source_type="interface",
+                                        target_name=parent_name,
+                                        target_type="interface",
+                                        relation_type="extends",
+                                        file_path=file_path,
+                                    )
+                                )
+                break
+
         return interface_name
 
     def _extract_enum(
@@ -468,6 +550,63 @@ class JavaParser(BaseParser):
 
         # 遍历 enum body 提取 method/constructor/field
         self._extract_class_body_members(node, source, file_path, entities, relations, enum_name)
+
+        # 提取 implements 关系
+        for child in node.children:
+            if child.type == "super_interfaces":
+                type_list = None
+                for sub in child.children:
+                    if sub.type == "type_list":
+                        type_list = sub
+                        break
+                if type_list:
+                    for t in type_list.children:
+                        if t.type == "type_identifier":
+                            iface_name = t.text.decode("utf-8", errors="replace")
+                            if iface_name not in _JDK_COMMON_TYPES:
+                                relations.append(
+                                    ExtractedRelation(
+                                        source_name=enum_name,
+                                        source_type="enum",
+                                        target_name=iface_name,
+                                        target_type="interface",
+                                        relation_type="implements",
+                                        file_path=file_path,
+                                    )
+                                )
+                break
+
+        # 提取 enum 常量（enum_constant 是 enum_body 的直接子节点）
+        for child in node.children:
+            if child.type == "enum_body":
+                for body_child in child.children:
+                    if body_child.type == "enum_constant":
+                        # enum_constant 的 name 是 identifier 子节点
+                        name_node = None
+                        for sub in body_child.children:
+                            if sub.type == "identifier":
+                                name_node = sub
+                                break
+                        if name_node:
+                            const_name = name_node.text.decode("utf-8", errors="replace")
+                            entities.append(CodeEntity(
+                                name=const_name,
+                                entity_type="field",
+                                file_path=file_path,
+                                start_line=body_child.start_point[0],
+                                end_line=body_child.end_point[0],
+                                language="java",
+                                source=body_child.text.decode("utf-8", errors="replace")[:500],
+                            ))
+                            relations.append(ExtractedRelation(
+                                source_name=enum_name,
+                                source_type="enum",
+                                target_name=const_name,
+                                target_type="field",
+                                relation_type="contains",
+                                file_path=file_path,
+                            ))
+                break
 
         return enum_name
 
@@ -523,6 +662,31 @@ class JavaParser(BaseParser):
         # 遍历 record body 提取 method/constructor
         self._extract_class_body_members(node, source, file_path, entities, relations, record_name)
 
+        # 提取 implements 关系
+        for child in node.children:
+            if child.type == "super_interfaces":
+                type_list = None
+                for sub in child.children:
+                    if sub.type == "type_list":
+                        type_list = sub
+                        break
+                if type_list:
+                    for t in type_list.children:
+                        if t.type == "type_identifier":
+                            iface_name = t.text.decode("utf-8", errors="replace")
+                            if iface_name not in _JDK_COMMON_TYPES:
+                                relations.append(
+                                    ExtractedRelation(
+                                        source_name=record_name,
+                                        source_type="record",
+                                        target_name=iface_name,
+                                        target_type="interface",
+                                        relation_type="implements",
+                                        file_path=file_path,
+                                    )
+                                )
+                break
+
         return record_name
 
     def _extract_class_body_members(
@@ -560,20 +724,6 @@ class JavaParser(BaseParser):
                 self._extract_constructor(child, source, file_path, entities, relations, class_name)
             elif child_type == "field_declaration":
                 self._extract_field(child, source, file_path, entities, relations, class_name)
-            elif child_type == "class_declaration":
-                # 内部类
-                self._extract_class(child, source, file_path, entities, relations, None, parent_class_name=class_name)
-            elif child_type == "interface_declaration":
-                # 内部接口
-                self._extract_interface(
-                    child, source, file_path, entities, relations, None, parent_class_name=class_name
-                )
-            elif child_type == "enum_declaration":
-                # 内部 enum
-                self._extract_enum(child, source, file_path, entities, relations, None, parent_class_name=class_name)
-            elif child_type == "record_declaration":
-                # 内部 record
-                self._extract_record(child, source, file_path, entities, relations, None, parent_class_name=class_name)
             elif child_type == "enum_body_declarations":
                 # enum 中的额外声明（方法、构造器等）
                 self._extract_enum_body_declarations(child, source, file_path, entities, relations, class_name)
