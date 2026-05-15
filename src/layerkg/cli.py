@@ -216,44 +216,60 @@ def butler() -> None:
 @butler.command()
 @click.option("--repo", "-r", type=click.Path(exists=True), default=".", help="仓库路径", show_default=True)
 @click.option("--poll-interval", "-p", type=float, default=30.0, help="轮询间隔（秒）", show_default=True)
-def serve(repo: str, poll_interval: float) -> None:  # noqa: F811
+@click.option(
+    "--log-level",
+    default="INFO",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+    help="日志级别",
+    show_default=True,
+)
+def serve(repo: str, poll_interval: float, log_level: str) -> None:  # noqa: F811
     """启动 Butler Engine，监控仓库变更。"""
     import asyncio
+    import logging
 
     from layerkg.butler.engine import ButlerEngine
     from layerkg.butler.handlers.knowledge_update import FullBuildHandler, KnowledgeUpdateHandler
+    from layerkg.butler.handlers.reflection import ReflectionHandler
     from layerkg.butler.watchers.git_watcher import GitWatcher
+
+    # 配置日志
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper()), format="%(asctime)s %(levelname)s %(name)s %(message)s"
+    )
+    logger = logging.getLogger("butler.serve")
 
     async def _serve() -> None:
         config = LayerKGConfig.from_env()
         engine = ButlerEngine(config)
 
-        # 注册 Handlers
+        # 注册所有 Handlers
         engine.register_handler(KnowledgeUpdateHandler())
         engine.register_handler(FullBuildHandler())
+        engine.register_handler(ReflectionHandler())
 
         repo_path = Path(repo)
 
-        # 启动引擎
-        await engine.start()
+        async with engine:
+            # 创建并启动 GitWatcher（initial_scan=False 避免启动时自动全量构建）
+            watcher = GitWatcher(repo_path, engine._bus, poll_interval=poll_interval, initial_scan=False)
+            await watcher.start()
 
-        # 创建并启动 GitWatcher
-        watcher = GitWatcher(repo_path, engine._bus, poll_interval=poll_interval, initial_scan=True)
-        await watcher.start()
+            logger.info(f"Butler Engine started, monitoring {repo_path} (poll: {poll_interval}s)")
+            click.echo(f"Butler Engine started, monitoring {repo_path} (poll: {poll_interval}s)")
+            click.echo("Press Ctrl+C to stop")
 
-        click.echo(f"Butler Engine started, monitoring {repo_path} (poll interval: {poll_interval}s)")
-        click.echo("Press Ctrl+C to stop")
-
-        try:
-            # 运行直到收到中断信号
-            while engine._running:
-                await asyncio.sleep(1)
-        except KeyboardInterrupt:
-            click.echo("\nShutting down...")
-        finally:
-            await watcher.stop()
-            await engine.stop()
-            click.echo("Butler Engine stopped")
+            try:
+                # 运行直到收到中断信号
+                while engine._running:
+                    await asyncio.sleep(1)
+            except KeyboardInterrupt:
+                logger.info("Shutting down...")
+                click.echo("\nShutting down...")
+            finally:
+                await watcher.stop()
+                logger.info("Butler Engine stopped")
+                click.echo("Butler Engine stopped")
 
     asyncio.run(_serve())
 

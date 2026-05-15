@@ -118,8 +118,10 @@ class TestGitWatcher:
         mock_result = MagicMock()
         mock_result.stdout = "abc123def456\n"
 
-        with patch.object(Path, "exists", return_value=True), \
-             patch("subprocess.run", return_value=mock_result) as mock_run:
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch("subprocess.run", return_value=mock_result) as mock_run,
+        ):
             ref = watcher._get_head_ref()
 
             assert ref == "abc123def456"
@@ -150,9 +152,11 @@ class TestGitWatcher:
 
         watcher = GitWatcher(repo_path=repo_path, bus=bus)
 
-        with patch.object(Path, "exists", return_value=True), \
-             patch("subprocess.run", side_effect=FileNotFoundError), \
-             pytest.raises(FileNotFoundError):
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch("subprocess.run", side_effect=FileNotFoundError),
+            pytest.raises(FileNotFoundError),
+        ):
             watcher._get_head_ref()
 
     @pytest.mark.asyncio
@@ -174,8 +178,7 @@ class TestGitWatcher:
         original_publish = bus.publish
         bus.publish = track_publish  # type: ignore
 
-        with patch.object(Path, "exists", return_value=True), \
-             patch("subprocess.run", return_value=mock_result):
+        with patch.object(Path, "exists", return_value=True), patch("subprocess.run", return_value=mock_result):
             # First poll sets _last_ref
             await watcher._poll()
             assert watcher._last_ref == "abc123"
@@ -209,8 +212,7 @@ class TestGitWatcher:
         original_publish = bus.publish
         bus.publish = track_publish  # type: ignore
 
-        with patch.object(Path, "exists", return_value=True), \
-             patch("subprocess.run", return_value=mock_result):
+        with patch.object(Path, "exists", return_value=True), patch("subprocess.run", return_value=mock_result):
             await watcher._poll()
 
             assert len(published_events) == 1
@@ -240,16 +242,14 @@ class TestGitWatcher:
         # First poll - no event (initial_scan=False)
         mock_result1 = MagicMock()
         mock_result1.stdout = "abc123\n"
-        with patch.object(Path, "exists", return_value=True), \
-             patch("subprocess.run", return_value=mock_result1):
+        with patch.object(Path, "exists", return_value=True), patch("subprocess.run", return_value=mock_result1):
             await watcher._poll()
             assert len(published_events) == 0
 
         # Second poll - HEAD changed
         mock_result2 = MagicMock()
         mock_result2.stdout = "def456\n"
-        with patch.object(Path, "exists", return_value=True), \
-             patch("subprocess.run", return_value=mock_result2):
+        with patch.object(Path, "exists", return_value=True), patch("subprocess.run", return_value=mock_result2):
             await watcher._poll()
 
             assert len(published_events) == 1

@@ -55,8 +55,10 @@ class TestButlerEngine:
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
-        with patch("layerkg.butler.engine.ConsistencyGuard") as mock_guard_cls, \
-             patch("layerkg.butler.engine.SkillStore") as mock_store_cls:
+        with (
+            patch("layerkg.butler.engine.ConsistencyGuard") as mock_guard_cls,
+            patch("layerkg.butler.engine.SkillStore") as mock_store_cls,
+        ):
             mock_guard = MagicMock()
             mock_store = MagicMock()
             mock_guard_cls.return_value = mock_guard
@@ -86,8 +88,7 @@ class TestButlerEngine:
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
-        with patch("layerkg.butler.engine.ConsistencyGuard"), \
-             patch("layerkg.butler.engine.SkillStore"):
+        with patch("layerkg.butler.engine.ConsistencyGuard"), patch("layerkg.butler.engine.SkillStore"):
             await engine.start()
 
             # Handler should be registered with scheduler
@@ -107,8 +108,7 @@ class TestButlerEngine:
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
-        with patch("layerkg.butler.engine.ConsistencyGuard"), \
-             patch("layerkg.butler.engine.SkillStore"):
+        with patch("layerkg.butler.engine.ConsistencyGuard"), patch("layerkg.butler.engine.SkillStore"):
             await engine.start()
 
             # EventBus should have subscriptions for handler.event_types
@@ -128,8 +128,7 @@ class TestButlerEngine:
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
-        with patch("layerkg.butler.engine.ConsistencyGuard"), \
-             patch("layerkg.butler.engine.SkillStore"):
+        with patch("layerkg.butler.engine.ConsistencyGuard"), patch("layerkg.butler.engine.SkillStore"):
             await engine.start()
             assert engine._running is True
 
@@ -161,8 +160,7 @@ class TestButlerEngine:
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
-        with patch("layerkg.butler.engine.ConsistencyGuard"), \
-             patch("layerkg.butler.engine.SkillStore"):
+        with patch("layerkg.butler.engine.ConsistencyGuard"), patch("layerkg.butler.engine.SkillStore"):
             await engine.start()
 
             event = ButlerEvent(
@@ -196,8 +194,10 @@ class TestButlerEngine:
         mock_skill_store.search_by_pattern = AsyncMock(return_value=[])
         mock_skill_store.create = AsyncMock(return_value="skill-123")
 
-        with patch("layerkg.butler.engine.ConsistencyGuard"), \
-             patch("layerkg.butler.engine.SkillStore", return_value=mock_skill_store):
+        with (
+            patch("layerkg.butler.engine.ConsistencyGuard"),
+            patch("layerkg.butler.engine.SkillStore", return_value=mock_skill_store),
+        ):
             await engine.start()
             engine.register_handler(handler)
 
@@ -268,8 +268,10 @@ class TestButlerEngine:
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
-        with patch("layerkg.butler.engine.ConsistencyGuard"), \
-             patch("layerkg.butler.engine.SkillStore") as mock_store_cls:
+        with (
+            patch("layerkg.butler.engine.ConsistencyGuard"),
+            patch("layerkg.butler.engine.SkillStore") as mock_store_cls,
+        ):
             mock_store_instance = MagicMock()
             mock_store_instance.count_by_layer = AsyncMock(return_value={})
             mock_store_cls.return_value = mock_store_instance
@@ -298,8 +300,7 @@ class TestButlerEngine:
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
-        with patch("layerkg.butler.engine.ConsistencyGuard"), \
-             patch("layerkg.butler.engine.SkillStore"):
+        with patch("layerkg.butler.engine.ConsistencyGuard"), patch("layerkg.butler.engine.SkillStore"):
             await engine.start()
             first_running = engine._running
 
@@ -322,16 +323,13 @@ class TestButlerEngine:
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
-        with patch("layerkg.butler.engine.ConsistencyGuard"), \
-             patch("layerkg.butler.engine.SkillStore"):
+        with patch("layerkg.butler.engine.ConsistencyGuard"), patch("layerkg.butler.engine.SkillStore"):
             await engine.start()
 
             # Create a mock handler that succeeds
             mock_handler = MagicMock()
             mock_handler.handler_id = "test.handler"
-            mock_handler.handle = AsyncMock(
-                return_value=HandlerResult(success=True, data={"test": "data"})
-            )
+            mock_handler.handle = AsyncMock(return_value=HandlerResult(success=True, data={"test": "data"}))
 
             # Dispatch would normally be called by EventBus callback
             # We'll test it directly here

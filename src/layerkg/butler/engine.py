@@ -161,6 +161,7 @@ class ButlerEngine:
             return []
 
         # 发布事件到 EventBus（通知外部订阅者）
+        # _dispatch_event 会检查 event.source，跳过非 GitWatcher 来源的事件
         await self._bus.publish(event)
 
         # 直接通过 Scheduler 分发获取结果
@@ -246,12 +247,55 @@ class ButlerEngine:
         return fn
 
     async def _dispatch_event(self, event: ButlerEvent) -> None:
-        """EventBus 回调函数，处理非 submit_event 来源的事件。
+        """EventBus 回调 — 外部事件（如 GitWatcher）分发到 Scheduler。
 
-        GitWatcher 等外部组件直接 publish 到 EventBus 时，此回调被触发。
-        submit_event 已内含 dispatch + completion 发布逻辑，为避免双重 dispatch，
-        这里目前留空 — GitWatcher 等功能集成时再启用。
+        只处理 git_watcher 来源的事件。submit_event 路径已自己处理 dispatch。
+        跳过 handler.completed/failed 事件（避免递归）。
+        不进行级联 dispatch，避免无限递归。
         """
+        if not self._running:
+            return
+
+        # 只处理 GitWatcher 来源的事件（serve 模式）
+        # submit_event 来源的事件由 submit_event 自己 dispatch
+        if not event.source.startswith("git_watcher"):
+            return
+
+        # 跳过内部产生的 completion/failed 事件，避免递归
+        if event.event_type in ("handler.completed", "handler.failed"):
+            return
+
+        # 分发到 Scheduler（触发 KnowledgeUpdateHandler 等）
+        results = await self._scheduler.dispatch(event)
+
+        # 发布 completion/failed 事件到 EventBus（供外部订阅者监听）
+        for result in results:
+            if result.success:
+                completion = ButlerEvent(
+                    event_type="handler.completed",
+                    payload={
+                        "original_event_type": event.event_type,
+                        "handler_id": result.handler_id,
+                        "success": True,
+                        "file_extension": self._extract_file_extension(event),
+                        "duration_ms": 0,
+                    },
+                    source="butler.engine",
+                )
+            else:
+                completion = ButlerEvent(
+                    event_type="handler.failed",
+                    payload={
+                        "original_event_type": event.event_type,
+                        "handler_id": result.handler_id,
+                        "success": False,
+                        "error": result.error,
+                        "attempts": result.attempts,
+                    },
+                    source="butler.engine",
+                )
+            await self._bus.publish(completion)
+            # 注意：不再级联 dispatch（避免 ReflectionHandler 触发循环）
 
     def _extract_file_extension(self, event: ButlerEvent) -> str:
         """从事件 payload 中提取文件扩展名。

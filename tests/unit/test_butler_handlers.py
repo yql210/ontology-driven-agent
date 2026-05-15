@@ -358,8 +358,10 @@ class TestFullBuildHandler:
             relations_created=0,
         )
 
-        with patch("layerkg.builder.LayerKGBuilder") as mock_builder_cls, \
-             patch("layerkg.butler.handlers.knowledge_update.Path") as mock_path_cls:
+        with (
+            patch("layerkg.builder.LayerKGBuilder") as mock_builder_cls,
+            patch("layerkg.butler.handlers.knowledge_update.Path") as mock_path_cls,
+        ):
             mock_builder = MagicMock()
             mock_builder.build = MagicMock(return_value=mock_result)
             mock_builder.close = MagicMock()
