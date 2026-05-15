@@ -196,3 +196,149 @@ def ask(question: str | None, interactive: bool) -> None:
         click.echo(answer)
     else:
         click.echo("请提供问题或使用 -i 进入交互模式")
+
+
+@main.group()
+def butler() -> None:
+    """Butler Engine — 事件驱动的知识管理引擎。"""
+    pass
+
+
+@butler.command()
+@click.option("--repo", "-r", type=click.Path(exists=True), default=".", help="仓库路径", show_default=True)
+@click.option("--poll-interval", "-p", type=float, default=30.0, help="轮询间隔（秒）", show_default=True)
+def serve(repo: str, poll_interval: float) -> None:  # noqa: F811
+    """启动 Butler Engine，监控仓库变更。"""
+    import asyncio
+
+    from layerkg.butler.engine import ButlerEngine
+    from layerkg.butler.handlers.knowledge_update import FullBuildHandler, KnowledgeUpdateHandler
+    from layerkg.butler.watchers.git_watcher import GitWatcher
+
+    async def _serve() -> None:
+        config = LayerKGConfig.from_env()
+        engine = ButlerEngine(config)
+
+        # 注册 Handlers
+        engine.register_handler(KnowledgeUpdateHandler())
+        engine.register_handler(FullBuildHandler())
+
+        repo_path = Path(repo)
+
+        # 启动引擎
+        await engine.start()
+
+        # 创建并启动 GitWatcher
+        watcher = GitWatcher(repo_path, engine._bus, poll_interval=poll_interval, initial_scan=True)
+        await watcher.start()
+
+        click.echo(f"Butler Engine started, monitoring {repo_path} (poll interval: {poll_interval}s)")
+        click.echo("Press Ctrl+C to stop")
+
+        try:
+            # 运行直到收到中断信号
+            while engine._running:
+                await asyncio.sleep(1)
+        except KeyboardInterrupt:
+            click.echo("\nShutting down...")
+        finally:
+            await watcher.stop()
+            await engine.stop()
+            click.echo("Butler Engine stopped")
+
+    asyncio.run(_serve())
+
+
+@butler.command()
+@click.option("--repo", "-r", type=click.Path(exists=True), default=".", help="仓库路径", show_default=True)
+@click.option("--since", "-s", default="HEAD~1", help="Git ref 对比基准", show_default=True)
+def update(repo: str, since: str) -> None:  # noqa: F811
+    """手动触发增量更新。"""
+    import asyncio
+    import json
+
+    from layerkg.butler.engine import ButlerEngine
+    from layerkg.butler.event_bus import ButlerEvent
+    from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
+
+    async def _update() -> None:
+        config = LayerKGConfig.from_env()
+        engine = ButlerEngine(config)
+        engine.register_handler(KnowledgeUpdateHandler())
+
+        async with engine:
+            event = ButlerEvent(
+                event_type="code.changed",
+                payload={
+                    "since": since,
+                    "full_scan": False,
+                    "repo_path": str(Path(repo).resolve()),
+                    "file_extension": "",
+                },
+                source="cli",
+            )
+            results = await engine.submit_event(event)
+
+            for result in results:
+                if result.success:
+                    click.echo(json.dumps(result.data, indent=2, ensure_ascii=False))
+                else:
+                    click.echo(f"Error: {result.error}", err=True)
+                    raise click.Abort()
+
+    asyncio.run(_update())
+
+
+@butler.command()
+@click.option("--repo", "-r", type=click.Path(exists=True), default=".", help="仓库路径", show_default=True)
+def build(repo: str) -> None:  # noqa: F811
+    """手动触发全量构建。"""
+    import asyncio
+    import json
+
+    from layerkg.butler.engine import ButlerEngine
+    from layerkg.butler.event_bus import ButlerEvent
+    from layerkg.butler.handlers.knowledge_update import FullBuildHandler
+
+    async def _build() -> None:
+        config = LayerKGConfig.from_env()
+        engine = ButlerEngine(config)
+        engine.register_handler(FullBuildHandler())
+
+        async with engine:
+            event = ButlerEvent(
+                event_type="build.full",
+                payload={
+                    "repo_path": str(Path(repo).resolve()),
+                },
+                source="cli",
+            )
+            results = await engine.submit_event(event)
+
+            for result in results:
+                if result.success:
+                    click.echo(json.dumps(result.data, indent=2, ensure_ascii=False))
+                else:
+                    click.echo(f"Error: {result.error}", err=True)
+                    raise click.Abort()
+
+    asyncio.run(_build())
+
+
+@butler.command()
+def status() -> None:
+    """显示 Butler Engine 状态。"""
+    import asyncio
+    import json
+
+    from layerkg.butler.engine import ButlerEngine
+
+    async def _status() -> None:
+        config = LayerKGConfig.from_env()
+        engine = ButlerEngine(config)
+
+        # 不启动引擎，只查询初始状态
+        status_dict = await engine.status()
+        click.echo(json.dumps(status_dict, indent=2, ensure_ascii=False))
+
+    asyncio.run(_status())

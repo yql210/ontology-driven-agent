@@ -18,3 +18,5 @@ frontend/dist/
 chroma.sqlite3
 .chroma/
 *.traces.db
+.layerkg/
+.chroma/

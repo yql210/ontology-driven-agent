@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -16,7 +17,14 @@ if TYPE_CHECKING:
 
 
 class ButlerEngine:
-    """Butler 引擎 — 事件驱动的知识管理主循环。"""
+    """Butler 引擎 — 事件驱动的知识管理主循环。
+
+    支持异步上下文管理器::
+
+        async with ButlerEngine(config) as engine:
+            await engine.start()
+            await engine.submit_event(event)
+    """
 
     def __init__(self, config: LayerKGConfig) -> None:
         """初始化 ButlerEngine。
@@ -107,10 +115,35 @@ class ButlerEngine:
         if self._ctx and self._ctx._graph_store:
             self._ctx._graph_store.close()
 
+        # 关闭 SkillStore（如果有 close 方法）
+        if self._skill_store and hasattr(self._skill_store, "close"):
+            close_fn = self._skill_store.close
+            if asyncio.iscoroutinefunction(close_fn):
+                await close_fn()
+            else:
+                close_fn()
+
+        # 关闭 ConsistencyGuard（如果有 close 方法）
+        if self._guard and hasattr(self._guard, "close"):
+            close_fn = self._guard.close
+            if asyncio.iscoroutinefunction(close_fn):
+                await close_fn()
+            else:
+                close_fn()
+
         # 清理组件
         self._guard = None
         self._skill_store = None
         self._ctx = None
+
+    async def __aenter__(self) -> ButlerEngine:
+        """异步上下文管理器入口：启动引擎。"""
+        await self.start()
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        """异步上下文管理器出口：停止引擎。"""
+        await self.stop()
 
     async def submit_event(self, event: ButlerEvent) -> list[HandlerResult]:
         """提交事件到引擎，返回 Handler 执行结果。
