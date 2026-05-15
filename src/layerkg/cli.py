@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 
 import click
@@ -97,6 +98,14 @@ def info() -> None:
     with LayerKGBuilder(config) as builder:
         info_data = builder.info()
         click.echo(f"\nEntities in ChromaDB: {info_data.get('chroma_count', 'N/A')}")
+
+
+@main.command()
+def version() -> None:
+    """显示 LayerKG 版本信息。"""
+    click.echo("LayerKG v0.1.0")
+    click.echo(f"Python: {sys.version.split()[0]}")
+    click.echo(f"Neo4j URI: {LayerKGConfig.from_env().neo4j_uri}")
 
 
 @main.command()
