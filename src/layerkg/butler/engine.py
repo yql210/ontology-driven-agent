@@ -115,6 +115,9 @@ class ButlerEngine:
     async def submit_event(self, event: ButlerEvent) -> list[HandlerResult]:
         """提交事件到引擎，返回 Handler 执行结果。
 
+        同时发布到 EventBus（通知其他订阅者）并分发到匹配的 Handler。
+        发布 completion/failed 事件。
+
         Args:
             event: 要提交的事件。
 
@@ -124,11 +127,44 @@ class ButlerEngine:
         if not self._running:
             return []
 
-        # 发布事件到 EventBus
+        # 发布事件到 EventBus（通知外部订阅者）
         await self._bus.publish(event)
 
         # 直接通过 Scheduler 分发获取结果
         results = await self._scheduler.dispatch(event)
+
+        # 发布 completion/failed 事件并级联 dispatch（触发 ReflectionHandler 等）
+        for result in results:
+            if result.success:
+                completion_event = ButlerEvent(
+                    event_type="handler.completed",
+                    payload={
+                        "original_event_type": event.event_type,
+                        "handler_id": result.handler_id,
+                        "success": True,
+                        "file_extension": self._extract_file_extension(event),
+                        "duration_ms": 0,
+                    },
+                    source="butler.engine",
+                )
+            else:
+                completion_event = ButlerEvent(
+                    event_type="handler.failed",
+                    payload={
+                        "original_event_type": event.event_type,
+                        "handler_id": result.handler_id,
+                        "success": False,
+                        "error": result.error,
+                        "attempts": result.attempts,
+                    },
+                    source="butler.engine",
+                )
+            # Publish to EventBus for external subscribers
+            await self._bus.publish(completion_event)
+            # Dispatch to Scheduler for cascading handlers (e.g. ReflectionHandler)
+            await self._scheduler.dispatch(completion_event)
+            # Note: cascading handler results are NOT published further to prevent infinite recursion
+
         return results
 
     async def status(self) -> dict[str, Any]:
@@ -177,39 +213,12 @@ class ButlerEngine:
         return fn
 
     async def _dispatch_event(self, event: ButlerEvent) -> None:
-        """EventBus 回调函数，分发事件到 Scheduler 并发布完成事件。
+        """EventBus 回调函数，处理非 submit_event 来源的事件。
 
-        Args:
-            event: 收到的事件。
+        GitWatcher 等外部组件直接 publish 到 EventBus 时，此回调被触发。
+        submit_event 已内含 dispatch + completion 发布逻辑，为避免双重 dispatch，
+        这里目前留空 — GitWatcher 等功能集成时再启用。
         """
-        results = await self._scheduler.dispatch(event)
-
-        for result in results:
-            if result.success:
-                completion_event = ButlerEvent(
-                    event_type="handler.completed",
-                    payload={
-                        "original_event_type": event.event_type,
-                        "handler_id": result.handler_id,
-                        "success": True,
-                        "file_extension": self._extract_file_extension(event),
-                        "duration_ms": 0,
-                    },
-                    source="butler.engine",
-                )
-            else:
-                completion_event = ButlerEvent(
-                    event_type="handler.failed",
-                    payload={
-                        "original_event_type": event.event_type,
-                        "handler_id": result.handler_id,
-                        "success": False,
-                        "error": result.error,
-                        "attempts": result.attempts,
-                    },
-                    source="butler.engine",
-                )
-            await self._bus.publish(completion_event)
 
     def _extract_file_extension(self, event: ButlerEvent) -> str:
         """从事件 payload 中提取文件扩展名。

@@ -78,15 +78,24 @@ class Scheduler:
                 else:
                     result = await spec.handler_fn(event)
 
+                # BaseHandler.HandlerResult 用 data 字段；Scheduler.HandlerResult 用 result_data
+                result_data = getattr(result, "data", None) or getattr(result, "result_data", None) or {}
+                handler_success = getattr(result, "success", True)
+                handler_error = getattr(result, "error", None) if not handler_success else None
+
                 status = self._status[spec.handler_id]
                 status.total_invocations += 1
-                status.success_count += 1
+
+                if handler_success:
+                    status.success_count += 1
+                else:
+                    status.failure_count += 1
 
                 return HandlerResult(
                     handler_id=spec.handler_id,
-                    success=True,
-                    result_data=result.result_data if isinstance(result, HandlerResult) else {},
-                    error=None,
+                    success=handler_success,
+                    result_data=result_data,
+                    error=handler_error,
                     attempts=attempt,
                 )
             except TimeoutError:
