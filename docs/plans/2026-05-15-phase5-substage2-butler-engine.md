@@ -51,17 +51,44 @@ ButlerEngine (主循环)
 ```python
 # src/layerkg/butler/handlers/base.py
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
 from layerkg.butler.event_bus import ButlerEvent
+
+if TYPE_CHECKING:
+    from layerkg.butler.consistency.guard import ConsistencyGuard
+    from layerkg.butler.skills.store import SkillStore
+    from layerkg.config import LayerKGConfig
+    from layerkg.graph_store import GraphStore
 
 @dataclass
 class HandlerContext:
     """Handler 执行上下文，注入所有依赖。"""
-    config: object  # LayerKGConfig
-    guard: object   # ConsistencyGuard | None
-    skill_store: object  # SkillStore | None
-    graph_store: object  # GraphStore | None (lazy)
+    config: LayerKGConfig
+    guard: ConsistencyGuard | None = None
+    skill_store: SkillStore | None = None
+    _graph_store: GraphStore | None = field(default=None, init=False, repr=False)
+
+    def get_graph_store(self) -> GraphStore:
+        """Lazy-init GraphStore (Neo4j)。"""
+        if self._graph_store is None:
+            from layerkg.neo4j_store import Neo4jGraphStore
+            self._graph_store = Neo4jGraphStore(
+                uri=self.config.neo4j_uri,
+                user=self.config.neo4j_user,
+                password=self.config.neo4j_password,
+            )
+        return self._graph_store
+
+@dataclass
+class HandlerResult:
+    """Handler 返回的标准化结果。"""
+    success: bool
+    data: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
 
 class BaseHandler(ABC):
     """所有 Butler Handler 的基类。"""
@@ -77,12 +104,8 @@ class BaseHandler(ABC):
         """订阅的事件类型列表。"""
 
     @abstractmethod
-    async def handle(self, event: ButlerEvent, ctx: HandlerContext) -> dict:
-        """处理事件，返回结果字典。
-
-        Returns:
-            {"success": bool, "data": dict, "error": str | None}
-        """
+    async def handle(self, event: ButlerEvent, ctx: HandlerContext) -> HandlerResult:
+        """处理事件，返回标准化结果。"""
 ```
 
 **验证:** `uv run pytest tests/unit/test_butler_handlers.py -v`
@@ -109,10 +132,11 @@ class BaseHandler(ABC):
 关键实现点:
 1. 从 `ButlerEvent.payload` 提取 `since`, `repo_path`, `full_scan`
 2. 创建 `IncrementalUpdater(config, repo_path)` 实例
-3. 调用 `updater.update(since=...)` 执行增量更新
+3. 用 `asyncio.to_thread()` 包裹同步的 `updater.update(since=...)` 调用
 4. 调用 `ctx.guard.log_operation()` 记录审计日志
-5. 返回 `{"success": True, "data": report.to_dict()}`
-6. 异常时返回 `{"success": False, "error": str(e)}`
+5. 成功时返回 `HandlerResult(success=True, data=report.to_dict())`
+6. 异常时返回 `HandlerResult(success=False, error=str(e))`
+7. **错误传播**: 无论成功/失败，都通过 guard 审计日志记录
 
 **验证:** `uv run pytest tests/unit/test_butler_handlers.py -v`
 
@@ -160,17 +184,44 @@ class ReflectionHandler(BaseHandler):
     event_types = ["handler.completed"]  # 监听其他 Handler 的完成事件
 
     async def handle(self, event, ctx):
-        # 1. 从事件中提取 pattern（哪个文件频繁变更、哪种变更类型常见）
-        # 2. 查询 SkillStore 检查是否已有相似 pattern
-        # 3. 如果是新模式，创建 candidate 技能（confidence=0.5）
-        # 4. 如果已有相似技能，increment_hit_count + 提升 confidence
-        # 5. confidence >= 0.8 的技能升级为 "active"
+        # 1. 从事件中提取 pattern signature（精确匹配算法）
+        # 2. 查询 SkillStore.search_by_pattern("signature", sig) 检查已有技能
+        # 3. 如果未找到: 创建 candidate 技能（confidence=0.5）
+        # 4. 如果找到: increment_hit_count，提升 confidence
+        # 5. confidence >= 0.8 → status 升级为 "active"
 ```
 
-pattern 提取规则:
-- 事件类型 + 变更文件后缀 → pattern.key = "event_type", pattern.value = "file_extension"
-- 重复同一 pattern 3+ 次 → 沉淀为 RULE 层技能
-- 同一 pattern 命中 5+ 次 → confidence 自动提升到 0.8，status 变为 "active"
+**Pattern 匹配算法（精确匹配，不用相似度）:**
+- Pattern signature = `f"{event.payload['original_event_type']}:{event.payload.get('file_extension', 'unknown')}"`
+- 示例: `"code.changed:.py"`, `"build.full:.java"`
+- 新 pattern → 创建 `SkillEntity(layer=RULE, status="candidate", confidence=0.5)`
+- 已有 pattern + hit_count >= 3 → confidence = min(0.5 + hit_count * 0.1, 1.0)
+- 已有 pattern + confidence >= 0.8 → status 升级为 "active"
+- 阈值通过 `LayerKGConfig` 可配置（默认 candidate_confidence=0.5, active_confidence=0.8, promote_hits=3）
+
+**handler.completed 事件 payload 规范:**
+```python
+{
+    "original_event_type": "code.changed",     # 原始事件类型
+    "handler_id": "knowledge.update",           # 处理的 Handler ID
+    "success": True,                            # 是否成功
+    "file_extension": ".py",                    # 涉及的文件后缀（从原始事件提取）
+    "duration_ms": 123.4,                       # Handler 执行耗时
+}
+```
+
+**handler.failed 事件 payload 规范:**
+```python
+{
+    "original_event_type": "code.changed",
+    "handler_id": "knowledge.update",
+    "success": False,
+    "error": "Connection refused",              # 错误信息
+    "attempts": 2,                              # 重试次数
+}
+```
+
+**ReflectionHandler 只监听 handler.completed（成功事件），不监听 handler.failed。**
 
 **验证:** `uv run pytest tests/unit/test_butler_reflection.py -v`
 
@@ -251,13 +302,41 @@ def _make_handler_fn(self, handler: BaseHandler):
     """包装 handler.handle 为 Scheduler 需要的 async callback。"""
     async def fn(event: ButlerEvent) -> HandlerResult:
         result = await handler.handle(event, self._ctx)
-        return HandlerResult(
-            handler_id=handler.handler_id,
-            success=result.get("success", False),
-            result_data=result.get("data", {}),
-            error=result.get("error"),
-        )
+        return result  # 已经是 HandlerResult
     return fn
+```
+
+**事件分发后的后处理（在 _dispatch_event 中）:**
+```python
+async def _dispatch_event(self, event: ButlerEvent) -> None:
+    results = await self._scheduler.dispatch(event)
+    for result in results:
+        # 无论成功/失败都发布通知事件
+        if result.success:
+            completion_event = ButlerEvent(
+                event_type="handler.completed",
+                payload={
+                    "original_event_type": event.event_type,
+                    "handler_id": result.handler_id,
+                    "success": True,
+                    "file_extension": self._extract_file_extension(event),
+                    "duration_ms": 0,  # 可扩展
+                },
+                source="butler.engine",
+            )
+        else:
+            completion_event = ButlerEvent(
+                event_type="handler.failed",
+                payload={
+                    "original_event_type": event.event_type,
+                    "handler_id": result.handler_id,
+                    "success": False,
+                    "error": result.error,
+                    "attempts": result.attempts,
+                },
+                source="butler.engine",
+            )
+        await self._bus.publish(completion_event)
 ```
 
 **验证:** `uv run pytest tests/unit/test_butler_engine.py -v`
@@ -278,15 +357,16 @@ def _make_handler_fn(self, handler: BaseHandler):
 class GitWatcher:
     """Git 仓库变更监视器。"""
 
-    def __init__(self, repo_path: Path, bus: EventBus, poll_interval: float = 30.0):
+    def __init__(self, repo_path: Path, bus: EventBus, poll_interval: float = 30.0, initial_scan: bool = False):
         self._repo_path = repo_path
         self._bus = bus
         self._poll_interval = poll_interval
+        self._initial_scan = initial_scan
         self._last_ref: str | None = None
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
-        """启动定时轮询。"""
+        """启动定时轮询。如果 initial_scan=True，首次轮询时会发布事件。"""
 
     async def stop(self) -> None:
         """停止轮询。"""
@@ -299,8 +379,10 @@ class GitWatcher:
 ```
 
 轮询逻辑:
-1. 获取当前 HEAD commit hash
-2. 如果 `_last_ref` 为 None（首次），记录并跳过
+1. 获取当前 HEAD commit hash（`git rev-parse HEAD`）
+2. 如果 `_last_ref` 为 None:
+   - `initial_scan=True`: 发布 `code.changed` 事件，payload `{"since": "", "full_scan": True, "repo_path": ...}`
+   - `initial_scan=False`（默认）: 只记录 `_last_ref = HEAD`，跳过
 3. 如果 HEAD != `_last_ref`，发布 `code.changed` 事件，payload 包含 `{"since": _last_ref}`
 4. 更新 `_last_ref = HEAD`
 
@@ -360,11 +442,13 @@ async def status(self) -> dict:
     }
 ```
 
-stop() 实现:
+stop() 实现（严格按顺序，防止事件丢失）:
 1. 设置 `_running = False`
-2. 取消 GitWatcher 的轮询任务
-3. 关闭 IncrementalUpdater 的连接
-4. 清理 EventBus 订阅
+2. 停止 GitWatcher（取消轮询 task，等待完成）
+3. 等待 EventBus 队列排空（`await asyncio.sleep(0.1)`，给 in-flight 事件处理时间）
+4. 取消所有 EventBus 订阅（`unsubscribe` 所有 subscription_id）
+5. 关闭 HandlerContext 中的 GraphStore 连接（如果有）
+6. 清理审计日志和技能数据库连接
 
 **验证:** `uv run pytest tests/unit/test_butler_engine.py -v`
 
