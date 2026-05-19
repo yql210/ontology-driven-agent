@@ -155,7 +155,12 @@ def get_context(entity_name: str) -> str:
     similar_entities = []
     try:
         similar_results = chroma.search(query_text=node.get("name", entity_name), n_results=5)
-        similar_entities = similar_results.get("matches", []) if isinstance(similar_results, dict) else []
+        if isinstance(similar_results, list):
+            similar_entities = similar_results
+        elif isinstance(similar_results, dict):
+            similar_entities = similar_results.get("matches", [])
+        else:
+            similar_entities = []
     except Exception:
         similar_entities = []
 
@@ -219,18 +224,18 @@ def get_module_tree() -> str:
 
 
 @tool
-def detect_changes(since: str = "HEAD~1") -> str:
+def detect_changes(since: str = "HEAD~1", *, repo_path: str = ".") -> str:
     """检测 Git 仓库中的代码变更。
 
     通过 git diff 命令获取指定范围内的文件变更列表。
 
     Args:
         since: Git 引用，如 HEAD~1, abc123，默认 HEAD~1
+        repo_path: Git 仓库路径，默认当前目录
 
     Returns:
         变更列表（JSON），包含 since, total_changes, changed_files
     """
-    repo_path = "/opt/data/workspace/ontology-driven-agent"
     try:
         result = subprocess.run(
             ["git", "diff", "--name-status", since],
