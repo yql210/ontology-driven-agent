@@ -9,6 +9,10 @@ class SchemaValidationError(LayerKGError):
     """Schema 校验失败。"""
 
 
+class ConstraintViolationError(LayerKGError):
+    """本体约束违反（domain/range 校验失败）。"""
+
+
 class StoreError(LayerKGError):
     """存储操作失败。"""
 

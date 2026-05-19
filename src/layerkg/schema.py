@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from layerkg.exceptions import SchemaValidationError
+from layerkg.exceptions import ConstraintViolationError, SchemaValidationError
 
 
 @dataclass
@@ -275,3 +275,109 @@ class Relation:
             )
         if not (0 <= self.weight <= 1):
             raise SchemaValidationError(f"Relation.weight must be in [0, 1], got {self.weight}")
+
+
+@dataclass
+class RelationConstraint:
+    """单条关系的本体约束。"""
+    domain: str | set[str]  # 源实体类型（如 "CodeEntity" 或 {"CodeEntity", "ConceptEntity"}）
+    range: str | set[str]  # 目标实体类型
+    description: str = ""  # 约束说明
+
+
+RELATION_CONSTRAINTS: dict[str, RelationConstraint] = {
+    # --- 结构关系 (AST) ---
+    "calls": RelationConstraint(
+        domain="CodeEntity", range="CodeEntity",
+        description="函数/方法调用关系",
+    ),
+    "extends": RelationConstraint(
+        domain="CodeEntity", range="CodeEntity",
+        description="类继承关系（支持多继承）",
+    ),
+    "implements": RelationConstraint(
+        domain="CodeEntity", range="CodeEntity",
+        description="接口实现关系",
+    ),
+    "imports": RelationConstraint(
+        domain="CodeEntity", range="CodeEntity",
+        description="模块导入关系",
+    ),
+    "contains": RelationConstraint(
+        domain={"CodeEntity", "ModuleEntity"},
+        range={"CodeEntity", "DocEntity", "ResourceEntity"},
+        description="包含关系（模块/文件包含子元素）",
+    ),
+    # --- 语义关系 (LLM) ---
+    "semantic_impact": RelationConstraint(
+        domain={"CodeEntity", "ConceptEntity"},
+        range={"CodeEntity", "ConceptEntity"},
+        description="语义影响关系",
+    ),
+    "describes": RelationConstraint(
+        domain={"DocEntity", "ConceptEntity"},
+        range={"CodeEntity", "ConceptEntity"},
+        description="文档/概念描述代码实体",
+    ),
+    "illustrates": RelationConstraint(
+        domain={"ResourceEntity", "DocEntity"},
+        range={"CodeEntity", "ConceptEntity", "ModuleEntity"},
+        description="资源/文档图示实体",
+    ),
+    "derived_from": RelationConstraint(
+        domain="ConceptEntity",
+        range="ConceptEntity",
+        description="概念派生关系",
+    ),
+    # --- 变更关系 ---
+    "changed_in": RelationConstraint(
+        domain={"CodeEntity", "DocEntity", "ResourceEntity"},
+        range="ChangeSetEntity",
+        description="实体在变更集中被修改",
+    ),
+    "affects": RelationConstraint(
+        domain="ChangeSetEntity",
+        range={"CodeEntity", "DocEntity", "ResourceEntity", "ConceptEntity"},
+        description="变更集影响的实体",
+    ),
+}
+
+
+def validate_relation_constraint(
+    relation_type: str,
+    source_label: str,
+    target_label: str,
+) -> None:
+    """校验关系是否满足本体 domain/range 约束。
+
+    未知关系类型（不在 RELATION_CONSTRAINTS 中）不校验，保证向后兼容。
+
+    Args:
+        relation_type: 关系类型名称（snake_case）。
+        source_label: 源节点 Neo4j 标签（如 "CodeEntity"）。
+        target_label: 目标节点 Neo4j 标签。
+
+    Raises:
+        ConstraintViolationError: domain 或 range 不满足约束。
+    """
+    constraint = RELATION_CONSTRAINTS.get(relation_type)
+    if constraint is None:
+        return  # 未知关系类型，不校验
+
+    # domain 校验
+    domain = constraint.domain
+    allowed_domain = {domain} if isinstance(domain, str) else domain
+    if source_label not in allowed_domain:
+        raise ConstraintViolationError(
+            f"关系 '{relation_type}' 的源实体必须是 {allowed_domain}，"
+            f"实际为 '{source_label}'"
+        )
+
+    # range 校验
+    range_val = constraint.range
+    allowed_range = {range_val} if isinstance(range_val, str) else range_val
+    if target_label not in allowed_range:
+        raise ConstraintViolationError(
+            f"关系 '{relation_type}' 的目标实体必须是 {allowed_range}，"
+            f"实际为 '{target_label}'"
+        )

@@ -8,7 +8,8 @@ from neo4j import GraphDatabase
 from neo4j import Result as Neo4jResult
 
 from layerkg.graph_store import GraphStore
-from layerkg.schema import RELATION_TYPE_TO_NEO4J
+from layerkg.exceptions import ConstraintViolationError
+from layerkg.schema import RELATION_TYPE_TO_NEO4J, validate_relation_constraint
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +186,10 @@ class Neo4jGraphStore(GraphStore):
         if not re.match(r"^[A-Z_]+$", neo4j_rel_type):
             msg = f"Invalid relation type: {neo4j_rel_type}"
             raise ValueError(msg)
+
+        # --- 本体约束校验（domain/range）---
+        if source_label and target_label:
+            validate_relation_constraint(rel_type, source_label, target_label)
 
         # 动态构建 MATCH + MERGE 语句（拆分避免 UNIQUE 约束冲突）
         source_part = f"source:{source_label}" if source_label else "source"
