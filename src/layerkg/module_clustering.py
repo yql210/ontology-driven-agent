@@ -4,9 +4,11 @@ import logging
 import os
 from collections import Counter
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from itertools import combinations
 
 from layerkg.neo4j_store import Neo4jGraphStore
+from layerkg.provenance import add_provenance
 from layerkg.schema import CodeEntity, ModuleEntity
 
 
@@ -326,6 +328,8 @@ class ModuleClustering:
         Returns:
             保存的模块数量
         """
+        batch_time = datetime.now(UTC).isoformat()
+
         # 构建实体查找字典
         entity_lookup: dict[str, CodeEntity] = {}
         if all_entities:
@@ -342,13 +346,18 @@ class ModuleClustering:
             # 保存 ModuleEntity
             self._neo4j_store.merge_node(
                 "ModuleEntity",
-                {
-                    "id": cluster.module.id,
-                    "name": cluster.module.name,
-                    "description": description,
-                    "size": size,
-                    "created_at": cluster.module.created_at,
-                },
+                add_provenance(
+                    {
+                        "id": cluster.module.id,
+                        "name": cluster.module.name,
+                        "description": description,
+                        "size": size,
+                        "created_at": cluster.module.created_at,
+                    },
+                    source="clustering",
+                    confidence=0.8,
+                    extracted_at=batch_time,
+                ),
             )
 
             # 创建 contains 关系
@@ -359,6 +368,7 @@ class ModuleClustering:
                     rel_type="contains",
                     source_label="ModuleEntity",
                     target_label="CodeEntity",
+                    properties=add_provenance({}, source="clustering", confidence=0.8, extracted_at=batch_time),
                 )
 
             saved += 1

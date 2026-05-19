@@ -5,6 +5,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -13,6 +14,7 @@ import httpx
 from layerkg.aligner import ConceptAligner
 from layerkg.chroma_store import ChromaStore
 from layerkg.config import LayerKGConfig
+from layerkg.provenance import add_provenance, clamp_confidence
 from layerkg.extractor.relation import RelationExtractor
 from layerkg.extractor.semantic import SemanticExtractor, SemanticRelation
 from layerkg.module_clustering import ModuleCluster, ModuleClustering
@@ -295,24 +297,32 @@ class LayerKGBuilder:
             RuntimeError: 写入失败时。
         """
         graph_store = self._get_graph_store()
+        batch_time = datetime.now(UTC).isoformat()
 
         try:
             graph_store.ensure_constraints()
             for i, entity in enumerate(all_entities, 1):
-                graph_store.merge_node("CodeEntity", self._entity_to_dict(entity))
+                graph_store.merge_node("CodeEntity", add_provenance(self._entity_to_dict(entity), extracted_at=batch_time))
                 if i % 200 == 0:
                     self._logger.info("[Neo4j] Merged %d/%d CodeEntities", i, len(all_entities))
             self._logger.info("[Neo4j] Merged %d CodeEntities complete", len(all_entities))
             for i, doc in enumerate(doc_entities, 1):
-                graph_store.merge_node("DocEntity", self._doc_entity_to_dict(doc))
+                graph_store.merge_node("DocEntity", add_provenance(self._doc_entity_to_dict(doc), extracted_at=batch_time))
                 if i % 200 == 0:
                     self._logger.info("[Neo4j] Merged %d/%d DocEntities", i, len(doc_entities))
             self._logger.info("[Neo4j] Merged %d DocEntities complete", len(doc_entities))
             for rel in relations:
+                rel_props = add_provenance(
+                    {"weight": rel.weight},
+                    source="ast_parser",
+                    confidence=1.0,
+                    extracted_at=batch_time,
+                )
                 graph_store.merge_relation(
                     rel.source_id,
                     rel.target_id,
                     rel.relation_type,
+                    properties=rel_props,
                     source_label="CodeEntity",
                     target_label="CodeEntity",
                 )
@@ -329,7 +339,7 @@ class LayerKGBuilder:
                     file_path="__external__",
                     language="unknown",
                 )
-                graph_store.merge_node("CodeEntity", self._entity_to_dict(ext_entity))
+                graph_store.merge_node("CodeEntity", add_provenance(self._entity_to_dict(ext_entity), source="imported", extracted_at=batch_time))
                 external_modules[ext_name] = ext_entity.id
 
             ext_rel_count = 0
@@ -337,10 +347,17 @@ class LayerKGBuilder:
                 source_id = name_to_id.get(rel.source_name)
                 target_id = external_modules.get(rel.target_name)
                 if source_id and target_id:
+                    rel_props = add_provenance(
+                        {},
+                        source="imported",
+                        confidence=1.0,
+                        extracted_at=batch_time,
+                    )
                     graph_store.merge_relation(
                         source_id,
                         target_id,
                         "imports",
+                        properties=rel_props,
                         source_label="CodeEntity",
                         target_label="CodeEntity",
                     )
@@ -376,6 +393,8 @@ class LayerKGBuilder:
         Returns:
             (concepts_created, semantic_relations_created, skipped_semantic, errors, new_concepts) 元组。
         """
+        batch_time = datetime.now(UTC).isoformat()
+
         concepts_created = 0
         semantic_relations_created = 0
         skipped_semantic = False
@@ -413,10 +432,17 @@ class LayerKGBuilder:
                             source_type, target_type = type_mapping.get((rel.source_id, rel.target_id), ("", ""))
                             source_label = ENTITY_TYPE_TO_LABEL.get(source_type, "")
                             target_label = ENTITY_TYPE_TO_LABEL.get(target_type, "")
+                            rel_props = add_provenance(
+                                {"weight": rel.weight},
+                                source="llm_extraction",
+                                confidence=clamp_confidence(rel.weight),
+                                extracted_at=batch_time,
+                            )
                             graph_store.merge_relation(
                                 rel.source_id,
                                 rel.target_id,
                                 rel.relation_type,
+                                properties=rel_props,
                                 source_label=source_label,
                                 target_label=target_label,
                             )
@@ -477,6 +503,9 @@ class LayerKGBuilder:
             cleared = graph_store.clear_all()
             self._logger.info("═══ Pre-build: Cleared %d existing nodes ═══", cleared)
 
+        # 批次时间戳（用于溯源字段）
+        batch_time = datetime.now(UTC).isoformat()
+
         # Stage 1: 解析
         self._logger.info("═══ Stage 1/5: Parse ═══")
         all_entities, doc_entities, relations, files_scanned, unresolved_imports = self._stage_parse(repo_path)
@@ -506,8 +535,14 @@ class LayerKGBuilder:
         entity_index = self._build_entity_index(all_entities, repo_path)
         describes_rels = self._link_docs_to_code(doc_entities, entity_index)
         for rel in describes_rels:
+            rel_props = add_provenance(
+                {"weight": rel.weight},
+                source="ast_parser",
+                confidence=1.0,
+                extracted_at=batch_time,
+            )
             graph_store.merge_relation(
-                rel.source_id, rel.target_id, rel.relation_type, source_label="DocEntity", target_label="CodeEntity"
+                rel.source_id, rel.target_id, rel.relation_type, properties=rel_props, source_label="DocEntity", target_label="CodeEntity"
             )
         self._logger.info("═══ Stage 2.5/5 complete: %d DESCRIBES relations ═══", len(describes_rels))
 

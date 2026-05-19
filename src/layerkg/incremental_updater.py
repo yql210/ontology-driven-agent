@@ -5,11 +5,13 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from layerkg.change_detector import ChangeType
 from layerkg.config import LayerKGConfig
+from layerkg.provenance import add_provenance
 
 if TYPE_CHECKING:
     from layerkg.impact_propagator import ImpactReport
@@ -291,13 +293,19 @@ class IncrementalUpdater:
 
         graph_store = self._get_graph_store()
         chroma_store = self._get_chroma_store()
+        batch_time = datetime.now(UTC).isoformat()
 
         # 写 Neo4j
         for entity in entities:
-            graph_store.merge_node("CodeEntity", self._entity_to_dict(entity))
+            graph_store.merge_node("CodeEntity", add_provenance(self._entity_to_dict(entity), extracted_at=batch_time))
         for rel in relations:
             graph_store.merge_relation(
-                rel.source_id, rel.target_id, rel.relation_type, source_label="CodeEntity", target_label="CodeEntity"
+                rel.source_id,
+                rel.target_id,
+                rel.relation_type,
+                source_label="CodeEntity",
+                target_label="CodeEntity",
+                properties=add_provenance({}, source="ast_parser", confidence=1.0, extracted_at=batch_time),
             )
 
         # 写 ChromaDB
@@ -401,14 +409,20 @@ class IncrementalUpdater:
         entities = parse_result.entities
         self._extractor.add_parse_result(entities, parse_result.relations)
         relations = self._extractor.resolve(entities)
+        batch_time = datetime.now(UTC).isoformat()
 
         for entity in entities:
-            graph_store.merge_node("CodeEntity", self._entity_to_dict(entity))
+            graph_store.merge_node("CodeEntity", add_provenance(self._entity_to_dict(entity), extracted_at=batch_time))
 
         # 对新解析的 relations：merge_relation 写入
         for rel in relations:
             graph_store.merge_relation(
-                rel.source_id, rel.target_id, rel.relation_type, source_label="CodeEntity", target_label="CodeEntity"
+                rel.source_id,
+                rel.target_id,
+                rel.relation_type,
+                source_label="CodeEntity",
+                target_label="CodeEntity",
+                properties=add_provenance({}, source="ast_parser", confidence=1.0, extracted_at=batch_time),
             )
 
         # ChromaDB：先删旧向量，再写新向量
@@ -550,15 +564,18 @@ class IncrementalUpdater:
         graph_store = self._get_graph_store()
         graph_store.merge_node(
             "ChangeSetEntity",
-            {
-                "id": changeset_id,
-                "commit_hash": "incremental",
-                "files_changed": [c.path for c in changes],
-                "impacted_count": len(impact_report.impacted_nodes),
-                "nodes_added": stage3.get("nodes_added", 0),
-                "nodes_updated": stage3.get("nodes_updated", 0),
-                "nodes_deleted": stage3.get("nodes_deleted", 0),
-            },
+            add_provenance(
+                {
+                    "id": changeset_id,
+                    "commit_hash": "incremental",
+                    "files_changed": [c.path for c in changes],
+                    "impacted_count": len(impact_report.impacted_nodes),
+                    "nodes_added": stage3.get("nodes_added", 0),
+                    "nodes_updated": stage3.get("nodes_updated", 0),
+                    "nodes_deleted": stage3.get("nodes_deleted", 0),
+                },
+                source="ast_parser",
+            ),
         )
         return changeset_id
 
