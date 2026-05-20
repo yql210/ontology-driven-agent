@@ -8,6 +8,7 @@ import pytest
 from layerkg.builder import BuildResult, LayerKGBuilder
 from layerkg.config import LayerKGConfig
 from layerkg.schema import CodeEntity
+from layerkg.schema_version import SchemaStatus
 
 
 @pytest.fixture
@@ -300,6 +301,7 @@ class TestBuilderBuild:
         mock_chroma = MagicMock()
 
         with (
+            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -317,6 +319,7 @@ class TestBuilderBuild:
         mock_chroma = MagicMock()
 
         with (
+            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -332,6 +335,7 @@ class TestBuilderBuild:
         mock_chroma = MagicMock()
 
         with (
+            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -347,6 +351,7 @@ class TestBuilderBuild:
         mock_chroma = MagicMock()
 
         with (
+            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -364,6 +369,7 @@ class TestBuilderBuild:
         mock_chroma = MagicMock()
 
         with (
+            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):

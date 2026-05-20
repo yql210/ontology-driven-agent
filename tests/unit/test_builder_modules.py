@@ -11,6 +11,7 @@ from layerkg.builder import LayerKGBuilder
 from layerkg.config import LayerKGConfig
 from layerkg.module_clustering import ModuleCluster
 from layerkg.schema import CodeEntity, ModuleEntity
+from layerkg.schema_version import SchemaStatus
 
 
 @pytest.fixture
@@ -174,6 +175,7 @@ class TestBuildIntegration:
 
         clusters = [_make_cluster("m1"), _make_cluster("m2")]
         with (
+            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store") as mock_gs,
             patch.object(builder, "_get_chroma_store") as mock_chroma,
             patch.object(builder, "_check_ollama", return_value=False),
@@ -200,6 +202,7 @@ class TestBuildIntegration:
         test_file.write_text("def hello(): pass\n")
 
         with (
+            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store") as mock_gs,
             patch.object(builder, "_check_ollama", return_value=False),
             patch.object(builder, "_detect_and_write_modules", return_value=(0, [])),

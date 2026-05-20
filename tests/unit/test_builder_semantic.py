@@ -10,6 +10,7 @@ from layerkg.aligner import NO_MATCH, AlignResult, ConceptAligner
 from layerkg.builder import LayerKGBuilder
 from layerkg.config import LayerKGConfig
 from layerkg.extractor.semantic import SemanticExtractor, SemanticRelation
+from layerkg.schema_version import SchemaStatus
 
 
 @pytest.fixture
@@ -415,6 +416,7 @@ class TestBuildSemanticPipeline:
         mock_graph.merge_relation.side_effect = mock_merge_relation
 
         with (
+            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_check_ollama", return_value=True),
             patch.object(builder, "_init_semantic_extractor") as mock_init_ext,
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
@@ -513,6 +515,7 @@ class TestBuildSemanticPipeline:
         mock_graph.merge_relation.side_effect = mock_merge_relation
 
         with (
+            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_check_ollama", return_value=True),
             patch.object(builder, "_init_semantic_extractor") as mock_init_ext,
             patch.object(builder, "_get_graph_store", return_value=mock_graph),

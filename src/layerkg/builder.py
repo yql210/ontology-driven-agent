@@ -493,6 +493,35 @@ class LayerKGBuilder:
         """
         import time
 
+        # Schema 版本检查（lazy import 避免循环引用）
+        try:
+            from layerkg.schema_version import (
+                CURRENT_SCHEMA_VERSION,
+                SchemaStatus,
+                check_schema_version,
+                get_current_db_version,
+            )
+            from layerkg.migrations.runner import MigrationRunner
+            from layerkg.migrations.registry import MigrationRegistry
+            from layerkg.exceptions import LayerKGError
+
+            graph_store = self._get_graph_store()
+            status = check_schema_version(graph_store)
+            if status in (SchemaStatus.BEHIND, SchemaStatus.EMPTY):
+                registry = MigrationRegistry()
+                runner = MigrationRunner(graph_store, registry)
+                applied = runner.run_pending()
+                if applied:
+                    self._logger.info("Auto-applied %d schema migrations: %s", len(applied), applied)
+            elif status == SchemaStatus.AHEAD:
+                db_ver = get_current_db_version(graph_store)
+                raise LayerKGError(
+                    f"Database schema ({db_ver}) is ahead of code ({CURRENT_SCHEMA_VERSION}). "
+                    f"Please update LayerKG."
+                )
+        except Exception as e:
+            self._logger.debug("Schema version check skipped (store unavailable or check failed): %s", e)
+
         t0 = time.monotonic()
         all_errors: list[str] = []
         aborted = False

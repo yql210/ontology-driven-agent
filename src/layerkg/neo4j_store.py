@@ -10,6 +10,7 @@ from neo4j import Result as Neo4jResult
 from layerkg.graph_store import GraphStore
 from layerkg.exceptions import ConstraintViolationError
 from layerkg.schema import RELATION_TYPE_TO_NEO4J, validate_relation_constraint
+from layerkg.schema_version import register_schema_version
 
 logger = logging.getLogger(__name__)
 
@@ -315,6 +316,18 @@ class Neo4jGraphStore(GraphStore):
             with self._driver.session() as session:
                 session.run(cypher)
             logger.debug(f"Ensured constraint for {label}")
+
+        # Schema 版本约束
+        schema_version_cypher = (
+            "CREATE CONSTRAINT IF NOT EXISTS "
+            "FOR (n:SchemaVersion) REQUIRE n.version IS UNIQUE"
+        )
+        with self._driver.session() as session:
+            session.run(schema_version_cypher)
+        logger.debug("Ensured constraint for SchemaVersion")
+
+        # 注册当前 schema 版本
+        register_schema_version(self)
 
     def cleanup_orphan_nodes(self) -> int:
         """清理无标签的孤立节点。

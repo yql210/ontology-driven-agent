@@ -8,6 +8,7 @@ from click.testing import CliRunner
 
 from layerkg.builder import BuildResult
 from layerkg.cli import main
+from layerkg.schema_version import SchemaStatus
 
 
 @pytest.fixture
@@ -415,3 +416,98 @@ class TestVerboseFlag:
             # Assert
             # 命令应该成功执行（verbose 标志不影响功能）
             assert result.exit_code == 0
+
+
+class TestMigrateCommand:
+    """测试 migrate 命令。"""
+
+    def test_migrate_command_no_pending(self, runner: CliRunner) -> None:
+        """migrate 命令在无待迁移时应成功。"""
+        # Arrange
+        mock_store = MagicMock()
+        mock_config = MagicMock()
+
+        with (
+            patch("layerkg.cli.LayerKGConfig") as mock_config_cls,
+            patch("layerkg.cli.Neo4jGraphStore", return_value=mock_store),
+            patch("layerkg.cli.check_schema_version") as mock_check,
+            patch("layerkg.cli.MigrationRunner") as MockRunner,
+            patch("layerkg.cli.MigrationRegistry") as MockRegistry,
+        ):
+            mock_config_cls.from_env.return_value = mock_config
+            mock_config.neo4j_uri = "bolt://localhost:7687"
+            mock_config.neo4j_user = "neo4j"
+            mock_config.neo4j_password = "password"
+            mock_check.return_value = SchemaStatus.MATCH
+            mock_runner = MagicMock()
+            mock_runner.run_pending.return_value = []
+            MockRunner.return_value = mock_runner
+            MockRegistry.return_value = MagicMock()
+
+            # Act
+            result = runner.invoke(main, ["migrate"])
+
+            # Assert
+            assert result.exit_code == 0
+            assert "No pending migrations" in result.output
+            mock_runner.run_pending.assert_called_once()
+
+    def test_migrate_command_applies_migrations(self, runner: CliRunner) -> None:
+        """migrate 命令应能应用迁移。"""
+        # Arrange
+        mock_store = MagicMock()
+        mock_config = MagicMock()
+
+        with (
+            patch("layerkg.cli.LayerKGConfig") as mock_config_cls,
+            patch("layerkg.cli.Neo4jGraphStore", return_value=mock_store),
+            patch("layerkg.cli.check_schema_version") as mock_check,
+            patch("layerkg.cli.MigrationRunner") as MockRunner,
+            patch("layerkg.cli.MigrationRegistry") as MockRegistry,
+        ):
+            mock_config_cls.from_env.return_value = mock_config
+            mock_config.neo4j_uri = "bolt://localhost:7687"
+            mock_config.neo4j_user = "neo4j"
+            mock_config.neo4j_password = "password"
+            mock_check.return_value = SchemaStatus.BEHIND
+            mock_runner = MagicMock()
+            mock_runner.run_pending.return_value = ["1.0.0"]
+            MockRunner.return_value = mock_runner
+            MockRegistry.return_value = MagicMock()
+
+            # Act
+            result = runner.invoke(main, ["migrate"])
+
+            # Assert
+            assert result.exit_code == 0
+            assert "Applied 1 migrations" in result.output
+            assert "1.0.0" in result.output
+
+    def test_migrate_command_with_target_rollback(self, runner: CliRunner) -> None:
+        """migrate 命令支持回滚到指定版本。"""
+        # Arrange
+        mock_store = MagicMock()
+        mock_config = MagicMock()
+
+        with (
+            patch("layerkg.cli.LayerKGConfig") as mock_config_cls,
+            patch("layerkg.cli.Neo4jGraphStore", return_value=mock_store),
+            patch("layerkg.cli.MigrationRunner") as MockRunner,
+            patch("layerkg.cli.MigrationRegistry") as MockRegistry,
+        ):
+            mock_config_cls.from_env.return_value = mock_config
+            mock_config.neo4j_uri = "bolt://localhost:7687"
+            mock_config.neo4j_user = "neo4j"
+            mock_config.neo4j_password = "password"
+            mock_runner = MagicMock()
+            mock_runner.rollback.return_value = ["0.9.0"]
+            MockRunner.return_value = mock_runner
+            MockRegistry.return_value = MagicMock()
+
+            # Act
+            result = runner.invoke(main, ["migrate", "--target", "0.9.0"])
+
+            # Assert
+            assert result.exit_code == 0
+            assert "Rolled back" in result.output
+            mock_runner.rollback.assert_called_once_with("0.9.0")

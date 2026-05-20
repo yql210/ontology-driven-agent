@@ -23,3 +23,7 @@ class EmbeddingError(LayerKGError):
 
 class ExtractionError(LayerKGError):
     """语义关系提取失败。"""
+
+
+class SchemaMigrationError(LayerKGError):
+    """Schema 迁移错误。"""

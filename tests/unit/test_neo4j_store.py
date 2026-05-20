@@ -521,7 +521,7 @@ class TestNeo4jGraphStoreConstraints:
     """测试 ensure_constraints 方法。"""
 
     def test_ensure_constraints_creates_all(self, mock_driver: MagicMock, mock_session: MagicMock):
-        """测试 ensure_constraints 创建 6 个唯一约束。"""
+        """测试 ensure_constraints 创建 7 个唯一约束 + 注册 schema 版本。"""
         # Arrange
         mock_result = MagicMock()
         mock_session.run = MagicMock(return_value=mock_result)
@@ -532,8 +532,8 @@ class TestNeo4jGraphStoreConstraints:
         # Act
         store.ensure_constraints()
 
-        # Assert
-        assert mock_session.run.call_count == 6
+        # Assert: 6 实体 + 1 SchemaVersion = 7 约束 + 1 register_schema_version query = 8 calls
+        assert mock_session.run.call_count == 8
         calls = mock_session.run.call_args_list
         cyphers = [call[0][0] for call in calls]
 
@@ -548,10 +548,16 @@ class TestNeo4jGraphStoreConstraints:
         ]
         for label in labels:
             assert any(label in cypher for cypher in cyphers)
-        # 验证每个约束都有 REQUIRE n.id IS UNIQUE
-        for cypher in cyphers:
-            assert "CREATE CONSTRAINT" in cypher
+        # 验证 SchemaVersion 约束被创建（使用 n.version 而非 n.id）
+        assert any("SchemaVersion" in cypher and "REQUIRE n.version IS UNIQUE" in cypher for cypher in cyphers)
+        # 验证每个约束都是 CREATE CONSTRAINT
+        constraint_cyphers = [c for c in cyphers if "CREATE CONSTRAINT" in c]
+        assert len(constraint_cyphers) == 7
+        # 验证实体约束都有 REQUIRE n.id IS UNIQUE
+        for cypher in constraint_cyphers[:6]:  # 前 6 个是实体约束
             assert "REQUIRE n.id IS UNIQUE" in cypher
+        # 验证 register_schema_version 的 MERGE 语句
+        assert any("MERGE" in cypher and "SchemaVersion" in cypher for cypher in cyphers)
 
 
 @pytest.mark.unit

@@ -9,6 +9,10 @@ import click
 from layerkg.builder import LayerKGBuilder
 from layerkg.config import LayerKGConfig
 from layerkg.incremental_updater import IncrementalUpdater
+from layerkg.migrations.registry import MigrationRegistry
+from layerkg.migrations.runner import MigrationRunner
+from layerkg.neo4j_store import Neo4jGraphStore
+from layerkg.schema_version import SchemaStatus, check_schema_version, get_current_db_version
 
 
 @click.group()
@@ -367,3 +371,29 @@ def status() -> None:
         click.echo(json.dumps(status_dict, indent=2, ensure_ascii=False))
 
     asyncio.run(_status())
+
+
+@main.command()
+@click.option("--target", default=None, help="目标版本（用于回滚）")
+def migrate(target: str | None) -> None:
+    """运行 schema 迁移。"""
+    config = LayerKGConfig.from_env()
+    store = Neo4jGraphStore(config.neo4j_uri, config.neo4j_user, config.neo4j_password)
+    registry = MigrationRegistry()
+    runner = MigrationRunner(store, registry)
+
+    if target:
+        rolled = runner.rollback(target)
+        if rolled:
+            click.echo(f"Rolled back: {rolled}")
+        else:
+            click.echo("Already at target version.")
+    else:
+        status = check_schema_version(store)
+        click.echo(f"Current status: {status.value}")
+        applied = runner.run_pending()
+        if applied:
+            click.echo(f"Applied {len(applied)} migrations: {applied}")
+        else:
+            click.echo("No pending migrations.")
+    store.close()
