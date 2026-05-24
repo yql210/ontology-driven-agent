@@ -69,6 +69,13 @@ class LayerKGConfig:
             "dist",
             "build",
             "*.egg-info",
+            # Java 常见多版本目录（Guava 特定）
+            "android",
+            "guava-gwt",
+            "guava-testlib",
+            "guava-tests",
+            # 通用测试源码目录（Maven/Gradle 标准）
+            "testlib",
         }
     )
 

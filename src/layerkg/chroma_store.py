@@ -277,6 +277,17 @@ class ChromaStore:
             "metadata": result["metadatas"][0] if result["metadatas"] else {},
         }
 
+    # --- 清空操作 ---
+
+    def clear_all(self) -> int:
+        """删除所有向量数据，返回删除的数量。"""
+        count = self._collection.count()
+        if count > 0:
+            all_ids = self._collection.get()["ids"]
+            if all_ids:
+                self._collection.delete(ids=all_ids)
+        return count
+
     # --- 删除操作 ---
 
     def delete_entity(self, entity_id: str) -> bool:

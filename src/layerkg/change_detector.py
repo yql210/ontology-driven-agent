@@ -136,7 +136,7 @@ class GitChangeDetector:
     结合 diff hunks 分析判断变更粒度（签名级 vs 函数体级 vs 仅文档）。
     """
 
-    SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({".py"})
+    SUPPORTED_EXTENSIONS: frozenset[str] = frozenset({".py", ".java"})
 
     def __init__(
         self,

@@ -162,11 +162,11 @@ def test_parse_class_with_methods(parser: JavaParser) -> None:
     assert entities_by_name["Foo"].entity_type == "class"
 
     # 方法
-    assert "Foo.bar" in entities_by_name
-    assert entities_by_name["Foo.bar"].entity_type == "function"
+    assert "Foo.bar()" in entities_by_name
+    assert entities_by_name["Foo.bar()"].entity_type == "function"
 
-    assert "Foo.baz" in entities_by_name
-    assert entities_by_name["Foo.baz"].entity_type == "function"
+    assert "Foo.baz()" in entities_by_name
+    assert entities_by_name["Foo.baz()"].entity_type == "function"
 
 
 def test_parse_class_with_fields(parser: JavaParser) -> None:
@@ -198,8 +198,8 @@ def test_parse_class_with_constructor(parser: JavaParser) -> None:
     assert "Foo" in entities_by_name
 
     # 构造器
-    assert "Foo.<init>" in entities_by_name
-    assert entities_by_name["Foo.<init>"].entity_type == "function"
+    assert "Foo.<init>(int)" in entities_by_name
+    assert entities_by_name["Foo.<init>(int)"].entity_type == "function"
 
 
 def test_parse_interface(parser: JavaParser) -> None:
@@ -312,8 +312,8 @@ def test_parse_javadoc(parser: JavaParser) -> None:
     assert "Test" in entities_by_name
 
     # 方法应该有 docstring
-    assert "Test.foo" in entities_by_name
-    foo = entities_by_name["Test.foo"]
+    assert "Test.foo()" in entities_by_name
+    foo = entities_by_name["Test.foo()"]
     assert "This is a test method" in foo.docstring
 
 
@@ -324,8 +324,8 @@ def test_parse_method_parameters(parser: JavaParser) -> None:
     assert result.error is None
     entities_by_name = {e.name: e for e in result.entities}
 
-    assert "Test.foo" in entities_by_name
-    foo = entities_by_name["Test.foo"]
+    assert "Test.foo(int,String)" in entities_by_name
+    foo = entities_by_name["Test.foo(int,String)"]
     assert foo.parameters is not None
     assert "int x" in foo.parameters
     assert "String y" in foo.parameters
@@ -386,7 +386,7 @@ def test_contains_relation_for_class_methods(parser: JavaParser) -> None:
     assert result.error is None
 
     # Foo.bar 的 contains 来源应该是 Foo
-    bar_contains = [r for r in result.relations if r.relation_type == "contains" and r.target_name == "Foo.bar"]
+    bar_contains = [r for r in result.relations if r.relation_type == "contains" and r.target_name == "Foo.bar()"]
     assert len(bar_contains) == 1
     assert bar_contains[0].source_name == "Foo"
     assert bar_contains[0].source_type == "class"
@@ -440,8 +440,8 @@ class Foo {
     assert result.error is None
     entities_by_name = {e.name: e for e in result.entities}
 
-    assert "Foo.bar" in entities_by_name
-    bar = entities_by_name["Foo.bar"]
+    assert "Foo.bar()" in entities_by_name
+    bar = entities_by_name["Foo.bar()"]
     assert bar.docstring == "A test method."
 
 
@@ -469,8 +469,8 @@ def test_constructor_has_parameters(parser: JavaParser) -> None:
     assert result.error is None
     entities_by_name = {e.name: e for e in result.entities}
 
-    assert "Foo.<init>" in entities_by_name
-    constructor = entities_by_name["Foo.<init>"]
+    assert "Foo.<init>(int)" in entities_by_name
+    constructor = entities_by_name["Foo.<init>(int)"]
     assert constructor.parameters is not None
     assert "int x" in constructor.parameters
 
@@ -505,8 +505,8 @@ record Point(int x, int y) {
     assert "Point" in entities_by_name
     assert entities_by_name["Point"].entity_type == "record"
 
-    assert "Point.sum" in entities_by_name
-    assert entities_by_name["Point.sum"].entity_type == "function"
+    assert "Point.sum()" in entities_by_name
+    assert entities_by_name["Point.sum()"].entity_type == "function"
 
 
 def test_enum_with_method(parser: JavaParser) -> None:
@@ -528,8 +528,8 @@ enum Color {
     assert "Color" in entities_by_name
     assert entities_by_name["Color"].entity_type == "enum"
 
-    assert "Color.getName" in entities_by_name
-    assert entities_by_name["Color.getName"].entity_type == "function"
+    assert "Color.getName()" in entities_by_name
+    assert entities_by_name["Color.getName()"].entity_type == "function"
 
 
 def test_interface_with_method(parser: JavaParser) -> None:
@@ -551,8 +551,8 @@ interface Animal {
     assert entities_by_name["Animal"].entity_type == "interface"
 
     # 接口方法
-    assert "Animal.speak" in entities_by_name
-    assert "Animal.sleep" in entities_by_name
+    assert "Animal.speak()" in entities_by_name
+    assert "Animal.sleep()" in entities_by_name
 
 
 def test_class_implements_and_extends(parser: JavaParser) -> None:
@@ -570,7 +570,7 @@ class Foo extends BaseClass implements Runnable {
 
     # 类应该被提取
     assert "Foo" in entities_by_name
-    assert "Foo.run" in entities_by_name
+    assert "Foo.run()" in entities_by_name
 
 
 def test_field_end_line(parser: JavaParser) -> None:
@@ -599,8 +599,8 @@ class Test {
     assert result.error is None
     entities_by_name = {e.name: e for e in result.entities}
 
-    assert "Test.foo" in entities_by_name
-    foo = entities_by_name["Test.foo"]
+    assert "Test.foo(String)" in entities_by_name
+    foo = entities_by_name["Test.foo(String)"]
     assert foo.parameters is not None
     assert "String... args" in foo.parameters
 
@@ -787,7 +787,7 @@ class Foo {
 
     calls_relations = [r for r in result.relations if r.relation_type == "calls"]
     # Foo.bar 调用了 helper
-    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar"]
+    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar()"]
     assert len(bar_calls) == 1
     assert bar_calls[0].target_name == "helper"
 
@@ -807,7 +807,7 @@ class Foo {
 
     calls_relations = [r for r in result.relations if r.relation_type == "calls"]
     # items.doSomething() 应该提取为调用 "doSomething"
-    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar"]
+    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar()"]
     assert len(bar_calls) == 1
     assert bar_calls[0].target_name == "doSomething"
 
@@ -826,7 +826,7 @@ class Foo {
     assert result.error is None
 
     calls_relations = [r for r in result.relations if r.relation_type == "calls"]
-    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar"]
+    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar()"]
     assert len(bar_calls) == 1
     assert bar_calls[0].target_name == "Helper"
 
@@ -848,7 +848,7 @@ class Foo {
 
     calls_relations = [r for r in result.relations if r.relation_type == "calls"]
     # println, toString 都是 JDK 方法，应该被过滤
-    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar"]
+    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar()"]
     assert len(bar_calls) == 0
 
 
@@ -868,7 +868,7 @@ class Foo {
     assert result.error is None
 
     calls_relations = [r for r in result.relations if r.relation_type == "calls"]
-    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar"]
+    bar_calls = [r for r in calls_relations if r.source_name == "Foo.bar()"]
     assert len(bar_calls) == 3
     target_names = {r.target_name for r in bar_calls}
     assert target_names == {"helper1", "helper2", "Helper3"}
@@ -888,8 +888,8 @@ class Foo {
     assert result.error is None
 
     calls_relations = [r for r in result.relations if r.relation_type == "calls"]
-    # Foo.<init> 调用了 helper
-    init_calls = [r for r in calls_relations if r.source_name == "Foo.<init>"]
+    # Foo.<init>() 调用了 helper
+    init_calls = [r for r in calls_relations if r.source_name == "Foo.<init>()"]
     assert len(init_calls) == 1
     assert init_calls[0].target_name == "helper"
 
@@ -927,7 +927,7 @@ class Foo extends Base implements Runnable, Serializable {
 
     # calls 关系
     calls_relations = [r for r in result.relations if r.relation_type == "calls"]
-    run_calls = [r for r in calls_relations if r.source_name == "Foo.run"]
+    run_calls = [r for r in calls_relations if r.source_name == "Foo.run()"]
     assert len(run_calls) == 2
 
 
@@ -1002,7 +1002,7 @@ public class Foo {
 """
         result = parser.parse_source(code)
         assert result.error is None
-        # 方法名可能包含类名限定符（如 "Foo.bar"）
+        # 方法名可能包含类名限定符（如 "Foo.bar()"）
         methods = [e for e in result.entities if e.entity_type == "function" and "bar" in e.name]
         assert len(methods) == 1
         assert methods[0].parameters is not None
@@ -1093,7 +1093,7 @@ public class Foo {
 """
         result = parser.parse_source(code)
         assert result.error is None
-        calls = [r for r in result.relations if r.relation_type == "calls" and r.source_name == "Foo.bar"]
+        calls = [r for r in result.relations if r.relation_type == "calls" and r.source_name == "Foo.bar(String)"]
         assert len(calls) >= 1
         assert calls[0].target_name == "checkValid"
 
@@ -1143,7 +1143,7 @@ public class Foo {
 """
         result = parser.parse_source(code)
         assert result.error is None
-        calls = [r for r in result.relations if r.relation_type == "calls" and r.source_name == "Foo.bar"]
+        calls = [r for r in result.relations if r.relation_type == "calls" and r.source_name == "Foo.bar()"]
         assert len(calls) >= 1
         assert calls[0].target_name == "process"
 
@@ -1425,5 +1425,5 @@ class TestDay5Reflection:
         result = self.parser.parse_source(code, "Outer.java")
         inner_classes = [e for e in result.entities if e.name == "Inner"]
         assert len(inner_classes) == 1, f"Expected 1 Inner class, got {len(inner_classes)}"
-        inner_methods = [e for e in result.entities if e.name == "Inner.foo"]
-        assert len(inner_methods) == 1, f"Expected 1 Inner.foo, got {len(inner_methods)}"
+        inner_methods = [e for e in result.entities if e.name == "Inner.foo()"]
+        assert len(inner_methods) == 1, f"Expected 1 Inner.foo(), got {len(inner_methods)}"

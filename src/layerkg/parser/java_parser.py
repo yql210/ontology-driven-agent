@@ -743,7 +743,11 @@ class JavaParser(BaseParser):
             return
 
         method_name = name_node.text.decode("utf-8", errors="replace")
-        full_name = f"{class_name}.{method_name}"
+        param_types = self._extract_parameter_types(node)
+        if param_types:
+            full_name = f"{class_name}.{method_name}({','.join(param_types)})"
+        else:
+            full_name = f"{class_name}.{method_name}()"
 
         start_line = node.start_point[0]
         end_line = node.end_point[0]
@@ -790,7 +794,8 @@ class JavaParser(BaseParser):
     ) -> None:
         """提取 constructor 实体。"""
         # constructor_declaration 没有 name 字段，用类名
-        full_name = f"{class_name}.<init>"
+        param_types = self._extract_parameter_types(node)
+        full_name = f"{class_name}.<init>({','.join(param_types)})" if param_types else f"{class_name}.<init>()"
 
         start_line = node.start_point[0]
         end_line = node.end_point[0]
@@ -891,6 +896,30 @@ class JavaParser(BaseParser):
                 self._extract_constructor(child, source, file_path, entities, relations, class_name)
             elif child_type == "field_declaration":
                 self._extract_field(child, source, file_path, entities, relations, class_name)
+
+    def _extract_parameter_types(self, node) -> list[str]:
+        """从方法/构造器声明中提取参数类型名列表。"""
+        types: list[str] = []
+        for child in node.children:
+            if child.type == "formal_parameters":
+                for param in child.children:
+                    if param.type in ("formal_parameter", "spread_parameter", "variable_arbitrary_parameter"):
+                        for p_child in param.children:
+                            if p_child.type in (
+                                "type_identifier",
+                                "generic_type",
+                                "array_type",
+                                "scoped_type_identifier",
+                                "integral_type",
+                                "floating_point_type",
+                                "boolean_type",
+                                "void_type",
+                            ):
+                                type_name = p_child.text.decode("utf-8", errors="replace")
+                                types.append(type_name)
+                                break
+                break
+        return types
 
     def _extract_parameters(self, node) -> str | None:
         """从方法或构造器节点提取参数列表。"""
