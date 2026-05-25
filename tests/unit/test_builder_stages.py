@@ -118,9 +118,9 @@ class TestStageWriteStructural:
             assert ext_entity_count == 0
             assert ext_rel_count == 0
             mock_graph.ensure_constraints.assert_called_once()
-            # CodeEntity + DocEntity merge calls
-            assert mock_graph.merge_node.call_count == len(sample_entities) + len(doc_entities)
-            assert mock_graph.merge_relation.call_count == len(relations)
+            # CodeEntity + DocEntity batch merge calls
+            assert mock_graph.merge_nodes_batch.call_count >= 1
+            assert mock_graph.merge_relations_batch.call_count >= 1
 
 
 class TestStageSemantic:
@@ -241,9 +241,9 @@ class TestBuildFullPipeline:
             assert result.skipped_semantic is True
             assert result.elapsed_ms > 0
 
-            # Assert - Neo4j 操作被调用
+            # Assert - Neo4j batch 操作被调用
             mock_graph.ensure_constraints.assert_called_once()
-            assert mock_graph.merge_node.call_count > 0
+            assert mock_graph.merge_nodes_batch.call_count > 0
 
             # Assert - ChromaDB 操作被调用
             mock_chroma.put_entities_batch.assert_called()

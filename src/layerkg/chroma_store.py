@@ -280,12 +280,17 @@ class ChromaStore:
     # --- 清空操作 ---
 
     def clear_all(self) -> int:
-        """删除所有向量数据，返回删除的数量。"""
+        """删除所有向量数据，返回删除的数量。分批删除以避免 SQL 变量上限。"""
         count = self._collection.count()
         if count > 0:
-            all_ids = self._collection.get()["ids"]
-            if all_ids:
-                self._collection.delete(ids=all_ids)
+            batch_size = 5000
+            deleted = 0
+            while deleted < count:
+                ids = self._collection.get(limit=batch_size)["ids"]
+                if not ids:
+                    break
+                self._collection.delete(ids=ids)
+                deleted += len(ids)
         return count
 
     # --- 删除操作 ---

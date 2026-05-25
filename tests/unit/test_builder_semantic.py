@@ -404,17 +404,6 @@ class TestBuildSemanticPipeline:
         mock_graph = MagicMock()
         mock_chroma = MagicMock()
 
-        # Call tracker for merge_relation
-        relation_call_count = [0]
-
-        def mock_merge_relation(*args, **kwargs):
-            relation_call_count[0] += 1
-            # 第一次调用是结构关系，正常返回
-            # 第二次调用是语义关系，也正常返回
-            return None
-
-        mock_graph.merge_relation.side_effect = mock_merge_relation
-
         with (
             patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_check_ollama", return_value=True),
@@ -431,8 +420,9 @@ class TestBuildSemanticPipeline:
 
         # 验证语义处理结果
         assert result.concepts_created == 1
-        # merge_relation 被调用了 2 次：1 次结构关系 + 1 次语义关系
-        assert relation_call_count[0] >= 2
+        # merge_relations_batch 用于结构关系，merge_relation 用于语义关系
+        assert mock_graph.merge_relations_batch.call_count >= 1
+        assert mock_graph.merge_relation.call_count >= 1
         assert result.skipped_semantic is False
         assert result.entities_created > 0
 
@@ -501,18 +491,8 @@ class TestBuildSemanticPipeline:
         mock_graph = MagicMock()
         mock_chroma = MagicMock()
 
-        # 让 merge_relation 在写入语义关系时失败
-        call_count = [0]
-
-        def mock_merge_relation(*args, **kwargs):
-            call_count[0] += 1
-            # 第一次调用是结构关系（CONTAINS），正常返回
-            if call_count[0] == 1:
-                return None
-            # 后续调用是语义关系，抛异常
-            raise Exception("Neo4j write failed")
-
-        mock_graph.merge_relation.side_effect = mock_merge_relation
+        # 结构写入用 batch 方法，语义关系用 merge_relation — 让它失败
+        mock_graph.merge_relation.side_effect = Exception("Neo4j write failed")
 
         with (
             patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),

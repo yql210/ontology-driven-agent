@@ -6,9 +6,9 @@ from typing import Any
 
 from neo4j import GraphDatabase
 from neo4j import Result as Neo4jResult
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from layerkg.graph_store import GraphStore
-from layerkg.exceptions import ConstraintViolationError
 from layerkg.schema import RELATION_TYPE_TO_NEO4J, validate_relation_constraint
 from layerkg.schema_version import register_schema_version
 
@@ -37,18 +37,36 @@ class Neo4jGraphStore(GraphStore):
         _password: 数据库密码。
     """
 
-    def __init__(self, uri: str, user: str, password: str) -> None:
+    def __init__(
+        self,
+        uri: str,
+        user: str,
+        password: str,
+        *,
+        max_connection_lifetime: int = 3600,
+        connection_timeout: int = 60,
+        max_transaction_retry_time: int = 60,
+    ) -> None:
         """初始化 Neo4j 连接。
 
         Args:
             uri: Neo4j 连接 URI，如 bolt://localhost:7687。
             user: 数据库用户名。
             password: 数据库密码。
+            max_connection_lifetime: 连接最大存活时间（秒）。
+            connection_timeout: 连接超时时间（秒）。
+            max_transaction_retry_time: 事务重试最大时间（秒）。
         """
         self._uri = uri
         self._user = user
         self._password = password
-        self._driver = GraphDatabase.driver(uri, auth=(user, password))
+        self._driver = GraphDatabase.driver(
+            uri,
+            auth=(user, password),
+            max_connection_lifetime=max_connection_lifetime,
+            connection_timeout=connection_timeout,
+            max_transaction_retry_time=max_transaction_retry_time,
+        )
 
     def close(self) -> None:
         """关闭数据库连接。"""
@@ -103,6 +121,145 @@ class Neo4jGraphStore(GraphStore):
             logger.debug(f"Merged node {label}:{properties['id']}")
 
         return properties
+
+    @retry(
+        retry=retry_if_exception_type((OSError, ConnectionError)),
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(5),
+        reraise=True,
+    )
+    def _execute_batch_nodes(self, label: str, batch: list[dict]) -> None:
+        """Execute a single batch of node MERGE operations with retry.
+
+        Args:
+            label: 节点标签。
+            batch: 属性字典列表。
+        """
+        cypher = f"UNWIND $batch AS props MERGE (n:{label} {{id: props.id}}) SET n += props"
+        with self._driver.session() as session:
+            session.run(cypher, batch=batch)
+
+    def merge_nodes_batch(
+        self,
+        label: str,
+        properties_list: list[dict],
+        batch_size: int = 200,
+    ) -> int:
+        """批量合并（创建或更新）节点。
+
+        使用 UNWIND + MERGE 批量写入，按 batch_size 分批执行。
+
+        Args:
+            label: 节点标签，如 CodeEntity、ConceptEntity。
+            properties_list: 节点属性字典列表，每项必须包含 'id'。
+            batch_size: 每批处理数量，默认 200。
+
+        Returns:
+            合并的节点总数。
+
+        Raises:
+            ValueError: 当 label 包含非法字符时（Cypher 注入防护）。
+        """
+        if not re.match(r"^[A-Za-z_]\w*$", label):
+            msg = f"Invalid label: {label}"
+            raise ValueError(msg)
+
+        total = len(properties_list)
+        merged = 0
+        for i in range(0, total, batch_size):
+            batch = properties_list[i : i + batch_size]
+            self._execute_batch_nodes(label, batch)
+            merged += len(batch)
+            logger.info("[Neo4j] Batch merged %d/%d %s", merged, total, label)
+
+        return merged
+
+    @retry(
+        retry=retry_if_exception_type((OSError, ConnectionError)),
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(5),
+        reraise=True,
+    )
+    def _execute_batch_relations(self, cypher: str, batch: list[dict]) -> None:
+        """Execute a single batch of relation MERGE operations with retry.
+
+        Args:
+            cypher: 参数化 Cypher 语句。
+            batch: 关系数据列表。
+        """
+        with self._driver.session() as session:
+            session.run(cypher, batch=batch)
+
+    def merge_relations_batch(
+        self,
+        relations: list[dict],
+        batch_size: int = 200,
+    ) -> int:
+        """批量合并（创建或更新）关系。
+
+        使用 UNWIND + MERGE 批量写入，按 batch_size 分批执行。
+
+        Args:
+            relations: 关系数据列表，每项包含:
+                source_id, target_id, rel_type, source_label, target_label,
+                properties (可选)。
+            batch_size: 每批处理数量，默认 200。
+
+        Returns:
+            合并的关系总数。
+
+        Raises:
+            ValueError: 当 label 或 rel_type 包含非法字符时（Cypher 注入防护）。
+        """
+        total = len(relations)
+        merged = 0
+
+        # Group relations by (source_label, target_label, rel_type) to share Cypher
+        groups: dict[tuple[str, str, str], list[dict]] = {}
+        for rel in relations:
+            source_label = rel.get("source_label", "")
+            target_label = rel.get("target_label", "")
+            neo4j_rel_type = RELATION_TYPE_TO_NEO4J.get(rel["rel_type"], rel["rel_type"].upper())
+
+            if source_label and not re.match(r"^[A-Za-z_]\w*$", source_label):
+                msg = f"Invalid source_label: {source_label}"
+                raise ValueError(msg)
+            if target_label and not re.match(r"^[A-Za-z_]\w*$", target_label):
+                msg = f"Invalid target_label: {target_label}"
+                raise ValueError(msg)
+            if not re.match(r"^[A-Z_]+$", neo4j_rel_type):
+                msg = f"Invalid relation type: {neo4j_rel_type}"
+                raise ValueError(msg)
+
+            key = (source_label, target_label, neo4j_rel_type)
+            groups.setdefault(key, []).append(rel)
+
+        for (source_label, target_label, neo4j_rel_type), group_rels in groups.items():
+            source_part = f"source:{source_label}" if source_label else "source"
+            target_part = f"target:{target_label}" if target_label else "target"
+            cypher = (
+                f"UNWIND $batch AS item "
+                f"MATCH ({source_part} {{id: item.source_id}}) "
+                f"MATCH ({target_part} {{id: item.target_id}}) "
+                f"MERGE (source)-[r:{neo4j_rel_type}]->(target) "
+                f"SET r += item.properties"
+            )
+
+            batch_data = []
+            for rel in group_rels:
+                batch_data.append({
+                    "source_id": rel["source_id"],
+                    "target_id": rel["target_id"],
+                    "properties": rel.get("properties", {}),
+                })
+
+            for i in range(0, len(batch_data), batch_size):
+                batch = batch_data[i : i + batch_size]
+                self._execute_batch_relations(cypher, batch)
+                merged += len(batch)
+                logger.info("[Neo4j] Batch merged %d/%d relations", merged, total)
+
+        return merged
 
     def get_node(self, node_id: str) -> dict | None:
         """根据 ID 获取节点。

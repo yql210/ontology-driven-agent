@@ -326,8 +326,8 @@ class TestBuilderBuild:
             # Act
             builder.build(temp_repo)
 
-            # Assert - 至少调用了 merge_node（每个实体至少一个 module）
-            assert mock_graph.merge_node.call_count > 0
+            # Assert - 至少调用了 merge_nodes_batch（每个实体至少一个 module）
+            assert mock_graph.merge_nodes_batch.call_count > 0
 
     def test_build_writes_to_chroma_store(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
         # Arrange

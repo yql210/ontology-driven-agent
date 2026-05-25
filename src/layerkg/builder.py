@@ -14,7 +14,6 @@ import httpx
 from layerkg.aligner import ConceptAligner
 from layerkg.chroma_store import ChromaStore
 from layerkg.config import LayerKGConfig
-from layerkg.provenance import add_provenance, clamp_confidence
 from layerkg.extractor.relation import RelationExtractor
 from layerkg.extractor.semantic import SemanticExtractor, SemanticRelation
 from layerkg.module_clustering import ModuleCluster, ModuleClustering
@@ -22,6 +21,7 @@ from layerkg.neo4j_store import Neo4jGraphStore
 from layerkg.parser.base import BaseParser
 from layerkg.parser.java_parser import JavaParser
 from layerkg.parser.python_parser import PythonParser
+from layerkg.provenance import add_provenance, clamp_confidence
 from layerkg.schema import CodeEntity, ConceptEntity, DocEntity, Relation
 
 if TYPE_CHECKING:
@@ -301,67 +301,84 @@ class LayerKGBuilder:
 
         try:
             graph_store.ensure_constraints()
-            for i, entity in enumerate(all_entities, 1):
-                graph_store.merge_node("CodeEntity", add_provenance(self._entity_to_dict(entity), extracted_at=batch_time))
-                if i % 200 == 0:
-                    self._logger.info("[Neo4j] Merged %d/%d CodeEntities", i, len(all_entities))
+
+            # Batch write CodeEntities
+            code_dicts = [
+                add_provenance(self._entity_to_dict(e), extracted_at=batch_time)
+                for e in all_entities
+            ]
+            graph_store.merge_nodes_batch("CodeEntity", code_dicts, batch_size=200)
             self._logger.info("[Neo4j] Merged %d CodeEntities complete", len(all_entities))
-            for i, doc in enumerate(doc_entities, 1):
-                graph_store.merge_node("DocEntity", add_provenance(self._doc_entity_to_dict(doc), extracted_at=batch_time))
-                if i % 200 == 0:
-                    self._logger.info("[Neo4j] Merged %d/%d DocEntities", i, len(doc_entities))
+
+            # Batch write DocEntities
+            doc_dicts = [
+                add_provenance(self._doc_entity_to_dict(d), extracted_at=batch_time)
+                for d in doc_entities
+            ]
+            graph_store.merge_nodes_batch("DocEntity", doc_dicts, batch_size=200)
             self._logger.info("[Neo4j] Merged %d DocEntities complete", len(doc_entities))
-            for rel in relations:
-                rel_props = add_provenance(
-                    {"weight": rel.weight},
-                    source="ast_parser",
-                    confidence=1.0,
-                    extracted_at=batch_time,
-                )
-                graph_store.merge_relation(
-                    rel.source_id,
-                    rel.target_id,
-                    rel.relation_type,
-                    properties=rel_props,
-                    source_label="CodeEntity",
-                    target_label="CodeEntity",
-                )
+
+            # Batch write structural relations
+            rel_data = [
+                {
+                    "source_id": rel.source_id,
+                    "target_id": rel.target_id,
+                    "rel_type": rel.relation_type,
+                    "source_label": "CodeEntity",
+                    "target_label": "CodeEntity",
+                    "properties": add_provenance(
+                        {"weight": rel.weight},
+                        source="ast_parser",
+                        confidence=1.0,
+                        extracted_at=batch_time,
+                    ),
+                }
+                for rel in relations
+            ]
+            graph_store.merge_relations_batch(rel_data, batch_size=200)
             self._logger.info("[Neo4j] Wrote %d structural relations", len(relations))
 
             # 处理外部 import：创建虚拟节点和关系
             name_to_id = {e.name: e.id for e in all_entities}
             external_modules: dict[str, str] = {}  # name → id
+            external_names = sorted({rel.target_name for rel in unresolved_imports})
 
-            for ext_name in sorted({rel.target_name for rel in unresolved_imports}):
+            # Batch create external module nodes
+            ext_dicts = []
+            for ext_name in external_names:
                 ext_entity = CodeEntity(
                     name=ext_name,
                     entity_type="module",
                     file_path="__external__",
                     language="unknown",
                 )
-                graph_store.merge_node("CodeEntity", add_provenance(self._entity_to_dict(ext_entity), source="imported", extracted_at=batch_time))
+                ext_dicts.append(add_provenance(self._entity_to_dict(ext_entity), source="imported", extracted_at=batch_time))
                 external_modules[ext_name] = ext_entity.id
+            if ext_dicts:
+                graph_store.merge_nodes_batch("CodeEntity", ext_dicts, batch_size=200)
 
-            ext_rel_count = 0
+            # Batch create external import relations
+            ext_rel_data = []
             for rel in unresolved_imports:
                 source_id = name_to_id.get(rel.source_name)
                 target_id = external_modules.get(rel.target_name)
                 if source_id and target_id:
-                    rel_props = add_provenance(
-                        {},
-                        source="imported",
-                        confidence=1.0,
-                        extracted_at=batch_time,
-                    )
-                    graph_store.merge_relation(
-                        source_id,
-                        target_id,
-                        "imports",
-                        properties=rel_props,
-                        source_label="CodeEntity",
-                        target_label="CodeEntity",
-                    )
-                    ext_rel_count += 1
+                    ext_rel_data.append({
+                        "source_id": source_id,
+                        "target_id": target_id,
+                        "rel_type": "imports",
+                        "source_label": "CodeEntity",
+                        "target_label": "CodeEntity",
+                        "properties": add_provenance(
+                            {},
+                            source="imported",
+                            confidence=1.0,
+                            extracted_at=batch_time,
+                        ),
+                    })
+            ext_rel_count = 0
+            if ext_rel_data:
+                ext_rel_count = graph_store.merge_relations_batch(ext_rel_data, batch_size=200)
 
             self._logger.info(
                 "[Neo4j] Created %d external module nodes, %d external import relations",
@@ -495,15 +512,15 @@ class LayerKGBuilder:
 
         # Schema 版本检查（lazy import 避免循环引用）
         try:
+            from layerkg.exceptions import LayerKGError
+            from layerkg.migrations.registry import MigrationRegistry
+            from layerkg.migrations.runner import MigrationRunner
             from layerkg.schema_version import (
                 CURRENT_SCHEMA_VERSION,
                 SchemaStatus,
                 check_schema_version,
                 get_current_db_version,
             )
-            from layerkg.migrations.runner import MigrationRunner
-            from layerkg.migrations.registry import MigrationRegistry
-            from layerkg.exceptions import LayerKGError
 
             graph_store = self._get_graph_store()
             status = check_schema_version(graph_store)
