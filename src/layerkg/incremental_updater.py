@@ -601,6 +601,19 @@ class IncrementalUpdater:
         # Stage 1: 变更检测
         changes = self._detect_changes(since, full_scan=full_scan)
 
+        # Resolve relative git paths to absolute paths matching Neo4j storage format.
+        # Git diff paths are relative to the git worktree root, which may be a parent
+        # of repo_path (e.g. git root at /foo, repo_path at /foo/guava → paths like
+        # "guava/src/..."). We need to strip any repo_path.name prefix if present.
+        for change in changes:
+            if not Path(change.path).is_absolute():
+                rel = change.path
+                # If path starts with repo dirname prefix (git worktree is parent), strip it
+                prefix = self._repo_path.name + "/"
+                if rel.startswith(prefix):
+                    rel = rel[len(prefix):]
+                change.path = str((self._repo_path / rel).resolve())
+
         # Stage 2: 影响传播
         impact_report = self._propagate_impact(changes)
 
