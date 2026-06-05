@@ -28,7 +28,7 @@
     # Langfuse 可观测性（Phase 3 Day 2 新增）
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
-    langfuse_host: str = "http://REDACTED_IP:3000"
+    langfuse_host: str = "http://<YOUR_SERVER_IP>:3000"
 ```
 
 **from_env() 方法**中添加对应环境变量读取：

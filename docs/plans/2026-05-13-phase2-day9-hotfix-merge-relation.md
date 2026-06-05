@@ -102,7 +102,7 @@ uv run ruff check src/ tests/
 
 ```bash
 # 清空数据
-export LAYERKG_NEO4J_URI="bolt://REDACTED_IP:7687" LAYERKG_NEO4J_PASSWORD="REDACTED_PASSWORD" LAYERKG_OLLAMA_URL="http://REDACTED_IP:11434"
+export LAYERKG_NEO4J_URI="bolt://<YOUR_SERVER_IP>:7687" LAYERKG_NEO4J_PASSWORD="<YOUR_NEO4J_PASSWORD>" LAYERKG_OLLAMA_URL="http://<YOUR_SERVER_IP>:11434"
 uv run python -c "
 from layerkg.config import LayerKGConfig
 from layerkg.neo4j_store import Neo4jGraphStore

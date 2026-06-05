@@ -11,9 +11,9 @@
 | 语言 | Python | 3.13+ |
 | 包管理 | uv | 0.11+ |
 | AST解析 | tree-sitter | latest |
-| 图数据库 | Neo4j | 5.x (bolt://REDACTED_IP:7687) |
+| 图数据库 | Neo4j | 5.x (环境变量配置) |
 | 向量库 | ChromaDB | latest |
-| 代码嵌入 | Qwen2.5-0.5B-Coder (Ollama) | http://REDACTED_IP:11434 |
+| 代码嵌入 | Qwen2.5-0.5B-Coder (Ollama) | 环境变量配置 |
 | Agent框架 | LangGraph | Phase 1 |
 | CLI | Click | latest |
 | 格式化/检查 | ruff | latest |
@@ -98,7 +98,7 @@ tests/
 - `.claude/rules/testing.md` — 测试 TDD 规范
 - `.claude/rules/neo4j.md` — Neo4j + LayerKG Schema 规范
 
-## 外部服务
-- Neo4j: `bolt://REDACTED_IP:7687` (neo4j/REDACTED_PASSWORD)
-- Ollama: `http://REDACTED_IP:11434` (qwen2.5-coder:0.5b, qwen3.5:9b)
-- 思源笔记: `http://REDACTED_IP:REDACTED_PORT`
+## 外部服务（通过 `.env` 文件或环境变量配置，参考 `.env.example`）
+- Neo4j: `LAYERKG_NEO4J_URI` / `LAYERKG_NEO4J_USER` / `LAYERKG_NEO4J_PASSWORD`
+- Ollama: `LAYERKG_OLLAMA_URL` (qwen2.5-coder:0.5b, qwen3.5:9b)
+- 思源笔记: 按需配置

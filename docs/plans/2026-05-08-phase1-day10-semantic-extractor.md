@@ -36,7 +36,7 @@
 
 ### Ollama API 调研结论
 
-- **Endpoint**: `POST http://REDACTED_IP:11434/api/chat`
+- **Endpoint**: `POST http://<YOUR_SERVER_IP>:11434/api/chat`
 - **模型**: `qwen3.5:9b`（已验证可用）
 - **关键参数**: `stream: false`, `think: false`（关闭思考模式，~3s 响应）
 - **已有模式**: `chroma_store.py` 中的 `OllamaEmbeddingFunction` 用 httpx 调 Ollama REST API

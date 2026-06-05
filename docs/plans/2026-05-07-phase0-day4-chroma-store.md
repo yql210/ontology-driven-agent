@@ -260,7 +260,7 @@ Task 1 (异常+依赖)
 
 ## Ollama /api/embed API 参考
 ```json
-// POST http://REDACTED_IP:11434/api/embed
+// POST http://<YOUR_SERVER_IP>:11434/api/embed
 // Request:
 {"model": "qwen2.5-coder:0.5b", "input": ["text1", "text2"]}
 // Response:

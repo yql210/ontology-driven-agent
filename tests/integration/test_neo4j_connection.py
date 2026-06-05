@@ -32,13 +32,16 @@ def test_config_from_env(monkeypatch):
 def test_neo4j_real_connection():
     """Test real Neo4j connection.
 
-    需要运行 Neo4j 服务，默认连接 bolt://REDACTED_IP:7687。
+    需要运行 Neo4j 服务，通过 LAYERKG_NEO4J_URI 等环境变量配置连接。
     """
     from neo4j import GraphDatabase
 
-    uri = os.getenv("LAYERKG_NEO4J_URI", "bolt://REDACTED_IP:7687")
+    uri = os.getenv("LAYERKG_NEO4J_URI")
     user = os.getenv("LAYERKG_NEO4J_USER", "neo4j")
-    password = os.getenv("LAYERKG_NEO4J_PASSWORD", "REDACTED_PASSWORD")
+    password = os.getenv("LAYERKG_NEO4J_PASSWORD")
+
+    if not uri or not password:
+        pytest.skip("需要设置 LAYERKG_NEO4J_URI 和 LAYERKG_NEO4J_PASSWORD 环境变量")
 
     driver = GraphDatabase.driver(uri, auth=(user, password))
     try:

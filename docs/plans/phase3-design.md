@@ -269,7 +269,7 @@ def ask(question, interactive):
 
 ### 3.8 Langfuse 集成
 
-**Phase 3 方案：** 先用 Langfuse 本地自托管（Docker），在远程服务器 `REDACTED_IP` 上部署。
+**Phase 3 方案：** 先用 Langfuse 本地自托管（Docker），在远程服务器 `<YOUR_SERVER_IP>` 上部署。
 
 ```python
 from langfuse.callback import CallbackHandler
@@ -277,7 +277,7 @@ from langfuse.callback import CallbackHandler
 langfuse_handler = CallbackHandler(
     public_key="...",           # Docker 部署后配置
     secret_key="...",
-    host="http://REDACTED_IP:3000"  # 远程服务器 Docker 部署
+    host="http://<YOUR_SERVER_IP>:3000"  # 远程服务器 Docker 部署
 )
 
 # 在 agent invoke 时传入

@@ -24,7 +24,7 @@
 - 项目是 Python 全栈，不引入 Node.js 依赖
 - 图谱可视化用 Cytoscape.js（CDN 引入，无需构建）
 - 对话界面用 SSE（Server-Sent Events）实现流式输出
-- 部署在远程服务器 `REDACTED_IP`，一个 `uvicorn` 进程搞定
+- 部署在远程服务器 `<YOUR_SERVER_IP>`，一个 `uvicorn` 进程搞定
 
 ### 核心技术栈
 
@@ -245,7 +245,7 @@ def web(host, port, reload):
 | 7 | 对话页面 HTML | index.html（基础聊天界面） |
 | 8 | 测试 | API 测试 + 手动验证 |
 
-**Day 1 验收：** 浏览器打开 `http://REDACTED_IP:8000`，输入问题，Agent 流式回复。
+**Day 1 验收：** 浏览器打开 `http://<YOUR_SERVER_IP>:8000`，输入问题，Agent 流式回复。
 
 ### Day 2：图谱可视化
 

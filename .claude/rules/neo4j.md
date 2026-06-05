@@ -5,10 +5,10 @@
 
 ## Neo4j 连接
 ```python
-# 连接参数（通过环境变量或配置传入）
-NEO4J_URI = "bolt://REDACTED_IP:7687"
-NEO4J_USER = "neo4j"
-NEO4J_PASSWORD = "REDACTED_PASSWORD"
+# 连接参数（通过环境变量或 .env 文件配置，参考 .env.example）
+NEO4J_URI = os.getenv("LAYERKG_NEO4J_URI", "bolt://localhost:7687")
+NEO4J_USER = os.getenv("LAYERKG_NEO4J_USER", "neo4j")
+NEO4J_PASSWORD = os.getenv("LAYERKG_NEO4J_PASSWORD")
 ```
 
 ## 连接管理

@@ -96,9 +96,9 @@
 2. 删除 ChromaDB 目录：`rm -rf .chroma`
 3. 运行构建：
    ```bash
-   LAYERKG_NEO4J_URI="bolt://REDACTED_IP:7687" \
-   LAYERKG_NEO4J_PASSWORD="REDACTED_PASSWORD" \
-   LAYERKG_OLLAMA_URL="http://REDACTED_IP:11434" \
+   LAYERKG_NEO4J_URI="bolt://<YOUR_SERVER_IP>:7687" \
+   LAYERKG_NEO4J_PASSWORD="<YOUR_NEO4J_PASSWORD>" \
+   LAYERKG_OLLAMA_URL="http://<YOUR_SERVER_IP>:11434" \
    uv run layerkg build . --verbose-build --skip-semantic --skip-clustering
    ```
 4. 记录耗时和产出数据

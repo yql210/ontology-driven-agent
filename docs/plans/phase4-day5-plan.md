@@ -19,7 +19,7 @@
 
 ### 已知风险点
 1. **Agent LLM 用 DeepSeek API** — `agent_base_url=https://api.deepseek.com`，需确认连通性和延迟
-2. **Neo4j 远程连接** — `bolt://REDACTED_IP:7687`，网络延迟+断连风险
+2. **Neo4j 远程连接** — `bolt://<YOUR_SERVER_IP>:7687`，网络延迟+断连风险
 3. **ChromaDB 本地** — `.chroma/` 目录，需确认数据是否还在
 4. **SSE 流式传输** — 前端 EventSource 连接后端，跨域/断连/超时
 5. **前端无 threadId 持久化** — 刷新页面丢失对话历史
