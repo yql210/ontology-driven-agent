@@ -20,3 +20,4 @@ chroma.sqlite3
 *.traces.db
 .layerkg/
 .chroma/
+.chroma/

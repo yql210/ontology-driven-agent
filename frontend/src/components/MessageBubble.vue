@@ -26,35 +26,70 @@ defineProps<{ message: Message; threadId?: string | null }>()
 .message {
   display: flex;
   gap: 10px;
-  margin: 12px 0;
-  max-width: 800px;
+  margin-bottom: 16px;
+  max-width: 70%;
 }
 .message.user { flex-direction: row-reverse; }
 .avatar {
-  font-size: 1.5em;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+}
+.message.user .avatar {
+  background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+  color: #fff;
+}
+.message:not(.user) .avatar {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  color: var(--primary-light);
+  font-size: 1.2em;
 }
 .bubble {
-  padding: 10px 14px;
-  border-radius: 12px;
-  background: #f0f0f0;
+  padding: 12px 16px;
+  border-radius: 16px 16px 16px 4px;
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
   line-height: 1.6;
   min-width: 60px;
+  font-size: 14px;
+  animation: fadeIn 0.3s ease;
 }
-.message.user .bubble { background: #007bff; color: white; }
-.message.error .bubble { background: #fff3cd; color: #856404; }
+.message.user .bubble {
+  background: linear-gradient(135deg, #8b5cf6, #3b82f6);
+  border: none;
+  color: #fff;
+  border-radius: 16px 16px 4px 16px;
+}
+.message.error .bubble {
+  background: rgba(248,113,113,0.15);
+  border-color: rgba(248,113,113,0.3);
+  color: #f87171;
+}
 .cursor {
   animation: blink 0.7s infinite;
+  color: var(--primary-light);
 }
 .trace-link {
   display: inline-block;
   margin-top: 8px;
-  color: #3498db;
+  color: var(--primary-light);
   text-decoration: none;
   font-size: 13px;
+  transition: color var(--transition-fast);
 }
 .trace-link:hover {
   text-decoration: underline;
+  color: #fff;
 }
 @keyframes blink {
   0%, 100% { opacity: 1; }

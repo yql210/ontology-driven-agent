@@ -29,49 +29,72 @@ const expanded = ref(false)
 
 <style scoped>
 .tool-call {
-  border-left: 3px solid #4a9eff;
-  margin: 4px 0;
-  border-radius: 4px;
-  background: #f8f9fa;
+  border-left: 3px solid transparent;
+  border-image: linear-gradient(135deg, #8b5cf6, #3b82f6) 1;
+  margin: 8px 0;
+  border-radius: var(--radius-md);
+  background: var(--bg-glass);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-dim);
+  border-left: 3px solid transparent;
+  border-image: linear-gradient(135deg, #8b5cf6, #3b82f6) 1;
+  overflow: hidden;
 }
-.tool-call.running { border-left-color: #f0ad4e; }
-.tool-call.completed { border-left-color: #5cb85c; }
 .tool-header {
-  padding: 6px 10px;
+  padding: 10px 14px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.85em;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+.tool-header:hover {
+  color: var(--text-primary);
+  background: rgba(148,163,184,0.05);
+}
+.tool-toggle {
+  margin-left: auto;
+  transition: transform var(--transition-fast);
 }
 .tool-body {
   display: flex;
   flex-direction: column;
+  padding: 0 14px 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 .tool-args pre {
   margin: 0;
-  padding: 8px 10px;
-  background: #1e1e2e;
+  padding: 10px 12px;
+  background: var(--bg-primary);
   color: #d4d4d4;
   font-size: 0.8em;
-  border-radius: 0 0 4px 4px;
+  font-family: var(--font-mono);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-dim);
 }
 .tool-result {
   margin-top: 4px;
 }
 .tool-result pre {
   margin: 0;
-  padding: 8px 10px;
-  background: #1a3a1a;
+  padding: 10px 12px;
+  background: var(--bg-primary);
   color: #d4d4d4;
   font-size: 0.8em;
-  border-radius: 0 0 4px 4px;
+  font-family: var(--font-mono);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-dim);
 }
 .section-label {
-  padding: 4px 10px;
+  padding: 4px 0 6px;
   font-size: 0.75em;
-  color: #95a5a6;
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  font-weight: 500;
 }
 </style>

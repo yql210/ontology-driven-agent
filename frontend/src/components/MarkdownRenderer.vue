@@ -27,16 +27,42 @@ const rendered = computed(() => marked.parse(props.content || ''))
 
 <style scoped>
 .markdown-body :deep(pre) {
-  background: #1e1e2e;
-  border-radius: 6px;
-  padding: 12px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  padding: 16px;
   overflow-x: auto;
+  border: 1px solid var(--border-dim);
 }
 .markdown-body :deep(code) {
-  font-family: 'Fira Code', monospace;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.markdown-body :deep(:not(pre) > code) {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
   font-size: 0.9em;
+  color: var(--primary-light);
 }
 .markdown-body :deep(p) {
   margin: 0.5em 0;
+}
+.markdown-body :deep(a) {
+  color: var(--primary-light);
+  transition: color var(--transition-fast);
+}
+.markdown-body :deep(a:hover) {
+  text-decoration: underline;
+}
+.markdown-body :deep(h1),
+.markdown-body :deep(h2),
+.markdown-body :deep(h3),
+.markdown-body :deep(h4) {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.markdown-body :deep(ul),
+.markdown-body :deep(ol) {
+  padding-left: 20px;
 }
 </style>

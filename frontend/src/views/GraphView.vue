@@ -77,61 +77,65 @@ function initCytoscape() {
       {
         selector: 'node',
         style: {
-          'background-color': '#999',
+          'background-color': '#64748b',
           label: 'data(label)',
           'text-valign': 'center',
           'text-halign': 'center',
           width: '30px',
           height: '30px',
-          'font-size': '10px',
+          'font-size': '11px',
+          'text-outline-color': '#0f172a',
+          'text-outline-width': '2px',
+          color: '#e2e8f0',
         },
       },
-      // Fix 1: 按类型着色（颜色映射：CodeEntity=蓝, ConceptEntity=绿, ModuleEntity=橙, DocEntity=紫, ResourceEntity=粉, ChangeSetEntity=红）
+      // Neon colors by entity type
       {
         selector: 'node[neo4jLabel="CodeEntity"]',
-        style: { 'background-color': '#4A90D9' },
+        style: { 'background-color': '#60a5fa' },
       },
       {
         selector: 'node[neo4jLabel="ConceptEntity"]',
-        style: { 'background-color': '#27AE60' },
+        style: { 'background-color': '#34d399' },
       },
       {
         selector: 'node[neo4jLabel="ModuleEntity"]',
-        style: { 'background-color': '#F39C12' },
+        style: { 'background-color': '#fbbf24' },
       },
       {
         selector: 'node[neo4jLabel="DocEntity"]',
-        style: { 'background-color': '#8E44AD' },
+        style: { 'background-color': '#a78bfa' },
       },
       {
         selector: 'node[neo4jLabel="ResourceEntity"]',
-        style: { 'background-color': '#E91E8C' },
+        style: { 'background-color': '#f472b6' },
       },
       {
         selector: 'node[neo4jLabel="ChangeSetEntity"]',
-        style: { 'background-color': '#E74C3C' },
+        style: { 'background-color': '#f87171' },
       },
       // Fix 4: 边标签显示
       {
         selector: 'edge',
         style: {
-          width: 2,
-          'line-color': '#999',
-          'target-arrow-color': '#999',
+          width: 1.5,
+          'line-color': 'rgba(148,163,184,0.25)',
+          'target-arrow-color': 'rgba(148,163,184,0.25)',
           'target-arrow-shape': 'triangle',
           'curve-style': 'bezier',
-          'font-size': '8px',
+          'font-size': '9px',
+          color: '#64748b',
           'text-rotation': 'autorotate',
           'text-margin-y': '-5px',
           label: 'data(label)',
         } as any,
       },
-      // Fix 4: 选中高亮用金色
+      // Selected node glow
       {
         selector: 'node:selected',
         style: {
           'border-width': 3,
-          'border-color': '#FFD700',
+          'border-color': '#fbbf24',
         },
       },
     ],
@@ -257,27 +261,27 @@ function handleReset() {
         <div ref="containerRef" class="graph-canvas"></div>
         <div class="graph-legend">
           <div class="legend-item">
-            <span class="legend-color" style="background: #4A90D9"></span>
+            <span class="legend-color" style="background: #60a5fa"></span>
             <span class="legend-label">{{ labelMap.CodeEntity }}</span>
           </div>
           <div class="legend-item">
-            <span class="legend-color" style="background: #27AE60"></span>
+            <span class="legend-color" style="background: #34d399"></span>
             <span class="legend-label">{{ labelMap.ConceptEntity }}</span>
           </div>
           <div class="legend-item">
-            <span class="legend-color" style="background: #F39C12"></span>
+            <span class="legend-color" style="background: #fbbf24"></span>
             <span class="legend-label">{{ labelMap.ModuleEntity }}</span>
           </div>
           <div class="legend-item">
-            <span class="legend-color" style="background: #8E44AD"></span>
+            <span class="legend-color" style="background: #a78bfa"></span>
             <span class="legend-label">{{ labelMap.DocEntity }}</span>
           </div>
           <div class="legend-item">
-            <span class="legend-color" style="background: #E91E8C"></span>
+            <span class="legend-color" style="background: #f472b6"></span>
             <span class="legend-label">{{ labelMap.ResourceEntity }}</span>
           </div>
           <div class="legend-item">
-            <span class="legend-color" style="background: #E74C3C"></span>
+            <span class="legend-color" style="background: #f87171"></span>
             <span class="legend-label">{{ labelMap.ChangeSetEntity }}</span>
           </div>
         </div>
@@ -299,7 +303,7 @@ function handleReset() {
 .graph-view {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 50px);
+  height: calc(100vh - 56px);
 }
 
 .graph-header {
@@ -307,8 +311,10 @@ function handleReset() {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: #f9f9f9;
-  border-bottom: 1px solid #ddd;
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-dim);
 }
 
 .header-left {
@@ -318,11 +324,21 @@ function handleReset() {
 }
 
 .search-input {
-  padding: 6px 12px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-pill);
   font-size: 14px;
   width: 200px;
+  font-family: var(--font-sans);
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.search-input::placeholder { color: var(--text-muted); }
+.search-input:focus {
+  border-color: rgba(139,92,246,0.5);
+  box-shadow: 0 0 0 3px rgba(139,92,246,0.1);
 }
 
 .type-dropdown {
@@ -330,19 +346,22 @@ function handleReset() {
 }
 
 .type-select-btn {
-  padding: 6px 12px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  background: #fff;
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-pill);
   cursor: pointer;
   font-size: 14px;
+  font-family: var(--font-sans);
   display: flex;
   align-items: center;
   gap: 6px;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
 }
-
 .type-select-btn:hover {
-  background: #f0f0f0;
+  color: var(--text-primary);
+  border-color: var(--border-default);
 }
 
 .dropdown-arrow {
@@ -353,12 +372,13 @@ function handleReset() {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
   z-index: 100;
-  min-width: 120px;
+  min-width: 140px;
+  padding: 4px;
 }
 
 .type-checkbox-item {
@@ -367,29 +387,36 @@ function handleReset() {
   padding: 8px 12px;
   cursor: pointer;
   white-space: nowrap;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 14px;
+  transition: background var(--transition-fast);
 }
-
 .type-checkbox-item:hover {
-  background: #f5f5f5;
+  background: rgba(148,163,184,0.05);
 }
-
 .type-checkbox-item input {
   margin-right: 8px;
+  accent-color: var(--primary);
 }
 
 .btn-reset,
 .btn-refresh {
-  padding: 6px 12px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  background: #fff;
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-pill);
   cursor: pointer;
   font-size: 14px;
+  font-family: var(--font-sans);
+  transition: color var(--transition-fast), border-color var(--transition-fast), background var(--transition-fast);
 }
-
 .btn-reset:hover,
 .btn-refresh:hover {
-  background: #f0f0f0;
+  color: var(--text-primary);
+  border-color: var(--border-default);
+  background: rgba(51, 65, 85, 0.8);
 }
 
 .graph-main {
@@ -406,52 +433,56 @@ function handleReset() {
 .graph-canvas {
   width: 100%;
   height: 100%;
-  background: #fafafa;
+  background: var(--bg-primary);
 }
 
 .graph-legend {
   position: absolute;
   bottom: 16px;
   left: 16px;
-  background: rgba(255, 255, 255, 0.9);
-  padding: 12px;
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-md);
+  padding: 14px;
 }
 
 .legend-item {
   display: flex;
   align-items: center;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
-
 .legend-item:last-child {
   margin-bottom: 0;
 }
 
 .legend-color {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  margin-right: 8px;
+  margin-right: 10px;
+  box-shadow: 0 0 6px currentColor;
 }
 
 .legend-label {
   font-size: 12px;
-  color: #555;
+  color: var(--text-secondary);
 }
 
 .graph-footer {
-  padding: 8px 16px;
-  background: #f9f9f9;
-  border-top: 1px solid #ddd;
-  font-size: 13px;
-  color: #666;
+  padding: 10px 16px;
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border-dim);
+  font-size: 12px;
+  color: var(--text-muted);
   display: flex;
   gap: 16px;
 }
 
 .error {
-  color: #f44336;
+  color: #f87171;
 }
 </style>

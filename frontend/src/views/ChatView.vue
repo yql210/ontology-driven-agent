@@ -42,26 +42,47 @@ function handleSend(message: string) {
 .chat-view {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: calc(100vh - 56px);
   max-width: 900px;
   margin: 0 auto;
 }
 .chat-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid #e0e0e0;
-  background: white;
+  padding: 20px 24px;
+  background: linear-gradient(180deg, rgba(139,92,246,0.08), transparent);
+  border-bottom: 1px solid var(--border-dim);
 }
-.chat-header h1 { margin: 0; font-size: 1.3em; }
-.chat-header p { margin: 4px 0 0; color: #666; font-size: 0.9em; }
+.chat-header h1 {
+  margin: 0;
+  font-size: 1.4em;
+  font-weight: 600;
+  background: linear-gradient(135deg, #a78bfa, #60a5fa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.chat-header p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
 .messages {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 20px;
-  background: #fafafa;
+  padding: 20px 24px;
+  background: var(--bg-primary);
 }
 .empty-state {
   text-align: center;
-  color: #999;
-  margin-top: 80px;
+  color: var(--text-muted);
+  margin-top: 100px;
+  animation: fadeIn 0.5s ease;
+}
+.empty-state p:first-child {
+  font-size: 48px;
+  animation: float 3s ease-in-out infinite;
+}
+.empty-state p:last-child {
+  margin-top: 12px;
+  font-size: 14px;
 }
 </style>
