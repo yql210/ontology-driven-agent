@@ -38,7 +38,7 @@ def semantic_search(query: str, top_k: int = 5) -> str:
         return json.dumps(results, ensure_ascii=False, indent=2)
     except Exception as e:
         return json.dumps(
-            {"error": f"语义搜索失败: {e!s}", "suggestion": "尝试使用 graph_query 替代"},
+            {"error": f"语义搜索失败: {e!s}", "suggestion": "请使用 graph_query 执行 Cypher 查询替代，例如: MATCH (n:CodeEntity) WHERE n.name CONTAINS '关键词' RETURN n.name, n.file_path LIMIT 10"},
             ensure_ascii=False,
         )
 
@@ -61,6 +61,17 @@ def graph_query(cypher: str) -> str:
     neo4j = get_neo4j()
     try:
         results = neo4j.query(cypher)
+        if not results:
+            return json.dumps(
+                {"info": "查询返回空结果。可能原因：1)查询的实体类型不存在 2)关键词不匹配 3)关系类型不匹配。请尝试修改查询条件或换用其他工具。", "results": []},
+                ensure_ascii=False,
+            )
+        if len(results) > 100:
+            return json.dumps(
+                {"warning": f"结果过多({len(results)}条)，已截断为前100条。建议加 LIMIT 子句缩小范围。", "results": results[:100]},
+                ensure_ascii=False,
+                indent=2,
+            )
         return json.dumps(results, ensure_ascii=False, indent=2)
     except Exception as e:
         return f"Cypher 查询错误: {e!s}\n请检查语法是否正确。"
@@ -191,6 +202,11 @@ def list_concepts() -> str:
     """
     aligner = get_aligner()
     concepts = aligner.list_concepts()
+    if not concepts:
+        return json.dumps(
+            {"info": "当前知识图谱中没有概念实体（ConceptEntity）。可能构建时跳过了语义提取阶段。请使用 graph_query 查询 CodeEntity 或其他实体类型。", "count": 0},
+            ensure_ascii=False,
+        )
     return json.dumps(concepts, ensure_ascii=False, indent=2)
 
 
@@ -203,28 +219,45 @@ def get_module_tree() -> str:
     Returns:
         模块树（JSON），格式: {module_name: {entities, cohesion, entity_count}}
     """
-    clustering = get_clustering()
-    tree = clustering.get_module_tree()
+    try:
+        clustering = get_clustering()
+        tree = clustering.get_module_tree()
 
-    # 将 entity_ids (UUID) 转换为实体名称
-    neo4j = get_neo4j()
-    enriched_tree = {}
-    for module_name, info in tree.items():
-        entity_names = []
-        for eid in info.get("entities", [])[:10]:
-            try:
-                node = neo4j.get_node(eid)
-                if node and node.get("name"):
-                    entity_names.append(node["name"])
-            except Exception:
-                pass
-        enriched_tree[module_name] = {
-            "entity_count": info.get("entity_count", 0),
-            "cohesion": round(info.get("cohesion", 0.0), 3),
-            "entity_sample": entity_names,
-        }
+        if not tree:
+            return json.dumps(
+                {"info": "当前知识图谱中没有模块聚类数据。可能构建时跳过了聚类阶段。请使用 graph_query 查询 CodeEntity。", "count": 0},
+                ensure_ascii=False,
+            )
 
-    return json.dumps(enriched_tree, ensure_ascii=False, indent=2)
+        neo4j = get_neo4j()
+        enriched_tree = {}
+        for module_name, info in list(tree.items())[:20]:
+            entity_names = []
+            for eid in info.get("entities", [])[:5]:
+                try:
+                    node = neo4j.get_node(eid)
+                    if node and node.get("name"):
+                        entity_names.append(node["name"])
+                except Exception:
+                    pass
+            enriched_tree[module_name] = {
+                "entity_count": info.get("entity_count", 0),
+                "cohesion": round(info.get("cohesion", 0.0), 3),
+                "entity_sample": entity_names,
+            }
+
+        if not enriched_tree:
+            return json.dumps(
+                {"info": "模块聚类数据为空。请使用 graph_query 查询 CodeEntity。", "count": 0},
+                ensure_ascii=False,
+            )
+
+        return json.dumps(enriched_tree, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return json.dumps(
+            {"error": f"获取模块树失败: {e!s}", "suggestion": "请使用 graph_query 查询 CodeEntity 替代"},
+            ensure_ascii=False,
+        )
 
 
 @tool
@@ -353,9 +386,6 @@ def ontology_action(entity_name: str, action: str, context: dict) -> str:
             )
 
         entity_id = result[0]["id"]
-
-        # 懒加载 OntologyEngine
-        from layerkg.ontology_engine import OntologyEngine
 
         engine = _get_ontology_engine(neo4j)
 

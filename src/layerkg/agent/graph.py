@@ -60,7 +60,7 @@ def _create_llm() -> ChatOpenAI:
         model=cfg.agent_llm_model,
         base_url=cfg.agent_base_url,
         api_key=cfg.agent_api_key,
-        timeout=60,
+        timeout=90,
     )
 
 
@@ -100,7 +100,7 @@ def _make_config(thread_id: str = "default") -> dict[str, Any]:
     """生成 Agent 运行配置"""
     return {
         "configurable": {"thread_id": thread_id},
-        "recursion_limit": 50,
+        "recursion_limit": 15,  # 防止死循环（agent→tools→agent 最多 7 轮）
     }
 
 
@@ -115,10 +115,26 @@ async def run_query(question: str, thread_id: str = "default") -> str:
                 {"messages": [HumanMessage(content=question)]},
                 config=config,
             ),
-            timeout=120,
+            timeout=180,
         )
     except TimeoutError:
-        return "查询超时（120秒），请尝试简化问题或减少搜索范围。"
+        return "查询超时（180秒），请尝试简化问题或减少搜索范围。"
+    except Exception as e:
+        # 兜底：GraphRecursionError 等异常时，提取已有的部分结果
+        err_name = type(e).__name__
+        if "Recursion" in err_name:
+            # 从 checkpointer 中提取最后一条 AI 消息
+            try:
+                state = await agent.aget_state(config)
+                for msg in reversed(state.values.get("messages", [])):
+                    if isinstance(msg, AIMessage) and msg.content:
+                        content = msg.content
+                        if isinstance(content, str) and len(content) > 10:
+                            return content
+            except Exception:
+                pass
+            return "Agent 工具调用次数超限，可能是因为部分数据未构建（如概念实体、模块聚类）。请使用更具体的代码实体名称提问，例如「Cache 类有哪些方法？」。"
+        return f"查询出错: {e!s}"
 
     for msg in reversed(result["messages"]):
         if isinstance(msg, AIMessage) and msg.content:

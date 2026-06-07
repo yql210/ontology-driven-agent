@@ -27,7 +27,7 @@ class TestAgentGraphStructure:
 
         config = _make_config("test-thread")
         assert config["configurable"]["thread_id"] == "test-thread"
-        assert config["recursion_limit"] == 50
+        assert config["recursion_limit"] == 15
 
     def test_all_tools_registered_in_graph(self):
         """图节点包含 agent 和 tools"""
