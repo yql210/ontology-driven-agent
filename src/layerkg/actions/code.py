@@ -129,8 +129,65 @@ def extract_interface(
     context: dict,
     graph_store: Any,
 ) -> dict:
-    """提取接口 — Phase 1 空壳。"""
-    raise NotImplementedError("extract_interface will be implemented in Phase 2")
+    """提取接口建议 — 只读分析，从类中提取公开方法签名。
+
+    输入：
+        entity_id: 目标 CodeEntity 的 ID。
+        context: {"class_methods": list[str]} 类方法名列表。
+        graph_store: 图存储实例（只读访问）。
+
+    输出（dict）：
+        {
+            "success": True,
+            "entity_id": "...",
+            "analysis": {
+                "class_name": str,
+                "public_methods": [...],
+                "interface_name": str,
+                "suggested_interface": {...},
+            },
+            "side_effects": [],
+        }
+
+    Raises:
+        ValueError: entity_id 不存在。
+    """
+    node = graph_store.get_node(entity_id)
+    if node is None:
+        raise ValueError(f"Entity not found: {entity_id}")
+
+    class_name = node.get("name", entity_id)
+    raw_methods = context.get("class_methods", [])
+
+    # 过滤公开方法（不以 _ 开头）
+    public_methods = [m for m in raw_methods if not m.startswith("_")]
+
+    # 生成接口名称建议（I + 类名）
+    interface_name = f"I{class_name}"
+
+    # 构造接口定义
+    suggested_interface = {
+        "name": interface_name,
+        "methods": [
+            {
+                "name": method,
+                "signature": f"def {method}(self, *args, **kwargs)",
+            }
+            for method in sorted(public_methods)
+        ],
+    }
+
+    return {
+        "success": True,
+        "entity_id": entity_id,
+        "analysis": {
+            "class_name": class_name,
+            "public_methods": sorted(public_methods),
+            "interface_name": interface_name,
+            "suggested_interface": suggested_interface,
+        },
+        "side_effects": [],
+    }
 
 
 def reduce_complexity(
@@ -147,8 +204,80 @@ def generate_api_doc(
     context: dict,
     graph_store: Any,
 ) -> dict:
-    """生成API文档 — Phase 1 空壳。"""
-    raise NotImplementedError("generate_api_doc will be implemented in Phase 2")
+    """生成 API 文档建议 — 只读分析，生成 Markdown 格式文档。
+
+    输入：
+        entity_id: 目标 CodeEntity 的 ID。
+        context: 场景上下文。
+        graph_store: 图存储实例（只读访问）。
+
+    输出（dict）：
+        {
+            "success": True,
+            "entity_id": "...",
+            "analysis": {
+                "entity_name": str,
+                "entity_type": str,
+                "doc_markdown": str,
+            },
+            "side_effects": [],
+        }
+
+    Raises:
+        ValueError: entity_id 不存在。
+    """
+    node = graph_store.get_node(entity_id)
+    if node is None:
+        raise ValueError(f"Entity not found: {entity_id}")
+
+    name = node.get("name", entity_id)
+    entity_type = node.get("entityType", "unknown")
+    params = node.get("params", [])
+    return_type = node.get("return_type", "Any")
+    docstring = node.get("docstring", "")
+
+    # 生成 Markdown 文档
+    lines: list[str] = [f"## `{name}`", ""]
+    lines.append(f"**类型**: `{entity_type}`")
+    lines.append("")
+
+    if params:
+        lines.append("**参数**:")
+        lines.append("")
+        for p in params:
+            lines.append(f"- `{p}`")
+        lines.append("")
+
+    if return_type:
+        lines.append(f"**返回值**: `{return_type}`")
+        lines.append("")
+
+    if docstring:
+        lines.append(f"**描述**: {docstring}")
+        lines.append("")
+
+    # 如果没有参数信息，添加从 context 降级
+    if not params and "params" in context:
+        ctx_params = context["params"]
+        if isinstance(ctx_params, list) and ctx_params:
+            lines.append("**参数**:")
+            lines.append("")
+            for p in ctx_params:
+                lines.append(f"- `{p}`")
+            lines.append("")
+
+    doc_markdown = "\n".join(lines)
+
+    return {
+        "success": True,
+        "entity_id": entity_id,
+        "analysis": {
+            "entity_name": name,
+            "entity_type": entity_type,
+            "doc_markdown": doc_markdown,
+        },
+        "side_effects": [],
+    }
 
 
 def annotate_complex_logic(
@@ -165,8 +294,61 @@ def trace_call_chain(
     context: dict,
     graph_store: Any,
 ) -> dict:
-    """追踪调用链 — Phase 1 空壳。"""
-    raise NotImplementedError("trace_call_chain will be implemented in Phase 2")
+    """追踪调用链 — 只读分析，从指定实体出发追踪 CALLS 关系。
+
+    输入：
+        entity_id: 目标 CodeEntity 的 ID。
+        context: {"depth": int (默认3)} 追踪深度。
+        graph_store: 图存储实例（只读访问）。
+
+    输出（dict）：
+        {
+            "success": True,
+            "entity_id": "...",
+            "analysis": {
+                "depth": int,
+                "call_tree": [...],
+            },
+            "side_effects": [],
+        }
+
+    Raises:
+        ValueError: entity_id 不存在。
+    """
+    node = graph_store.get_node(entity_id)
+    if node is None:
+        raise ValueError(f"Entity not found: {entity_id}")
+
+    depth = context.get("depth", 3)
+    if not isinstance(depth, int) or depth < 1:
+        depth = 3
+
+    # Cypher 查询：追踪 CALLS 关系链
+    cypher = (
+        f"MATCH (caller:CodeEntity)-[:CALLS*1..{depth}]->(callee:CodeEntity) "
+        "WHERE caller.id = $entity_id "
+        "RETURN callee.id AS id, callee.name AS name, callee.entityType AS entity_type"
+    )
+    results = graph_store.query(cypher, {"entity_id": entity_id})
+
+    # 构建调用树
+    call_tree: list[dict] = []
+    for row in results:
+        call_tree.append({
+            "id": row.get("id", ""),
+            "name": row.get("name", ""),
+            "entity_type": row.get("entity_type", ""),
+        })
+
+    return {
+        "success": True,
+        "entity_id": entity_id,
+        "analysis": {
+            "depth": depth,
+            "call_tree": call_tree,
+        },
+        "side_effects": [],
+    }
 
 
 def find_dependent_modules(

@@ -11,6 +11,7 @@ from layerkg.ontology_engine import (
     ActionDef,
     ActionResolver,
     ActionResult,
+    ApprovalManager,
     AuditLogger,
     FunctionDef,
     FunctionSelector,
@@ -81,9 +82,9 @@ class TestFunctionDef:
 
 class TestLoadFromYaml:
     def test_load_from_yaml_success(self, engine: OntologyEngine) -> None:
-        """YAML 加载成功，code_entity 有 3 个 Action。"""
+        """YAML 加载成功，code_entity 有 4 个 Action。"""
         actions = engine.get_actions("code_entity")
-        assert len(actions) == 3
+        assert len(actions) == 4
         action_names = {a.name for a in actions}
         assert "refactor" in action_names
         assert "document" in action_names
@@ -235,6 +236,46 @@ class TestFunctionSelector:
         ]
         result = selector.select(functions, {"function_name": "split_large_function"})
         assert result.name == "split_large_function"
+
+    def test_function_selector_doc_type_api(self) -> None:
+        """doc_type=api 选 generate_api_doc。"""
+        selector = FunctionSelector()
+        functions = [
+            FunctionDef(name="generate_api_doc", description="api doc", implementation="m:f"),
+            FunctionDef(name="annotate_complex_logic", description="annotate", implementation="m:f"),
+        ]
+        result = selector.select(functions, {"doc_type": "api"})
+        assert result.name == "generate_api_doc"
+
+    def test_function_selector_doc_type_comment(self) -> None:
+        """doc_type=comment 选 annotate_complex_logic。"""
+        selector = FunctionSelector()
+        functions = [
+            FunctionDef(name="generate_api_doc", description="api doc", implementation="m:f"),
+            FunctionDef(name="annotate_complex_logic", description="annotate", implementation="m:f"),
+        ]
+        result = selector.select(functions, {"doc_type": "comment"})
+        assert result.name == "annotate_complex_logic"
+
+    def test_function_selector_trace_depth(self) -> None:
+        """trace_depth 选 trace_call_chain。"""
+        selector = FunctionSelector()
+        functions = [
+            FunctionDef(name="trace_call_chain", description="trace", implementation="m:f"),
+            FunctionDef(name="find_dependent_modules", description="find", implementation="m:f"),
+        ]
+        result = selector.select(functions, {"trace_depth": 5})
+        assert result.name == "trace_call_chain"
+
+    def test_function_selector_method_list(self) -> None:
+        """method_list 选 extract_interface。"""
+        selector = FunctionSelector()
+        functions = [
+            FunctionDef(name="extract_interface", description="interface", implementation="m:f"),
+            FunctionDef(name="split_large_function", description="split", implementation="m:f"),
+        ]
+        result = selector.select(functions, {"method_list": ["login", "logout"]})
+        assert result.name == "extract_interface"
 
 
 # --- AuditLogger 测试 ---

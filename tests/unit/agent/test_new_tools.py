@@ -106,4 +106,4 @@ def test_all_tools_count() -> None:
     """ALL_TOOLS 包含 8 个工具"""
     from layerkg.agent.tools import ALL_TOOLS
 
-    assert len(ALL_TOOLS) == 8
+    assert len(ALL_TOOLS) == 9

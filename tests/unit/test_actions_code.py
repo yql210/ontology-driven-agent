@@ -8,8 +8,10 @@ import pytest
 
 from layerkg.actions.code import (
     extract_interface,
+    generate_api_doc,
     reduce_complexity,
     split_large_function,
+    trace_call_chain,
 )
 
 
@@ -113,10 +115,156 @@ class TestSplitLargeFunction:
 
 
 class TestNotImplementedStubs:
-    def test_extract_interface_not_implemented(self, mock_graph_store: MagicMock) -> None:
-        with pytest.raises(NotImplementedError):
-            extract_interface("test-id", {}, mock_graph_store)
-
     def test_reduce_complexity_not_implemented(self, mock_graph_store: MagicMock) -> None:
         with pytest.raises(NotImplementedError):
             reduce_complexity("test-id", {}, mock_graph_store)
+
+
+# --- extract_interface 测试 ---
+
+
+class TestExtractInterface:
+    def test_extract_interface_analysis(self, mock_graph_store: MagicMock) -> None:
+        """提取接口建议，返回公开方法列表。"""
+        result = extract_interface(
+            entity_id="UserService.login",
+            context={"class_methods": ["login", "logout", "_hash_password", "get_profile"]},
+            graph_store=mock_graph_store,
+        )
+        assert result["success"] is True
+        assert result["entity_id"] == "UserService.login"
+        assert result["side_effects"] == []
+
+        analysis = result["analysis"]
+        # _hash_password 应被过滤掉
+        assert "_hash_password" not in analysis["public_methods"]
+        assert "login" in analysis["public_methods"]
+        assert "logout" in analysis["public_methods"]
+        assert "get_profile" in analysis["public_methods"]
+        assert analysis["interface_name"] == "IUserService.login"
+        assert "suggested_interface" in analysis
+
+    def test_extract_interface_entity_not_found(self, mock_graph_store: MagicMock) -> None:
+        """实体不存在抛 ValueError。"""
+        mock_graph_store.get_node.return_value = None
+        with pytest.raises(ValueError, match="Entity not found"):
+            extract_interface("nonexistent", {"class_methods": ["foo"]}, mock_graph_store)
+
+    def test_extract_interface_no_public_methods(self, mock_graph_store: MagicMock) -> None:
+        """所有方法都是私有的，返回空列表。"""
+        result = extract_interface(
+            entity_id="UserService.login",
+            context={"class_methods": ["_init", "_internal"]},
+            graph_store=mock_graph_store,
+        )
+        assert result["analysis"]["public_methods"] == []
+
+
+# --- trace_call_chain 测试 ---
+
+
+class TestTraceCallChain:
+    def test_trace_call_chain_analysis(self, mock_graph_store: MagicMock) -> None:
+        """追踪调用链，返回调用树。"""
+        mock_graph_store.query.return_value = [
+            {"id": "func-a", "name": "validate", "entity_type": "function"},
+            {"id": "func-b", "name": "authenticate", "entity_type": "function"},
+        ]
+        result = trace_call_chain(
+            entity_id="UserService.login",
+            context={"depth": 3},
+            graph_store=mock_graph_store,
+        )
+        assert result["success"] is True
+        assert result["side_effects"] == []
+        assert result["analysis"]["depth"] == 3
+        assert len(result["analysis"]["call_tree"]) == 2
+        assert result["analysis"]["call_tree"][0]["name"] == "validate"
+
+    def test_trace_call_chain_default_depth(self, mock_graph_store: MagicMock) -> None:
+        """默认追踪深度为 3。"""
+        mock_graph_store.query.return_value = []
+        result = trace_call_chain(
+            entity_id="UserService.login",
+            context={},
+            graph_store=mock_graph_store,
+        )
+        assert result["analysis"]["depth"] == 3
+
+    def test_trace_call_chain_entity_not_found(self, mock_graph_store: MagicMock) -> None:
+        """实体不存在抛 ValueError。"""
+        mock_graph_store.get_node.return_value = None
+        with pytest.raises(ValueError, match="Entity not found"):
+            trace_call_chain("nonexistent", {"depth": 3}, mock_graph_store)
+
+    def test_trace_call_chain_empty_result(self, mock_graph_store: MagicMock) -> None:
+        """无调用关系时返回空树。"""
+        mock_graph_store.query.return_value = []
+        result = trace_call_chain("UserService.login", {"depth": 5}, mock_graph_store)
+        assert result["analysis"]["call_tree"] == []
+        assert result["analysis"]["depth"] == 5
+
+
+# --- generate_api_doc 测试 ---
+
+
+class TestGenerateApiDoc:
+    def test_generate_api_doc_analysis(self, mock_graph_store: MagicMock) -> None:
+        """生成 API 文档，返回 Markdown。"""
+        mock_graph_store.get_node.return_value = {
+            "id": "func-001",
+            "name": "UserService.login",
+            "labels": ["CodeEntity"],
+            "entityType": "function",
+            "params": ["username", "password"],
+            "return_type": "Token",
+            "docstring": "用户登录接口",
+        }
+        result = generate_api_doc(
+            entity_id="func-001",
+            context={},
+            graph_store=mock_graph_store,
+        )
+        assert result["success"] is True
+        assert result["side_effects"] == []
+        assert result["analysis"]["entity_name"] == "UserService.login"
+        assert result["analysis"]["entity_type"] == "function"
+
+        doc = result["analysis"]["doc_markdown"]
+        assert "## `UserService.login`" in doc
+        assert "`username`" in doc
+        assert "`password`" in doc
+        assert "`Token`" in doc
+        assert "用户登录接口" in doc
+
+    def test_generate_api_doc_entity_not_found(self, mock_graph_store: MagicMock) -> None:
+        """实体不存在抛 ValueError。"""
+        mock_graph_store.get_node.return_value = None
+        with pytest.raises(ValueError, match="Entity not found"):
+            generate_api_doc("nonexistent", {}, mock_graph_store)
+
+    def test_generate_api_doc_minimal_info(self, mock_graph_store: MagicMock) -> None:
+        """节点信息最少时也能生成文档。"""
+        mock_graph_store.get_node.return_value = {
+            "id": "func-002",
+            "name": "simple_func",
+        }
+        result = generate_api_doc("func-002", {}, mock_graph_store)
+        assert result["success"] is True
+        assert "## `simple_func`" in result["analysis"]["doc_markdown"]
+
+    def test_generate_api_doc_with_context_params(self, mock_graph_store: MagicMock) -> None:
+        """节点无 params 时从 context 降级读取。"""
+        mock_graph_store.get_node.return_value = {
+            "id": "func-003",
+            "name": "my_func",
+            "entityType": "function",
+        }
+        result = generate_api_doc(
+            entity_id="func-003",
+            context={"params": ["arg1", "arg2"]},
+            graph_store=mock_graph_store,
+        )
+        doc = result["analysis"]["doc_markdown"]
+        assert "`arg1`" in doc
+        assert "`arg2`" in doc

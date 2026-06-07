@@ -39,3 +39,11 @@ code_entity:
         - name: find_dependent_modules
           description: "查找依赖模块"
           implementation: "layerkg.actions.code:find_dependent_modules"
+
+    - name: delete
+      description: "删除代码实体（高风险）"
+      requires_approval: true
+      functions:
+        - name: find_dependent_modules
+          description: "查找依赖模块"
+          implementation: "layerkg.actions.code:find_dependent_modules"
