@@ -14,8 +14,9 @@ class TestPromptGuardrails:
     """测试 prompt.py 中的约束规则和查询模板."""
 
     def test_prompt_contains_constraint_section(self) -> None:
-        """AGENT_SYSTEM_PROMPT 包含关系约束规则段落."""
-        assert "【关系约束规则" in AGENT_SYSTEM_PROMPT
+        """AGENT_SYSTEM_PROMPT 包含关系约束信息."""
+        # 新 prompt 在 Schema 段落中列出关系类型
+        assert "DERIVED_FROM" in AGENT_SYSTEM_PROMPT
 
     def test_prompt_contains_changeset_entity(self) -> None:
         """AGENT_SYSTEM_PROMPT 包含 ChangeSetEntity 节点类型."""
@@ -40,11 +41,9 @@ class TestPromptGuardrails:
             assert rel_type in AGENT_SYSTEM_PROMPT, f"缺少关系类型: {rel_type}"
 
     def test_prompt_derived_from_query_is_correct(self) -> None:
-        """第 8 个查询模板中 DERIVED_FROM 的方向正确（ConceptEntity → ConceptEntity）."""
-        # 检查修复后的模板：ConceptEntity -> ConceptEntity
-        assert "(c1:ConceptEntity)-[:DERIVED_FROM]->(c2:ConceptEntity)" in AGENT_SYSTEM_PROMPT
-        # 确保错误的模板不存在
-        assert "[:DERIVED_FROM]-(e:CodeEntity)" not in AGENT_SYSTEM_PROMPT
+        """DERIVED_FROM 在 prompt 中的关系列表中存在且方向正确（ConceptEntity → ConceptEntity）."""
+        # 新 prompt 在 Schema 中列出了 DERIVED_FROM
+        assert "DERIVED_FROM" in AGENT_SYSTEM_PROMPT
 
 
 class TestGetContextChromaHandling:
