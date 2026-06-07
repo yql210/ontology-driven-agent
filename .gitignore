@@ -1,23 +1,57 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.pyright/
 .venv/
 *.egg-info/
 dist/
 build/
-.mypy_cache/
-.pyright/
-.chroma/
+
+# 环境变量（含敏感信息）
 .env
+.env.*
+!.env.example
+
+# 数据库 / 缓存
+.chroma/
+chroma.sqlite3
+*.sqlite
+*.sqlite3
+*.traces.db
+.layerkg/
+
+# 密钥 / 证书
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+id_ecdsa*
+*.p12
+*.pfx
+*.jks
+
+# 日志
+*.log
+
+# 测试覆盖率
+.coverage
+htmlcov/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# Docker 本地覆盖
+docker-compose.override.yml
+
+# 本地配置
+*.local
 
 # Frontend
 frontend/node_modules/
 frontend/dist/
-chroma.sqlite3
-.chroma/
-*.traces.db
-.layerkg/
-.chroma/
-.chroma/
