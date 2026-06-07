@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import json
 import subprocess
+from typing import TYPE_CHECKING
 
 from langchain_core.tools import tool
+
+if TYPE_CHECKING:
+    from layerkg.ontology_engine import OntologyEngine
 
 from layerkg.agent._helpers import (
     get_aligner,
@@ -319,6 +323,81 @@ def export_graph(limit: int = 100) -> str:
         return json.dumps({"error": f"导出图谱失败: {e!s}"}, ensure_ascii=False)
 
 
+@tool
+def ontology_action(entity_name: str, action: str, context: dict) -> str:
+    """通过 Ontology Action 对实体执行操作。
+
+    Agent 只能调用已注册的 Action，不能自由操作图谱。
+    Action 内部会根据上下文选择最合适的 Function 执行。
+
+    Args:
+        entity_name: 目标实体名称
+        action: 要执行的 Action 名称（如 refactor、diagnose）
+        context: 场景上下文（dict），Agent 用于选择 Function 的依据
+            例: {"lines": 150, "branches": 20, "max_lines": 100}
+
+    Returns:
+        执行结果的 JSON 格式字符串
+    """
+    try:
+        neo4j = get_neo4j()
+
+        # 先通过 name 查找 entity_id
+        cypher = "MATCH (n {name: $name}) RETURN n.id AS id LIMIT 1"
+        result = neo4j.query(cypher, {"name": entity_name})
+
+        if not result:
+            return json.dumps(
+                {"error": f"未找到实体 '{entity_name}'"},
+                ensure_ascii=False,
+            )
+
+        entity_id = result[0]["id"]
+
+        # 懒加载 OntologyEngine
+        from layerkg.ontology_engine import OntologyEngine
+
+        engine = _get_ontology_engine(neo4j)
+
+        action_result = engine.execute(entity_id=entity_id, action_name=action, context=context)
+
+        return json.dumps(
+            {
+                "success": action_result.success,
+                "function_name": action_result.function_name,
+                "result": action_result.result,
+                "side_effects": action_result.side_effects,
+                "audit_id": action_result.audit_id,
+            },
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        )
+    except Exception as e:
+        return json.dumps(
+            {"error": f"Ontology action 执行失败: {e!s}"},
+            ensure_ascii=False,
+        )
+
+
+_ontology_engine: OntologyEngine | None = None
+
+
+def _get_ontology_engine(graph_store: object) -> OntologyEngine:
+    """获取或初始化 OntologyEngine 单例。"""
+    global _ontology_engine
+    if _ontology_engine is None:
+        from pathlib import Path
+
+        from layerkg.ontology_engine import OntologyEngine
+
+        engine = OntologyEngine(graph_store)
+        yaml_path = Path(__file__).parent.parent / "ontology_actions.yaml"
+        engine.load_from_yaml(yaml_path)
+        _ontology_engine = engine
+    return _ontology_engine
+
+
 ALL_TOOLS = [
     semantic_search,
     graph_query,
@@ -328,4 +407,5 @@ ALL_TOOLS = [
     get_module_tree,
     detect_changes,
     export_graph,
+    ontology_action,
 ]
