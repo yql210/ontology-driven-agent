@@ -197,13 +197,13 @@ class TestSemanticExtractorInit:
         assert extractor._temperature == 0.5
 
     def test_constructor_defaults(self):
-        """默认参数值正确：batch_size=20, max_retries=3, timeout=60.0, temperature=0.1。"""
+        """默认参数值正确：batch_size=5, max_retries=3, timeout=180.0, temperature=0.1。"""
         extractor = SemanticExtractor()
         assert extractor._ollama_url == "http://localhost:11434"
         assert extractor._model == "qwen3.5:9b"
-        assert extractor._batch_size == 10
+        assert extractor._batch_size == 5
         assert extractor._max_retries == 3
-        assert extractor._timeout == 120.0
+        assert extractor._timeout == 180.0
         assert extractor._temperature == 0.1
 
     def test_valid_semantic_relations(self):

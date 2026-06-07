@@ -111,10 +111,11 @@ class SemanticExtractor:
         ollama_url: str = "http://localhost:11434",
         model: str = "qwen3.5:9b",
         *,
-        batch_size: int = 10,
+        batch_size: int = 5,
         max_retries: int = 3,
-        timeout: float = 120.0,
+        timeout: float = 180.0,
         temperature: float = 0.1,
+        batch_interval: float = 1.0,
     ) -> None:
         """初始化。"""
         self._ollama_url = ollama_url
@@ -123,6 +124,7 @@ class SemanticExtractor:
         self._max_retries = max_retries
         self._timeout = timeout
         self._temperature = temperature
+        self._batch_interval = batch_interval
         self._logger = logging.getLogger(__name__)
         self._client = httpx.Client()
 
@@ -180,6 +182,9 @@ class SemanticExtractor:
                 self._logger.warning("[Semantic] Batch %d/%d FAILED: %s", i, total_batches, e)
             finally:
                 llm_calls += 1
+                # 批次间间隔，让 Ollama 释放内存
+                if self._batch_interval > 0 and i < total_batches:
+                    time.sleep(self._batch_interval)
 
         # 3. 可选：跨类型关系（Code-Doc, Code-Concept）
         if doc_entities:
