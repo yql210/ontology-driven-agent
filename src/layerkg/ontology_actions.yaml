@@ -47,3 +47,32 @@ code_entity:
         - name: find_dependent_modules
           description: "查找依赖模块"
           implementation: "layerkg.actions.code:find_dependent_modules"
+
+alert_entity:
+  actions:
+    - name: diagnose
+      description: "诊断故障"
+      requires_approval: false
+      functions:
+        - name: analyze_by_log_pattern
+          description: "按日志模式分析"
+          implementation: "layerkg.actions.alert:analyze_by_log_pattern"
+        - name: analyze_by_call_chain
+          description: "按调用链分析"
+          implementation: "layerkg.actions.alert:analyze_by_call_chain"
+
+    - name: rollback
+      description: "回滚建议"
+      requires_approval: true
+      functions:
+        - name: find_last_stable
+          description: "找到最近稳定版本"
+          implementation: "layerkg.actions.alert:find_last_stable"
+
+    - name: notify
+      description: "通知"
+      requires_approval: false
+      functions:
+        - name: create_ticket
+          description: "创建工单"
+          implementation: "layerkg.actions.alert:create_ticket"

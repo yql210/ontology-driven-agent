@@ -115,6 +115,9 @@ class ActionResolver:
             "ResourceEntity": "resource_entity",
             "ModuleEntity": "module_entity",
             "ChangeSetEntity": "changeset_entity",
+            "LogEntity": "log_entity",
+            "AlertEntity": "alert_entity",
+            "ServiceEntity": "service_entity",
         }
         for label in labels:
             key = label_to_key.get(label)

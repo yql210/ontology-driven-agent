@@ -214,6 +214,127 @@ class ChangeSetEntity:
             raise SchemaValidationError("ChangeSetEntity.message cannot be empty")
 
 
+@dataclass
+class LogEntity:
+    """日志实体 — 来自外部日志系统。
+
+    Attributes:
+        name: 日志条目标识（非空）。
+        level: 日志级别，必须是 ERROR/WARN/INFO/DEBUG 之一。
+        message: 日志消息（非空）。
+        source_service: 来源服务名称。
+        id: UUID v4 标识符，自动生成。
+        timestamp: 日志时间戳。
+        pattern: 匹配的日志模式（可选）。
+        stack_trace: 堆栈跟踪（可选）。
+        created_at: 记录创建时间，自动生成。
+    """
+
+    name: str
+    level: str
+    message: str
+    source_service: str
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    pattern: str | None = None
+    stack_trace: str | None = None
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    VALID_LEVELS = {"ERROR", "WARN", "INFO", "DEBUG"}
+
+    def __post_init__(self) -> None:
+        """校验字段。"""
+        if not self.name or not self.name.strip():
+            raise SchemaValidationError("LogEntity.name cannot be empty")
+        if self.level not in self.VALID_LEVELS:
+            raise SchemaValidationError(
+                f"LogEntity.level must be one of {self.VALID_LEVELS}, got '{self.level}'"
+            )
+        if not self.message or not self.message.strip():
+            raise SchemaValidationError("LogEntity.message cannot be empty")
+
+
+@dataclass
+class AlertEntity:
+    """告警实体 — 来自监控系统 Webhook。
+
+    Attributes:
+        name: 告警标识（非空）。
+        alert_type: 告警类型，必须是 error_spike/latency/service_down/custom 之一。
+        severity: 严重程度，必须是 CRITICAL/HIGH/MEDIUM/LOW 之一。
+        description: 告警描述。
+        source_service: 来源服务名称。
+        id: UUID v4 标识符，自动生成。
+        timestamp: 告警时间戳。
+        resolved: 是否已解决。
+        related_log_ids: 关联日志 ID 列表。
+        created_at: 记录创建时间，自动生成。
+    """
+
+    name: str
+    alert_type: str
+    severity: str
+    description: str
+    source_service: str
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    resolved: bool = False
+    related_log_ids: list[str] = field(default_factory=list)
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    VALID_ALERT_TYPES = {"error_spike", "latency", "service_down", "custom"}
+    VALID_SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
+
+    def __post_init__(self) -> None:
+        """校验字段。"""
+        if not self.name or not self.name.strip():
+            raise SchemaValidationError("AlertEntity.name cannot be empty")
+        if self.alert_type not in self.VALID_ALERT_TYPES:
+            raise SchemaValidationError(
+                f"AlertEntity.alert_type must be one of {self.VALID_ALERT_TYPES}, got '{self.alert_type}'"
+            )
+        if self.severity not in self.VALID_SEVERITIES:
+            raise SchemaValidationError(
+                f"AlertEntity.severity must be one of {self.VALID_SEVERITIES}, got '{self.severity}'"
+            )
+
+
+@dataclass
+class ServiceEntity:
+    """服务实体 — 运行时服务实例。
+
+    Attributes:
+        name: 服务名称（非空）。
+        version: 服务版本。
+        status: 服务状态，必须是 running/stopped/degraded 之一。
+        id: UUID v4 标识符，自动生成。
+        endpoint: 服务端点（可选）。
+        code_entity_id: 关联的 CodeEntity ID（可选）。
+        config: 服务配置。
+        created_at: 记录创建时间，自动生成。
+    """
+
+    name: str
+    version: str
+    status: str
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    endpoint: str | None = None
+    code_entity_id: str | None = None
+    config: dict[str, str] = field(default_factory=dict)
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    VALID_STATUSES = {"running", "stopped", "degraded"}
+
+    def __post_init__(self) -> None:
+        """校验字段。"""
+        if not self.name or not self.name.strip():
+            raise SchemaValidationError("ServiceEntity.name cannot be empty")
+        if self.status not in self.VALID_STATUSES:
+            raise SchemaValidationError(
+                f"ServiceEntity.status must be one of {self.VALID_STATUSES}, got '{self.status}'"
+            )
+
+
 VALID_RELATION_TYPES = frozenset(
     {
         "calls",
@@ -227,6 +348,10 @@ VALID_RELATION_TYPES = frozenset(
         "derived_from",
         "changed_in",
         "affects",
+        "triggered_by",
+        "logs_from",
+        "runs_as",
+        "service_depends_on",
     }
 )
 
@@ -242,6 +367,10 @@ RELATION_TYPE_TO_NEO4J: dict[str, str] = {
     "derived_from": "DERIVED_FROM",
     "changed_in": "CHANGED_IN",
     "affects": "AFFECTS",
+    "triggered_by": "TRIGGERED_BY",
+    "logs_from": "LOGS_FROM",
+    "runs_as": "RUNS_AS",
+    "service_depends_on": "SERVICE_DEPENDS_ON",
 }
 
 
@@ -339,6 +468,27 @@ RELATION_CONSTRAINTS: dict[str, RelationConstraint] = {
         domain="ChangeSetEntity",
         range={"CodeEntity", "DocEntity", "ResourceEntity", "ConceptEntity"},
         description="变更集影响的实体",
+    ),
+    # --- 运维关系 ---
+    "triggered_by": RelationConstraint(
+        domain="AlertEntity",
+        range="LogEntity",
+        description="告警由日志触发",
+    ),
+    "logs_from": RelationConstraint(
+        domain="LogEntity",
+        range="ServiceEntity",
+        description="日志来源于服务",
+    ),
+    "runs_as": RelationConstraint(
+        domain="CodeEntity",
+        range="ServiceEntity",
+        description="代码部署为服务",
+    ),
+    "service_depends_on": RelationConstraint(
+        domain="ServiceEntity",
+        range="ServiceEntity",
+        description="服务间依赖",
     ),
 }
 

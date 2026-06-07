@@ -5,7 +5,17 @@ import uuid
 import pytest
 
 from layerkg.exceptions import SchemaValidationError
-from layerkg.schema import CodeEntity, ConceptEntity, DocEntity, ResourceEntity
+from layerkg.schema import (
+    AlertEntity,
+    CodeEntity,
+    ConceptEntity,
+    DocEntity,
+    LogEntity,
+    ResourceEntity,
+    ServiceEntity,
+    RELATION_CONSTRAINTS,
+    VALID_RELATION_TYPES,
+)
 
 
 @pytest.mark.unit
@@ -222,3 +232,116 @@ def test_resource_entity_optional_fields():
     )
     assert entity.file_path == "/docs/architecture.png"
     assert entity.mime_type == "image/png"
+
+
+# --- LogEntity Tests ---
+
+
+@pytest.mark.unit
+def test_log_entity_valid():
+    """Test creating a LogEntity with valid data."""
+    entity = LogEntity(
+        name="error-001",
+        level="ERROR",
+        message="Connection refused",
+        source_service="api-gateway",
+    )
+    assert entity.name == "error-001"
+    assert entity.level == "ERROR"
+    assert entity.message == "Connection refused"
+    assert entity.source_service == "api-gateway"
+    assert entity.id is not None
+    assert entity.pattern is None
+    assert entity.stack_trace is None
+
+
+@pytest.mark.unit
+def test_log_entity_invalid_level():
+    """Test that LogEntity rejects invalid level."""
+    with pytest.raises(SchemaValidationError, match="LogEntity.level"):
+        LogEntity(name="log-1", level="FATAL", message="msg", source_service="svc")
+
+
+@pytest.mark.unit
+def test_log_entity_empty_message():
+    """Test that LogEntity rejects empty message."""
+    with pytest.raises(SchemaValidationError, match="LogEntity.message"):
+        LogEntity(name="log-1", level="ERROR", message="   ", source_service="svc")
+
+
+# --- AlertEntity Tests ---
+
+
+@pytest.mark.unit
+def test_alert_entity_valid():
+    """Test creating an AlertEntity with valid data."""
+    entity = AlertEntity(
+        name="alert-001",
+        alert_type="error_spike",
+        severity="HIGH",
+        description="Error rate exceeded threshold",
+        source_service="payment-service",
+    )
+    assert entity.name == "alert-001"
+    assert entity.alert_type == "error_spike"
+    assert entity.severity == "HIGH"
+    assert entity.resolved is False
+    assert entity.related_log_ids == []
+
+
+@pytest.mark.unit
+def test_alert_entity_invalid_severity():
+    """Test that AlertEntity rejects invalid severity."""
+    with pytest.raises(SchemaValidationError, match="AlertEntity.severity"):
+        AlertEntity(
+            name="a1", alert_type="error_spike", severity="URGENT",
+            description="d", source_service="svc",
+        )
+
+
+# --- ServiceEntity Tests ---
+
+
+@pytest.mark.unit
+def test_service_entity_valid():
+    """Test creating a ServiceEntity with valid data."""
+    entity = ServiceEntity(name="api-gateway", version="2.1.0", status="running")
+    assert entity.name == "api-gateway"
+    assert entity.version == "2.1.0"
+    assert entity.status == "running"
+    assert entity.endpoint is None
+    assert entity.code_entity_id is None
+    assert entity.config == {}
+
+
+@pytest.mark.unit
+def test_service_entity_invalid_status():
+    """Test that ServiceEntity rejects invalid status."""
+    with pytest.raises(SchemaValidationError, match="ServiceEntity.status"):
+        ServiceEntity(name="svc", version="1.0", status="crashed")
+
+
+# --- New Relation Types Tests ---
+
+
+@pytest.mark.unit
+def test_new_relation_types_valid():
+    """Test that new ops relation types are in VALID_RELATION_TYPES."""
+    for rel_type in ("triggered_by", "logs_from", "runs_as", "service_depends_on"):
+        assert rel_type in VALID_RELATION_TYPES, f"{rel_type} not in VALID_RELATION_TYPES"
+
+
+@pytest.mark.unit
+def test_new_relation_constraints_valid():
+    """Test that new ops relations have constraints in RELATION_CONSTRAINTS."""
+    for rel_type in ("triggered_by", "logs_from", "runs_as", "service_depends_on"):
+        assert rel_type in RELATION_CONSTRAINTS, f"{rel_type} not in RELATION_CONSTRAINTS"
+
+    assert RELATION_CONSTRAINTS["triggered_by"].domain == "AlertEntity"
+    assert RELATION_CONSTRAINTS["triggered_by"].range == "LogEntity"
+    assert RELATION_CONSTRAINTS["logs_from"].domain == "LogEntity"
+    assert RELATION_CONSTRAINTS["logs_from"].range == "ServiceEntity"
+    assert RELATION_CONSTRAINTS["runs_as"].domain == "CodeEntity"
+    assert RELATION_CONSTRAINTS["runs_as"].range == "ServiceEntity"
+    assert RELATION_CONSTRAINTS["service_depends_on"].domain == "ServiceEntity"
+    assert RELATION_CONSTRAINTS["service_depends_on"].range == "ServiceEntity"
