@@ -45,11 +45,17 @@ function handleSend(message: string) {
   height: calc(100vh - 56px);
   max-width: 900px;
   margin: 0 auto;
+  animation: slide-up 0.3s ease-out;
 }
 .chat-header {
   padding: 20px 24px;
-  background: linear-gradient(180deg, rgba(139,92,246,0.08), transparent);
+  background:
+    linear-gradient(135deg, rgba(139,92,246,0.12), rgba(59,130,246,0.08), rgba(52,211,153,0.04)),
+    linear-gradient(180deg, rgba(139,92,246,0.06), transparent);
+  background-size: 200% 200%;
+  animation: gradient-shift 8s ease infinite;
   border-bottom: 1px solid var(--border-dim);
+  position: relative;
 }
 .chat-header h1 {
   margin: 0;
@@ -75,11 +81,11 @@ function handleSend(message: string) {
   text-align: center;
   color: var(--text-muted);
   margin-top: 100px;
-  animation: fadeIn 0.5s ease;
+  animation: slide-up 0.4s ease-out;
 }
 .empty-state p:first-child {
   font-size: 48px;
-  animation: float 3s ease-in-out infinite;
+  animation: float 3s ease-in-out infinite, glow-pulse 2s ease-in-out infinite;
 }
 .empty-state p:last-child {
   margin-top: 12px;

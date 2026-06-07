@@ -77,6 +77,21 @@ function handleDelete() {
   border-left: 1px solid var(--border-dim);
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+.node-detail::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(180deg, #8b5cf6, #3b82f6, #34d399, #3b82f6, #8b5cf6);
+  background-size: 100% 200%;
+  animation: gradient-shift 4s ease infinite;
+  box-shadow: 0 0 8px rgba(139,92,246,0.3), 0 0 20px rgba(139,92,246,0.1);
+  z-index: 1;
 }
 
 .empty-state {
@@ -92,6 +107,7 @@ function handleDelete() {
   flex: 1;
   overflow-y: auto;
   padding: 20px;
+  animation: slide-up 0.3s var(--ease-smooth);
 }
 
 .detail-header {
@@ -117,6 +133,7 @@ function handleDelete() {
   color: var(--primary-light);
   border-radius: var(--radius-pill);
   font-size: 12px;
+  box-shadow: var(--glow-xs);
 }
 
 .detail-section {
@@ -148,15 +165,22 @@ function handleDelete() {
   padding: 10px 12px;
   border-radius: var(--radius-sm);
   margin-bottom: 4px;
+  transition: background var(--transition-fast);
 }
 .property-item:nth-child(even) {
   background: rgba(148,163,184,0.03);
 }
+.property-item:hover {
+  background: rgba(139,92,246,0.05);
+}
 
 .prop-key {
-  color: var(--text-muted);
   font-size: 12px;
   font-weight: 500;
+  background: linear-gradient(135deg, #a78bfa, #60a5fa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .prop-value {
@@ -168,6 +192,8 @@ function handleDelete() {
 .relation-item {
   padding: 4px 0;
   font-size: 13px;
+  display: flex;
+  align-items: center;
 }
 
 .rel-source,
@@ -176,8 +202,17 @@ function handleDelete() {
 }
 
 .rel-type {
-  color: var(--text-muted);
-  margin: 0 4px;
+  margin: 0 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+}
+
+/* Relation type colors */
+.rel-type {
+  color: var(--primary-light);
+  background: rgba(139,92,246,0.08);
 }
 
 .detail-actions {
@@ -197,7 +232,7 @@ function handleDelete() {
   font-size: 12px;
   font-weight: 500;
   font-family: var(--font-sans);
-  transition: box-shadow var(--transition-fast), background var(--transition-fast);
+  transition: box-shadow var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
 }
 
 .btn-expand {
@@ -205,7 +240,11 @@ function handleDelete() {
   color: #fff;
 }
 .btn-expand:hover {
-  box-shadow: 0 0 12px rgba(139,92,246,0.25), 0 0 24px rgba(139,92,246,0.1);
+  box-shadow: var(--glow-md);
+  transform: translateY(-1px);
+}
+.btn-expand:active {
+  transform: translateY(0);
 }
 
 .btn-delete {
@@ -215,5 +254,10 @@ function handleDelete() {
 }
 .btn-delete:hover {
   background: rgba(248,113,113,0.25);
+  box-shadow: 0 0 12px rgba(248,113,113,0.2), 0 0 24px rgba(248,113,113,0.08);
+  transform: translateY(-1px);
+}
+.btn-delete:active {
+  transform: translateY(0);
 }
 </style>

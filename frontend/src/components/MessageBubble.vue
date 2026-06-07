@@ -28,6 +28,7 @@ defineProps<{ message: Message; threadId?: string | null }>()
   gap: 10px;
   margin-bottom: 16px;
   max-width: 70%;
+  animation: slide-up 0.3s ease-out;
 }
 .message.user { flex-direction: row-reverse; }
 .avatar {
@@ -62,13 +63,17 @@ defineProps<{ message: Message; threadId?: string | null }>()
   line-height: 1.6;
   min-width: 60px;
   font-size: 14px;
-  animation: fadeIn 0.3s ease;
 }
 .message.user .bubble {
   background: linear-gradient(135deg, #8b5cf6, #3b82f6);
   border: none;
   color: #fff;
   border-radius: 16px 16px 4px 16px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), inset 0 -1px 0 rgba(0,0,0,0.1);
+}
+.message:not(.user):not(.error) .bubble {
+  border-image: linear-gradient(135deg, rgba(139,92,246,0.3), rgba(59,130,246,0.2), rgba(139,92,246,0.15)) 1;
+  border-image-slice: 1;
 }
 .message.error .bubble {
   background: rgba(248,113,113,0.15);
@@ -85,11 +90,12 @@ defineProps<{ message: Message; threadId?: string | null }>()
   color: var(--primary-light);
   text-decoration: none;
   font-size: 13px;
-  transition: color var(--transition-fast);
+  transition: color var(--transition-fast), text-shadow var(--transition-fast);
 }
 .trace-link:hover {
   text-decoration: underline;
   color: #fff;
+  text-shadow: 0 0 8px rgba(139,92,246,0.4);
 }
 @keyframes blink {
   0%, 100% { opacity: 1; }

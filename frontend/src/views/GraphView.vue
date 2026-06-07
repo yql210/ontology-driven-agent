@@ -81,8 +81,10 @@ function initCytoscape() {
           label: 'data(label)',
           'text-valign': 'center',
           'text-halign': 'center',
-          width: '30px',
-          height: '30px',
+          width: '45px',
+          height: '45px',
+          'border-width': 2,
+          'border-color': '#64748b',
           'font-size': '11px',
           'text-outline-color': '#0f172a',
           'text-outline-width': '2px',
@@ -92,27 +94,27 @@ function initCytoscape() {
       // Neon colors by entity type
       {
         selector: 'node[neo4jLabel="CodeEntity"]',
-        style: { 'background-color': '#60a5fa' },
+        style: { 'background-color': '#60a5fa', 'border-color': '#93c5fd' },
       },
       {
         selector: 'node[neo4jLabel="ConceptEntity"]',
-        style: { 'background-color': '#34d399' },
+        style: { 'background-color': '#34d399', 'border-color': '#6ee7b7' },
       },
       {
         selector: 'node[neo4jLabel="ModuleEntity"]',
-        style: { 'background-color': '#fbbf24' },
+        style: { 'background-color': '#fbbf24', 'border-color': '#fcd34d' },
       },
       {
         selector: 'node[neo4jLabel="DocEntity"]',
-        style: { 'background-color': '#a78bfa' },
+        style: { 'background-color': '#a78bfa', 'border-color': '#c4b5fd' },
       },
       {
         selector: 'node[neo4jLabel="ResourceEntity"]',
-        style: { 'background-color': '#f472b6' },
+        style: { 'background-color': '#f472b6', 'border-color': '#f9a8d4' },
       },
       {
         selector: 'node[neo4jLabel="ChangeSetEntity"]',
-        style: { 'background-color': '#f87171' },
+        style: { 'background-color': '#f87171', 'border-color': '#fca5a5' },
       },
       // Fix 4: 边标签显示
       {
@@ -304,6 +306,7 @@ function handleReset() {
   display: flex;
   flex-direction: column;
   height: calc(100vh - 56px);
+  animation: slide-up 0.3s ease-out;
 }
 
 .graph-header {
@@ -337,8 +340,11 @@ function handleReset() {
 }
 .search-input::placeholder { color: var(--text-muted); }
 .search-input:focus {
-  border-color: rgba(139,92,246,0.5);
-  box-shadow: 0 0 0 3px rgba(139,92,246,0.1);
+  border-color: transparent;
+  background-image: linear-gradient(var(--bg-tertiary), var(--bg-tertiary)), linear-gradient(135deg, #8b5cf6, #3b82f6);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  box-shadow: 0 0 12px rgba(139,92,246,0.15);
 }
 
 .type-dropdown {
@@ -372,7 +378,9 @@ function handleReset() {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  background: var(--bg-secondary);
+  background: rgba(30, 41, 59, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   box-shadow: 0 8px 32px rgba(0,0,0,0.4);
@@ -440,12 +448,13 @@ function handleReset() {
   position: absolute;
   bottom: 16px;
   left: 16px;
-  background: var(--bg-glass);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid var(--border-dim);
+  background: rgba(30, 41, 59, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   padding: 14px;
+  box-shadow: var(--glow-xs);
 }
 
 .legend-item {
@@ -482,7 +491,16 @@ function handleReset() {
   gap: 16px;
 }
 
+.graph-footer span {
+  background: linear-gradient(135deg, #a78bfa, #60a5fa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-weight: 600;
+}
+
 .error {
   color: #f87171;
+  -webkit-text-fill-color: #f87171;
 }
 </style>

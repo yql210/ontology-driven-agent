@@ -256,11 +256,12 @@ onUnmounted(() => {
   font-size: 14px;
   font-family: var(--font-sans);
   align-self: flex-start;
-  transition: color var(--transition-fast), border-color var(--transition-fast);
+  transition: color var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 .back-btn:hover {
   color: var(--text-primary);
   border-color: var(--border-default);
+  box-shadow: var(--glow-xs);
 }
 
 .header-info {
@@ -292,10 +293,11 @@ onUnmounted(() => {
   font-size: 12px;
   font-weight: 500;
   font-family: var(--font-sans);
-  transition: box-shadow var(--transition-fast);
+  transition: box-shadow var(--transition-fast), transform var(--transition-fast);
 }
 .btn-graph:hover {
-  box-shadow: 0 0 12px rgba(139,92,246,0.25), 0 0 24px rgba(139,92,246,0.1);
+  box-shadow: var(--glow-md);
+  transform: translateY(-1px);
 }
 
 .btn-delete {
@@ -307,10 +309,12 @@ onUnmounted(() => {
   cursor: pointer;
   font-size: 12px;
   font-family: var(--font-sans);
-  transition: background var(--transition-fast);
+  transition: background var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
 }
 .btn-delete:hover {
   background: rgba(248,113,113,0.25);
+  box-shadow: 0 0 12px rgba(248,113,113,0.2), 0 0 24px rgba(248,113,113,0.08);
+  transform: translateY(-1px);
 }
 
 .loading, .error {
@@ -339,21 +343,25 @@ onUnmounted(() => {
 .badge-success {
   background: rgba(52,211,153,0.15);
   color: #34d399;
+  box-shadow: 0 0 6px rgba(52,211,153,0.15);
 }
 
 .badge-running {
   background: rgba(251,191,36,0.15);
   color: #fbbf24;
+  box-shadow: 0 0 6px rgba(251,191,36,0.15);
 }
 
 .badge-error {
   background: rgba(248,113,113,0.15);
   color: #f87171;
+  box-shadow: 0 0 6px rgba(248,113,113,0.15);
 }
 
 .badge-default {
   background: rgba(148,163,184,0.15);
   color: var(--text-secondary);
+  box-shadow: 0 0 4px rgba(148,163,184,0.08);
 }
 
 .duration {
@@ -383,6 +391,10 @@ onUnmounted(() => {
   color: var(--text-primary);
   font-size: 18px;
   font-weight: 600;
+  background: linear-gradient(135deg, #a78bfa, #60a5fa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .mermaid-container {
@@ -419,6 +431,7 @@ onUnmounted(() => {
   margin-bottom: 0;
 }
 
+/* Timeline vertical line with gradient pulse animation */
 .timeline-item:not(:last-child)::after {
   content: '';
   position: absolute;
@@ -427,8 +440,12 @@ onUnmounted(() => {
   bottom: -24px;
   width: 2px;
   background: linear-gradient(180deg, #8b5cf6, #3b82f6);
+  background-size: 100% 200%;
+  animation: gradient-shift 3s ease infinite;
+  opacity: 0.7;
 }
 
+/* Timeline marker with glow-pulse */
 .timeline-marker {
   width: 34px;
   height: 34px;
@@ -440,6 +457,7 @@ onUnmounted(() => {
   font-size: 16px;
   flex-shrink: 0;
   z-index: 1;
+  animation: glow-pulse 3s ease-in-out infinite;
 }
 
 .timeline-item.type-thinking .timeline-marker {
@@ -468,10 +486,11 @@ onUnmounted(() => {
   border: 1px solid var(--border-dim);
   padding: 16px;
   border-radius: var(--radius-md);
-  transition: border-color var(--transition-normal);
+  transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
 }
 .timeline-content:hover {
   border-color: var(--border-default);
+  box-shadow: var(--glow-xs);
 }
 
 .step-header {
@@ -556,6 +575,7 @@ onUnmounted(() => {
   z-index: 1000;
 }
 
+/* Modal with border glow */
 .modal-content {
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
@@ -564,7 +584,8 @@ onUnmounted(() => {
   max-width: 900px;
   max-height: 80vh;
   overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4), 0 0 1px rgba(139,92,246,0.3), 0 0 16px rgba(139,92,246,0.1);
+  animation: slide-up 0.3s var(--ease-spring);
 }
 
 .modal-header {

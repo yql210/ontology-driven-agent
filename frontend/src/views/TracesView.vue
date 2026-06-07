@@ -162,10 +162,23 @@ onMounted(() => {
   font-size: 14px;
   font-weight: 500;
   font-family: var(--font-sans);
-  transition: box-shadow var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+  transition: box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+.btn-graph::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+  animation: shimmer 3s ease-in-out infinite;
 }
 .btn-graph:hover {
-  box-shadow: 0 0 12px rgba(139,92,246,0.25), 0 0 24px rgba(139,92,246,0.1);
+  box-shadow: var(--glow-md);
+  transform: translateY(-1px);
 }
 
 .loading, .empty-state {
@@ -195,6 +208,7 @@ onMounted(() => {
   background: var(--bg-card);
   border-top: 1px solid var(--border-dim);
   border-bottom: 1px solid var(--border-dim);
+  position: relative;
 }
 .traces-table td:first-child {
   border-left: 1px solid var(--border-dim);
@@ -215,6 +229,24 @@ onMounted(() => {
 .trace-row:hover td {
   border-color: var(--border-default);
   background: rgba(30,41,59,0.95);
+}
+
+/* Left gradient indicator bar on hover */
+.trace-row td:first-child::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, #8b5cf6, #3b82f6);
+  opacity: 0;
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+  transition: opacity var(--transition-normal);
+  box-shadow: 0 0 8px rgba(139,92,246,0.3);
+}
+.trace-row:hover td:first-child::before {
+  opacity: 1;
 }
 
 .query-cell {
@@ -238,21 +270,25 @@ onMounted(() => {
 .badge-success {
   background: rgba(52,211,153,0.15);
   color: #34d399;
+  box-shadow: 0 0 6px rgba(52,211,153,0.15);
 }
 
 .badge-running {
   background: rgba(251,191,36,0.15);
   color: #fbbf24;
+  box-shadow: 0 0 6px rgba(251,191,36,0.15);
 }
 
 .badge-error {
   background: rgba(248,113,113,0.15);
   color: #f87171;
+  box-shadow: 0 0 6px rgba(248,113,113,0.15);
 }
 
 .badge-default {
   background: rgba(148,163,184,0.15);
   color: var(--text-secondary);
+  box-shadow: 0 0 4px rgba(148,163,184,0.08);
 }
 
 /* Modal */
@@ -280,6 +316,7 @@ onMounted(() => {
   max-height: 80vh;
   overflow: hidden;
   box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+  animation: slide-up 0.3s var(--ease-spring);
 }
 
 .modal-header {

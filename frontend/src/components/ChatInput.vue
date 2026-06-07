@@ -47,8 +47,14 @@ input {
 }
 input::placeholder { color: var(--text-muted); }
 input:focus {
-  border-color: rgba(139,92,246,0.5);
-  box-shadow: 0 0 0 3px rgba(139,92,246,0.1);
+  border-color: transparent;
+  background: var(--bg-primary);
+  background-image: linear-gradient(var(--bg-tertiary), var(--bg-tertiary)), linear-gradient(135deg, #8b5cf6, #3b82f6, #34d399, #8b5cf6);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  background-size: 100% 100%, 300% 100%;
+  animation: gradient-shift 3s ease infinite;
+  box-shadow: 0 0 12px rgba(139,92,246,0.15);
 }
 button {
   padding: 10px 20px;
@@ -60,12 +66,15 @@ button {
   font-size: 14px;
   font-weight: 500;
   font-family: var(--font-sans);
-  transition: background var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+  transition: background var(--transition-fast), transform 0.2s var(--ease-spring), box-shadow var(--transition-normal);
 }
 button:hover {
   background: linear-gradient(135deg, #7c3aed, #2563eb);
-  transform: translateY(-1px);
-  box-shadow: 0 0 12px rgba(139,92,246,0.25), 0 0 24px rgba(139,92,246,0.1);
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 0 16px rgba(139,92,246,0.3), 0 0 32px rgba(139,92,246,0.15);
+}
+button:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
 }
 button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
 </style>
