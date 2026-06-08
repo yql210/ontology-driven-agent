@@ -10,13 +10,18 @@ defineProps<{ message: Message; threadId?: string | null }>()
   <div class="message" :class="message.role">
     <div class="avatar">{{ message.role === 'user' ? '👤' : '🤖' }}</div>
     <div class="bubble">
-      <template v-if="message.blocks?.length">
+      <template v-if="message.blocks && message.blocks.length > 0">
         <template v-for="(block, idx) in message.blocks" :key="idx">
-          <MarkdownRenderer v-if="block.type === 'text' && block.content" :content="block.content" />
-          <ToolCallBlock v-else-if="block.type === 'tool_call'" :tool-call="block.toolCall" />
+          <MarkdownRenderer v-if="block.type === 'text'" :content="block.content || ''" />
+          <ToolCallBlock v-if="block.type === 'tool_call'" :tool-call="block.toolCall" />
         </template>
       </template>
-      <MarkdownRenderer v-else :content="message.content" />
+      <template v-else>
+        <MarkdownRenderer :content="message.content" />
+        <div v-if="message.toolCalls?.length" class="tool-calls">
+          <ToolCallBlock v-for="tc in message.toolCalls" :key="tc.id" :tool-call="tc" />
+        </div>
+      </template>
       <span v-if="message.isStreaming" class="cursor">▊</span>
       <router-link v-if="threadId && !message.isStreaming && message.role === 'assistant'" :to="`/traces/${threadId}`" class="trace-link">
         📊 查看 Trace →
