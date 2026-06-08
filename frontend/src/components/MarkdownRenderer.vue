@@ -32,10 +32,13 @@ const rendered = computed(() => marked.parse(props.content || ''))
   padding: 16px;
   overflow-x: auto;
   border: 1px solid var(--border-dim);
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 .markdown-body :deep(code) {
   font-family: var(--font-mono);
   font-size: 13px;
+  word-break: break-all;
 }
 .markdown-body :deep(:not(pre) > code) {
   background: var(--bg-tertiary);
@@ -43,6 +46,7 @@ const rendered = computed(() => marked.parse(props.content || ''))
   border-radius: 4px;
   font-size: 0.9em;
   color: var(--primary-light);
+  word-break: break-all;
 }
 .markdown-body :deep(p) {
   margin: 0.5em 0;

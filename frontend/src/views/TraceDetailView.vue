@@ -276,6 +276,8 @@ onUnmounted(() => {
   color: var(--text-primary);
   font-size: 20px;
   font-weight: 600;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .header-actions {
@@ -514,6 +516,8 @@ onUnmounted(() => {
   color: var(--text-primary);
   margin-bottom: 8px;
   line-height: 1.5;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .tool-name {

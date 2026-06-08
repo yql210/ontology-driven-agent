@@ -166,6 +166,7 @@ function handleDelete() {
   border-radius: var(--radius-sm);
   margin-bottom: 4px;
   transition: background var(--transition-fast);
+  overflow: hidden;
 }
 .property-item:nth-child(even) {
   background: rgba(148,163,184,0.03);
@@ -181,6 +182,8 @@ function handleDelete() {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .prop-value {

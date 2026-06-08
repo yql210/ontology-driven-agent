@@ -63,6 +63,8 @@ defineProps<{ message: Message; threadId?: string | null }>()
   line-height: 1.6;
   min-width: 60px;
   font-size: 14px;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .message.user .bubble {
   background: linear-gradient(135deg, #8b5cf6, #3b82f6);

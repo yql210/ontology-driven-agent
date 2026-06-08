@@ -75,6 +75,9 @@ const expanded = ref(false)
   font-family: var(--font-mono);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-dim);
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: break-word;
 }
 .tool-result {
   margin-top: 4px;
@@ -88,6 +91,9 @@ const expanded = ref(false)
   font-family: var(--font-mono);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-dim);
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-wrap: break-word;
 }
 .section-label {
   padding: 4px 0 6px;
