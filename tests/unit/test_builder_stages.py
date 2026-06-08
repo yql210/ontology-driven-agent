@@ -136,7 +136,7 @@ class TestStageSemantic:
         # Arrange
         mock_graph = MagicMock()
 
-        with patch.object(builder, "_check_ollama", return_value=False):
+        with patch.object(builder, "_check_llm_available", return_value=False):
             # Act
             concepts_created, semantic_rels_created, skipped_semantic, errors, new_concepts = builder._stage_semantic(
                 sample_entities, mock_graph, temp_repo
@@ -162,7 +162,7 @@ class TestStageSemantic:
         mock_extractor.extract.return_value = MagicMock(relations=[])
 
         with (
-            patch.object(builder, "_check_ollama", return_value=True),
+            patch.object(builder, "_check_llm_available", return_value=True),
             patch.object(builder, "_init_semantic_extractor", return_value=mock_extractor),
         ):
             # Act
@@ -228,7 +228,7 @@ class TestBuildFullPipeline:
         with (
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
-            patch.object(builder, "_check_ollama", return_value=False),
+            patch.object(builder, "_check_llm_available", return_value=False),
         ):
             # Act
             result = builder.build(temp_repo)
@@ -261,7 +261,7 @@ class TestBuildErrorAccumulation:
         with (
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
-            patch.object(builder, "_check_ollama", return_value=False),
+            patch.object(builder, "_check_llm_available", return_value=False),
             patch.object(
                 builder,
                 "_detect_and_write_modules",
@@ -302,7 +302,7 @@ class TestBuildErrorAccumulation:
         with (
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
-            patch.object(builder, "_check_ollama", return_value=True),
+            patch.object(builder, "_check_llm_available", return_value=True),
             patch.object(builder, "_init_semantic_extractor", return_value=mock_extractor),
             patch.object(builder, "_init_clustering", return_value=mock_clustering),
         ):

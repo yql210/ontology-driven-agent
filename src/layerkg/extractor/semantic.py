@@ -116,6 +116,9 @@ class SemanticExtractor:
         timeout: float = 180.0,
         temperature: float = 0.1,
         batch_interval: float = 1.0,
+        provider: str = "ollama",
+        api_key: str = "",
+        base_url: str = "https://api.openai.com/v1",
     ) -> None:
         """初始化。"""
         self._ollama_url = ollama_url
@@ -125,8 +128,12 @@ class SemanticExtractor:
         self._timeout = timeout
         self._temperature = temperature
         self._batch_interval = batch_interval
+        self._provider = provider
+        self._api_key = api_key
+        self._base_url = base_url.rstrip("/")
         self._logger = logging.getLogger(__name__)
-        self._client = httpx.Client()
+        headers = {"Authorization": f"Bearer {api_key}"} if provider == "openai" else {}
+        self._client = httpx.Client(headers=headers)
 
     def close(self) -> None:
         """关闭 HTTP 客户端。"""
@@ -210,7 +217,7 @@ class SemanticExtractor:
         )
 
     def _call_llm(self, prompt: str) -> tuple[str, int]:
-        """调用 Ollama chat API。
+        """调用 LLM chat API（根据 provider 分发）。
 
         Args:
             prompt: 用户 prompt。
@@ -221,6 +228,12 @@ class SemanticExtractor:
         Raises:
             ExtractionError: 当 API 调用失败时。
         """
+        if self._provider == "openai":
+            return self._call_llm_openai(prompt)
+        return self._call_llm_ollama(prompt)
+
+    def _call_llm_ollama(self, prompt: str) -> tuple[str, int]:
+        """调用 Ollama chat API。"""
         try:
             response = self._client.post(
                 f"{self._ollama_url}/api/chat",
@@ -243,6 +256,30 @@ class SemanticExtractor:
             return content, tokens
         except httpx.HTTPError as e:
             raise ExtractionError(f"Ollama API call failed: {e}") from e
+
+    def _call_llm_openai(self, prompt: str) -> tuple[str, int]:
+        """调用 OpenAI 兼容 chat API。"""
+        try:
+            response = self._client.post(
+                f"{self._base_url}/chat/completions",
+                json={
+                    "model": self._model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": self._temperature,
+                    "max_tokens": 2048,
+                },
+                timeout=self._timeout,
+            )
+            response.raise_for_status()
+            data = response.json()
+            content = data["choices"][0]["message"]["content"]
+            usage = data.get("usage", {})
+            tokens = (usage.get("prompt_tokens", 0) or 0) + (usage.get("completion_tokens", 0) or 0)
+            return content, tokens
+        except httpx.HTTPError as e:
+            raise ExtractionError(f"OpenAI API call failed: {e}") from e
+        except (KeyError, IndexError) as e:
+            raise ExtractionError(f"OpenAI response parse error: {e}") from e
 
     def _create_batches(self, entities: list[CodeEntity]) -> list[list[CodeEntity]]:
         """将实体列表按 batch_size 分批。

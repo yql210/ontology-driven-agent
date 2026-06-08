@@ -178,7 +178,7 @@ class TestBuildIntegration:
             patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store") as mock_gs,
             patch.object(builder, "_get_chroma_store") as mock_chroma,
-            patch.object(builder, "_check_ollama", return_value=False),
+            patch.object(builder, "_check_llm_available", return_value=False),
             patch.object(builder, "_detect_and_write_modules") as mock_dm,
         ):
             mock_graph = MagicMock()
@@ -204,7 +204,7 @@ class TestBuildIntegration:
         with (
             patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store") as mock_gs,
-            patch.object(builder, "_check_ollama", return_value=False),
+            patch.object(builder, "_check_llm_available", return_value=False),
             patch.object(builder, "_detect_and_write_modules", return_value=(0, [])),
         ):
             mock_gs.return_value = MagicMock()

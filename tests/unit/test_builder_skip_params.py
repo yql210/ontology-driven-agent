@@ -56,7 +56,7 @@ class TestBuildSkipSemantic:
         with (
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
-            patch.object(builder, "_check_ollama", return_value=False),  # Ollama 不可用也会跳过
+            patch.object(builder, "_check_llm_available", return_value=False),  # Ollama 不可用也会跳过
         ):
             # Act - 不传 skip_semantic，默认 False
             result = builder.build(tmp_path, skip_semantic=False)

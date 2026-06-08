@@ -49,6 +49,7 @@ class LayerKGConfig:
     ollama_base_url: str = "http://localhost:11434"
     embedding_model: str = "qwen2.5-coder:0.5b"
     llm_model: str = "qwen3.5:9b"
+    semantic_batch_size: int = 20
 
     # Build 配置
     build_include_docs: bool = True
@@ -79,6 +80,11 @@ class LayerKGConfig:
         }
     )
 
+    # 语义提取 LLM 配置
+    semantic_llm_provider: str = "ollama"  # "ollama" | "openai"
+    semantic_llm_api_key: str = ""
+    semantic_llm_base_url: str = "https://api.openai.com/v1"
+
     # Agent/LLM 配置（Phase 3 新增）
     agent_llm_provider: str = "zhipu"
     agent_llm_model: str = "glm-4-flash"
@@ -94,9 +100,10 @@ class LayerKGConfig:
             LAYERKG_CHROMA_DIR, LAYERKG_OLLAMA_URL, LAYERKG_EMBEDDING_MODEL,
             LAYERKG_LLM_MODEL, LAYERKG_BUILD_INCLUDE_DOCS,
             LAYERKG_BUILD_DOC_EXTENSIONS, LAYERKG_BUILD_SKIP_DIRS,
-            LAYERKG_BUILD_DOC_MAX_LENGTH, LAYERKG_AGENT_LLM_PROVIDER,
-            LAYERKG_AGENT_LLM_MODEL, LAYERKG_AGENT_API_KEY,
-            LAYERKG_AGENT_BASE_URL
+            LAYERKG_BUILD_DOC_MAX_LENGTH, LAYERKG_SEMANTIC_LLM_PROVIDER,
+            LAYERKG_SEMANTIC_API_KEY, LAYERKG_SEMANTIC_BASE_URL,
+            LAYERKG_AGENT_LLM_PROVIDER, LAYERKG_AGENT_LLM_MODEL,
+            LAYERKG_AGENT_API_KEY, LAYERKG_AGENT_BASE_URL
         """
         _load_dotenv()
 
@@ -124,10 +131,14 @@ class LayerKGConfig:
             ollama_base_url=os.getenv("LAYERKG_OLLAMA_URL", cls.ollama_base_url),
             embedding_model=os.getenv("LAYERKG_EMBEDDING_MODEL", cls.embedding_model),
             llm_model=os.getenv("LAYERKG_LLM_MODEL", cls.llm_model),
+            semantic_batch_size=int(os.getenv("LAYERKG_SEMANTIC_BATCH_SIZE", str(cls.semantic_batch_size))),
             build_include_docs=os.getenv("LAYERKG_BUILD_INCLUDE_DOCS", "true").lower() == "true",
             build_doc_extensions=build_doc_extensions,
             build_skip_dirs=build_skip_dirs,
             build_doc_max_length=int(os.getenv("LAYERKG_BUILD_DOC_MAX_LENGTH", "2000")),
+            semantic_llm_provider=os.getenv("LAYERKG_SEMANTIC_LLM_PROVIDER", cls.semantic_llm_provider),
+            semantic_llm_api_key=os.getenv("LAYERKG_SEMANTIC_API_KEY", cls.semantic_llm_api_key),
+            semantic_llm_base_url=os.getenv("LAYERKG_SEMANTIC_BASE_URL", cls.semantic_llm_base_url),
             agent_llm_provider=os.getenv("LAYERKG_AGENT_LLM_PROVIDER", cls.agent_llm_provider),
             agent_llm_model=os.getenv("LAYERKG_AGENT_LLM_MODEL", cls.agent_llm_model),
             agent_api_key=os.getenv("LAYERKG_AGENT_API_KEY", cls.agent_api_key),

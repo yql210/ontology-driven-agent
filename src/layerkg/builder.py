@@ -418,7 +418,7 @@ class LayerKGBuilder:
         errors: list[str] = []
         new_concepts: list[ConceptEntity] = []
 
-        if self._check_ollama():
+        if self._check_llm_available():
             try:
                 extractor = self._init_semantic_extractor()
                 extraction = extractor.extract(all_entities, doc_entities=doc_entities)
@@ -896,12 +896,15 @@ class LayerKGBuilder:
 
         return describes_rels
 
-    def _check_ollama(self) -> bool:
-        """检查 Ollama 服务是否可用。
+    def _check_llm_available(self) -> bool:
+        """检查语义提取 LLM 服务是否可用。
 
         Returns:
             True 表示服务可用，False 表示不可用。
         """
+        provider = self._config.semantic_llm_provider
+        if provider == "openai":
+            return bool(self._config.semantic_llm_api_key)
         try:
             resp = httpx.get(f"{self._config.ollama_base_url}/api/tags", timeout=5.0)
             return resp.status_code == 200
@@ -918,6 +921,10 @@ class LayerKGBuilder:
             self._semantic_extractor = SemanticExtractor(
                 ollama_url=self._config.ollama_base_url,
                 model=self._config.llm_model,
+                batch_size=self._config.semantic_batch_size,
+                provider=self._config.semantic_llm_provider,
+                api_key=self._config.semantic_llm_api_key,
+                base_url=self._config.semantic_llm_base_url,
             )
         return self._semantic_extractor
 

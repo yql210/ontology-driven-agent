@@ -44,22 +44,34 @@ def mock_entity_index() -> dict[tuple[str, str, str], list[str]]:
 
 
 class TestCheckOllama:
-    """_check_ollama 健康检查测试。"""
+    """_check_llm_available 健康检查测试。"""
 
-    def test_check_ollama_available(self, builder: LayerKGBuilder) -> None:
+    def test_check_llm_available_available(self, builder: LayerKGBuilder) -> None:
         """Ollama 返回 200 → True。"""
         with patch("httpx.get", return_value=MagicMock(status_code=200)):
-            assert builder._check_ollama() is True
+            assert builder._check_llm_available() is True
 
-    def test_check_ollama_unavailable(self, builder: LayerKGBuilder) -> None:
+    def test_check_llm_available_unavailable(self, builder: LayerKGBuilder) -> None:
         """Ollama 连接失败 → False。"""
         with patch("httpx.get", side_effect=httpx.ConnectError("refused")):
-            assert builder._check_ollama() is False
+            assert builder._check_llm_available() is False
 
-    def test_check_ollama_timeout(self, builder: LayerKGBuilder) -> None:
+    def test_check_llm_available_timeout(self, builder: LayerKGBuilder) -> None:
         """Ollama 超时 → False。"""
         with patch("httpx.get", side_effect=httpx.TimeoutException("timeout")):
-            assert builder._check_ollama() is False
+            assert builder._check_llm_available() is False
+
+    def test_check_llm_available_openai_with_key(self) -> None:
+        """OpenAI 模式有 API key → True。"""
+        config = LayerKGConfig(semantic_llm_provider="openai", semantic_llm_api_key="sk-test")
+        builder = LayerKGBuilder(config)
+        assert builder._check_llm_available() is True
+
+    def test_check_llm_available_openai_without_key(self) -> None:
+        """OpenAI 模式无 API key → False。"""
+        config = LayerKGConfig(semantic_llm_provider="openai", semantic_llm_api_key="")
+        builder = LayerKGBuilder(config)
+        assert builder._check_llm_available() is False
 
 
 class TestInitSemanticExtractor:
@@ -406,7 +418,7 @@ class TestBuildSemanticPipeline:
 
         with (
             patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
-            patch.object(builder, "_check_ollama", return_value=True),
+            patch.object(builder, "_check_llm_available", return_value=True),
             patch.object(builder, "_init_semantic_extractor") as mock_init_ext,
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
@@ -435,7 +447,7 @@ class TestBuildSemanticPipeline:
         mock_chroma = MagicMock()
 
         with (
-            patch.object(builder, "_check_ollama", return_value=False),
+            patch.object(builder, "_check_llm_available", return_value=False),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -454,7 +466,7 @@ class TestBuildSemanticPipeline:
         mock_chroma = MagicMock()
 
         with (
-            patch.object(builder, "_check_ollama", return_value=True),
+            patch.object(builder, "_check_llm_available", return_value=True),
             patch.object(builder, "_init_semantic_extractor") as mock_init_ext,
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
@@ -496,7 +508,7 @@ class TestBuildSemanticPipeline:
 
         with (
             patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
-            patch.object(builder, "_check_ollama", return_value=True),
+            patch.object(builder, "_check_llm_available", return_value=True),
             patch.object(builder, "_init_semantic_extractor") as mock_init_ext,
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
