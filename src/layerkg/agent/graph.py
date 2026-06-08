@@ -120,8 +120,16 @@ async def run_query(question: str, thread_id: str = "default") -> str:
     except TimeoutError:
         return "查询超时（180秒），请尝试简化问题或减少搜索范围。"
     except Exception as e:
-        # 兜底：GraphRecursionError 等异常时，提取已有的部分结果
         err_name = type(e).__name__
+        err_msg = str(e)
+        # 清理 checkpointer 中不完整的消息序列
+        try:
+            state = await agent.aget_state(config)
+            messages = state.values.get("messages", [])
+            if messages and isinstance(messages[-1], AIMessage) and getattr(messages[-1], "tool_calls", None):
+                await agent.update_state(config, {"messages": messages[:-1]}, as_node="agent")
+        except Exception:
+            pass
         if "Recursion" in err_name:
             # 从 checkpointer 中提取最后一条 AI 消息
             try:
@@ -134,7 +142,11 @@ async def run_query(question: str, thread_id: str = "default") -> str:
             except Exception:
                 pass
             return "Agent 工具调用次数超限，可能是因为部分数据未构建（如概念实体、模块聚类）。请使用更具体的代码实体名称提问，例如「Cache 类有哪些方法？」。"
-        return f"查询出错: {e!s}"
+        if "Unexpected end of JSON" in err_msg or "ConnectionError" in err_msg:
+            return "LLM 服务连接中断，请稍后重试。"
+        if "400" in err_msg and "tool_calls" in err_msg:
+            return "上一轮对话因网络中断导致状态不一致，已自动修复，请重新提问。"
+        return f"查询出错: {err_msg}"
 
     for msg in reversed(result["messages"]):
         if isinstance(msg, AIMessage) and msg.content:
@@ -235,7 +247,25 @@ async def run_query_stream(
     except Exception as e:
         if trace_collector:
             await trace_collector.end_trace(thread_id, status="failed")
-        yield {"type": "error", "message": str(e)}
+        # 清理 checkpointer 中不完整的消息序列（避免后续 tool_calls 缺 ToolMessage 的 400 错误）
+        try:
+            state = await agent.aget_state(config)
+            messages = state.values.get("messages", [])
+            # 如果最后一条是 AIMessage 带 tool_calls，说明 tool 还没执行就被中断了
+            if messages and isinstance(messages[-1], AIMessage) and getattr(messages[-1], "tool_calls", None):
+                # 回退到最近一条 HumanMessage 之前的状态
+                await agent.update_state(config, {"messages": messages[:-1]}, as_node="agent")
+        except Exception:
+            pass
+        # 友好错误消息
+        err_msg = str(e)
+        if "Unexpected end of JSON" in err_msg or "ConnectionError" in err_msg:
+            friendly = "LLM 服务连接中断，请稍后重试。"
+        elif "400" in err_msg and "tool_calls" in err_msg:
+            friendly = "上一轮对话因网络中断导致状态不一致，已自动修复，请重新提问。"
+        else:
+            friendly = f"查询出错: {err_msg}"
+        yield {"type": "error", "message": friendly}
         return
 
     # 正常结束
