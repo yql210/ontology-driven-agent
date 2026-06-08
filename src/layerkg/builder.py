@@ -922,6 +922,7 @@ class LayerKGBuilder:
                 ollama_url=self._config.ollama_base_url,
                 model=self._config.llm_model,
                 batch_size=self._config.semantic_batch_size,
+                num_predict=self._config.semantic_num_predict,
                 provider=self._config.semantic_llm_provider,
                 api_key=self._config.semantic_llm_api_key,
                 base_url=self._config.semantic_llm_base_url,

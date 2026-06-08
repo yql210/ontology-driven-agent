@@ -50,6 +50,7 @@ class LayerKGConfig:
     embedding_model: str = "qwen2.5-coder:0.5b"
     llm_model: str = "qwen3.5:9b"
     semantic_batch_size: int = 20
+    semantic_num_predict: int = 4096
 
     # Build 配置
     build_include_docs: bool = True
@@ -132,6 +133,7 @@ class LayerKGConfig:
             embedding_model=os.getenv("LAYERKG_EMBEDDING_MODEL", cls.embedding_model),
             llm_model=os.getenv("LAYERKG_LLM_MODEL", cls.llm_model),
             semantic_batch_size=int(os.getenv("LAYERKG_SEMANTIC_BATCH_SIZE", str(cls.semantic_batch_size))),
+            semantic_num_predict=int(os.getenv("LAYERKG_SEMANTIC_NUM_PREDICT", str(cls.semantic_num_predict))),
             build_include_docs=os.getenv("LAYERKG_BUILD_INCLUDE_DOCS", "true").lower() == "true",
             build_doc_extensions=build_doc_extensions,
             build_skip_dirs=build_skip_dirs,

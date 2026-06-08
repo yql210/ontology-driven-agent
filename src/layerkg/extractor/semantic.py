@@ -116,6 +116,7 @@ class SemanticExtractor:
         timeout: float = 180.0,
         temperature: float = 0.1,
         batch_interval: float = 1.0,
+        num_predict: int = 4096,
         provider: str = "ollama",
         api_key: str = "",
         base_url: str = "https://api.openai.com/v1",
@@ -128,6 +129,7 @@ class SemanticExtractor:
         self._timeout = timeout
         self._temperature = temperature
         self._batch_interval = batch_interval
+        self._num_predict = num_predict
         self._provider = provider
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
@@ -244,7 +246,7 @@ class SemanticExtractor:
                     "think": False,
                     "options": {
                         "temperature": self._temperature,
-                        "num_predict": 2048,
+                        "num_predict": self._num_predict,
                     },
                 },
                 timeout=self._timeout,
@@ -266,7 +268,7 @@ class SemanticExtractor:
                     "model": self._model,
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": self._temperature,
-                    "max_tokens": 2048,
+                    "max_tokens": self._num_predict,
                 },
                 timeout=self._timeout,
             )
