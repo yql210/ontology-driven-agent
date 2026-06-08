@@ -26,22 +26,57 @@ class OllamaEmbeddingFunction(EmbeddingFunction):
 
     _EMBED_BATCH_SIZE = 10
 
-    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """单批次调用 Ollama embed API。"""
-        response = self._client.post(
-            f"{self._base_url}/api/embed",
-            json={"model": self._model, "input": texts},
-            timeout=60.0,
-        )
-        response.raise_for_status()
-        data = response.json()
-        return data["embeddings"]
+    def _embed_one(self, text: str) -> list[float] | None:
+        """单条文本 embedding，失败返回 None。"""
+        try:
+            response = self._client.post(
+                f"{self._base_url}/api/embed",
+                json={"model": self._model, "input": [text]},
+                timeout=60.0,
+            )
+            response.raise_for_status()
+            return response.json()["embeddings"][0]
+        except httpx.HTTPError as e:
+            self._logger.warning("Embed single text failed (len=%d): %s", len(text), e)
+            return None
+
+    def _embed_batch(self, texts: list[str], *, fallback: bool = True) -> list[list[float]]:
+        """单批次调用 Ollama embed API，失败时降级为逐条 embedding。
+
+        Args:
+            texts: 待嵌入文本列表。
+            fallback: 批次失败时是否降级逐条重试。为 False 时直接抛出原始异常。
+        """
+        try:
+            response = self._client.post(
+                f"{self._base_url}/api/embed",
+                json={"model": self._model, "input": texts},
+                timeout=60.0,
+            )
+            response.raise_for_status()
+            return response.json()["embeddings"]
+        except httpx.HTTPError as original_err:
+            if not fallback:
+                raise
+            self._logger.warning("Batch embed (%d items) failed, falling back to single-item", len(texts))
+            results: list[list[float]] = []
+            any_success = False
+            for text in texts:
+                emb = self._embed_one(text)
+                if emb is not None:
+                    any_success = True
+                    results.append(emb)
+                else:
+                    results.append([0.0] * (self._dimension or 384))
+            if not any_success:
+                raise original_err
+            return results
 
     def __call__(self, input: list[str]) -> list[list[float]]:
         """批量生成嵌入向量（ChromaDB 自动调用）。
 
         自动将大批次拆分为小批次（每批 _EMBED_BATCH_SIZE 条），
-        逐批调用 Ollama API 后合并结果。
+        逐批调用 Ollama API 后合并结果。批次失败时降级为逐条处理。
 
         Args:
             input: 待嵌入的文本列表。

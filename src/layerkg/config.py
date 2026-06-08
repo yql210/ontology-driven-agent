@@ -56,7 +56,7 @@ class LayerKGConfig:
     build_include_docs: bool = True
     build_doc_extensions: list[str] = field(default_factory=lambda: [".md", ".rst"])
     build_doc_max_length: int = 2000
-    build_source_max_length: int = 2000
+    build_source_max_length: int = 1000
     build_skip_dirs: set[str] = field(
         default_factory=lambda: {
             "__pycache__",
