@@ -38,7 +38,10 @@ defineProps<{ message: Message; threadId?: string | null }>()
   max-width: 70%;
   animation: slide-up 0.3s ease-out;
 }
-.message.user { flex-direction: row-reverse; }
+.message.user {
+  flex-direction: row-reverse;
+  margin-left: auto;
+}
 .avatar {
   width: 32px;
   height: 32px;
