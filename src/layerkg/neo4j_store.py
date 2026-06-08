@@ -510,12 +510,18 @@ class Neo4jGraphStore(GraphStore):
         Returns:
             删除的节点数量。
         """
-        cypher = "MATCH (n) DETACH DELETE n RETURN count(*) as c"
+        batch_size = 10000
+        total = 0
+        cypher = "MATCH (n) WITH n LIMIT $batch_size DETACH DELETE n RETURN count(*) AS c"
 
         with self._driver.session() as session:
-            result: Neo4jResult = session.run(cypher)
-            record = result.single()
-            count = record["c"] if record else 0
-            logger.info("Cleared %d nodes from Neo4j", count)
+            while True:
+                result: Neo4jResult = session.run(cypher, batch_size=batch_size)
+                record = result.single()
+                deleted = record["c"] if record else 0
+                total += deleted
+                if deleted == 0:
+                    break
 
-        return count
+        logger.info("Cleared %d nodes from Neo4j", total)
+        return total
