@@ -32,16 +32,14 @@ export const useChatStore = defineStore('chat', () => {
     return msg
   }
 
-  /** 获取最后一个 text block（或创建新的） */
+  /** 获取最后一个 block，如果是 text 就复用，否则创建新 text block */
   function ensureTextBlock(msg: Message): { block: MessageBlock & { type: 'text' }; index: number } {
     const blocks = msg.blocks!
-    // 找最后一个 text block
-    for (let i = blocks.length - 1; i >= 0; i--) {
-      if (blocks[i].type === 'text') {
-        return { block: blocks[i] as MessageBlock & { type: 'text' }, index: i }
-      }
+    const last = blocks[blocks.length - 1]
+    if (last && last.type === 'text') {
+      return { block: last as MessageBlock & { type: 'text' }, index: blocks.length - 1 }
     }
-    // 没有则新建
+    // 最后一个不是 text（可能是 tool_call），新建 text block
     const block: MessageBlock = { type: 'text', content: '' }
     blocks.push(block)
     return { block: block as MessageBlock & { type: 'text' }, index: blocks.length - 1 }
