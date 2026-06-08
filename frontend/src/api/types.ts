@@ -21,11 +21,16 @@ export interface ChatResponse {
 }
 
 // 消息模型
+export type MessageBlock =
+  | { type: 'text'; content: string }
+  | { type: 'tool_call'; toolCall: ToolCall }
+
 export interface Message {
   id: string
   role: 'user' | 'assistant' | 'error'
   content: string
   toolCalls?: ToolCall[]
+  blocks?: MessageBlock[]
   isStreaming?: boolean
   timestamp: number
 }

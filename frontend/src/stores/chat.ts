@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { sendChatStream } from '../api/chat'
-import type { Message, ToolCall, SSEEvent } from '../api/types'
+import type { Message, MessageBlock, ToolCall, SSEEvent } from '../api/types'
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<Message[]>([])
@@ -13,6 +13,7 @@ export const useChatStore = defineStore('chat', () => {
       id: `user-${Date.now()}`,
       role: 'user',
       content,
+      blocks: [{ type: 'text', content }],
       timestamp: Date.now(),
     })
   }
@@ -22,12 +23,28 @@ export const useChatStore = defineStore('chat', () => {
       id: `assistant-${Date.now()}`,
       role: 'assistant',
       content: '',
+      blocks: [],
       toolCalls: [],
       isStreaming: true,
       timestamp: Date.now(),
     }
     messages.value.push(msg)
     return msg
+  }
+
+  /** 获取最后一个 text block（或创建新的） */
+  function ensureTextBlock(msg: Message): { block: MessageBlock & { type: 'text' }; index: number } {
+    const blocks = msg.blocks!
+    // 找最后一个 text block
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      if (blocks[i].type === 'text') {
+        return { block: blocks[i] as MessageBlock & { type: 'text' }, index: i }
+      }
+    }
+    // 没有则新建
+    const block: MessageBlock = { type: 'text', content: '' }
+    blocks.push(block)
+    return { block: block as MessageBlock & { type: 'text' }, index: blocks.length - 1 }
   }
 
   async function sendMessage(content: string) {
@@ -46,6 +63,7 @@ export const useChatStore = defineStore('chat', () => {
           switch (event.type) {
             case 'token':
               lastMsg.content += event.content
+              ensureTextBlock(lastMsg).block.content += event.content
               break
             case 'tool_start': {
               const toolCall: ToolCall = {
@@ -56,10 +74,12 @@ export const useChatStore = defineStore('chat', () => {
               }
               if (!lastMsg.toolCalls) lastMsg.toolCalls = []
               lastMsg.toolCalls.push(toolCall)
+              // 插入 tool_call block（在当前 text block 之后）
+              lastMsg.blocks!.push({ type: 'tool_call', toolCall })
               break
             }
             case 'tool_end': {
-              // P0-3: 匹配最后一个同名 running 工具（而非第一个），支持连续调用
+              // 匹配最后一个同名 running 工具
               const calls = lastMsg.toolCalls
               if (calls) {
                 for (let i = calls.length - 1; i >= 0; i--) {
@@ -74,6 +94,7 @@ export const useChatStore = defineStore('chat', () => {
             }
             case 'error':
               lastMsg.content += `\n\n⚠️ 错误: ${event.message}`
+              lastMsg.blocks!.push({ type: 'text', content: `\n\n⚠️ 错误: ${event.message}` })
               break
             case 'done':
               if (event.thread_id) threadId.value = event.thread_id
@@ -86,6 +107,7 @@ export const useChatStore = defineStore('chat', () => {
           const lastMsg = messages.value[messages.value.length - 1]
           if (lastMsg) {
             lastMsg.content += `\n\n⚠️ 连接错误: ${err.message}`
+            lastMsg.blocks!.push({ type: 'text', content: `\n\n⚠️ 连接错误: ${err.message}` })
             lastMsg.isStreaming = false
           }
           isLoading.value = false
@@ -95,6 +117,7 @@ export const useChatStore = defineStore('chat', () => {
       const lastMsg = messages.value[messages.value.length - 1]
       if (lastMsg) {
         lastMsg.content += `\n\n⚠️ 发送失败: ${(err as Error).message}`
+        lastMsg.blocks!.push({ type: 'text', content: `\n\n⚠️ 发送失败: ${(err as Error).message}` })
         lastMsg.isStreaming = false
       }
       isLoading.value = false
