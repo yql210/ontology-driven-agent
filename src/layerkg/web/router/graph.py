@@ -40,14 +40,14 @@ def get_graph(
         # 中心展开模式（两步查询：先取邻居节点，再取边）
         # Step 1: 获取中心节点 + limit 个邻居
         neighbor_records = store.query(
-            "MATCH path = (center {name: $name})-[*1..$depth]-(neighbor) "
+            f"MATCH path = (center {{name: $name}})-[*1..{depth}]-(neighbor) "
             "WHERE size(labels(neighbor)) > 0 "
             "WITH DISTINCT neighbor "
             "LIMIT $limit "
             "RETURN neighbor.id AS id, neighbor.name AS name, "
             "  labels(neighbor)[0] AS label, "
             "  neighbor.entity_type AS entity_type",
-            {"name": center, "depth": depth, "limit": limit}
+            {"name": center, "limit": limit}
         )
         # 也获取中心节点本身
         center_node = store.query(
