@@ -774,8 +774,7 @@ class LayerKGBuilder:
             d["language"] = entity.language
         return d
 
-    @staticmethod
-    def _entity_to_text(entity: CodeEntity) -> str | None:
+    def _entity_to_text(self, entity: CodeEntity) -> str | None:
         """提取实体的可嵌入文本。
 
         Args:
@@ -784,8 +783,9 @@ class LayerKGBuilder:
         Returns:
             可嵌入的文本，无内容时返回 None。
         """
+        max_len = self._config.build_source_max_length
         if entity.source:
-            return entity.source
+            return entity.source[:max_len]
         # 对于没有 source 的实体，构造描述文本
         parts = [f"{entity.entity_type} {entity.name}"]
         if entity.file_path:

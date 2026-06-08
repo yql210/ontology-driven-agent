@@ -24,8 +24,24 @@ class OllamaEmbeddingFunction(EmbeddingFunction):
         self._dimension: int | None = None
         self._logger = logging.getLogger(__name__)
 
+    _EMBED_BATCH_SIZE = 10
+
+    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """单批次调用 Ollama embed API。"""
+        response = self._client.post(
+            f"{self._base_url}/api/embed",
+            json={"model": self._model, "input": texts},
+            timeout=60.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data["embeddings"]
+
     def __call__(self, input: list[str]) -> list[list[float]]:
         """批量生成嵌入向量（ChromaDB 自动调用）。
+
+        自动将大批次拆分为小批次（每批 _EMBED_BATCH_SIZE 条），
+        逐批调用 Ollama API 后合并结果。
 
         Args:
             input: 待嵌入的文本列表。
@@ -38,17 +54,15 @@ class OllamaEmbeddingFunction(EmbeddingFunction):
         """
         if not input:
             return []
+        all_embeddings: list[list[float]] = []
         try:
-            response = self._client.post(
-                f"{self._base_url}/api/embed",
-                json={"model": self._model, "input": input},
-            )
-            response.raise_for_status()
-            data = response.json()
-            embeddings: list[list[float]] = data["embeddings"]
-            if self._dimension is None and embeddings:
-                self._dimension = len(embeddings[0])
-            return embeddings
+            for i in range(0, len(input), self._EMBED_BATCH_SIZE):
+                batch = input[i : i + self._EMBED_BATCH_SIZE]
+                embeddings = self._embed_batch(batch)
+                if self._dimension is None and embeddings:
+                    self._dimension = len(embeddings[0])
+                all_embeddings.extend(embeddings)
+            return all_embeddings
         except httpx.HTTPError as e:
             raise EmbeddingError(f"Ollama embedding failed: {e}") from e
 
@@ -176,15 +190,16 @@ class ChromaStore:
     def put_entities_batch(
         self,
         items: list[tuple[str, str, dict[str, Any]]],
-        batch_size: int = 50,
+        batch_size: int = 20,
     ) -> None:
         """批量存储实体嵌入。
 
         空文本项会被跳过。数据按 batch_size 分批写入。
+        单批次失败时跳过并记录警告，不中断整体流程。
 
         Args:
             items: (entity_id, text, metadata) 元组列表。
-            batch_size: 每批次写入的实体数量，默认 50。
+            batch_size: 每批次写入的实体数量，默认 20。
         """
         ids, docs, metas = [], [], []
         for entity_id, text, metadata in items:
@@ -195,17 +210,25 @@ class ChromaStore:
         if not ids:
             return
         total_batches = -(-len(ids) // batch_size)  # ceil division
+        failed = 0
         for i in range(0, len(ids), batch_size):
             batch_ids = ids[i : i + batch_size]
             batch_docs = docs[i : i + batch_size]
             batch_metas = metas[i : i + batch_size]
-            self._collection.upsert(ids=batch_ids, documents=batch_docs, metadatas=batch_metas)
-            self._logger.debug(
-                "Put batch (%d/%d): %d entities",
-                i // batch_size + 1,
-                total_batches,
-                len(batch_ids),
-            )
+            try:
+                self._collection.upsert(ids=batch_ids, documents=batch_docs, metadatas=batch_metas)
+            except Exception as e:
+                failed += len(batch_ids)
+                self._logger.warning("Batch %d/%d failed (%d items): %s", i // batch_size + 1, total_batches, len(batch_ids), e)
+            else:
+                self._logger.debug(
+                    "Put batch (%d/%d): %d entities",
+                    i // batch_size + 1,
+                    total_batches,
+                    len(batch_ids),
+                )
+        if failed:
+            self._logger.warning("Vector write: %d/%d items failed", failed, len(ids))
 
     # --- 查询操作 ---
 

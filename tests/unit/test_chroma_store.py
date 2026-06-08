@@ -47,7 +47,7 @@ def mock_ollama():
 
         mock_client.close = Mock(side_effect=mock_close)
         mock_client.post = Mock(
-            side_effect=lambda url, json: Mock(
+            side_effect=lambda url, json, **kwargs: Mock(
                 json=lambda: {"embeddings": _embed_fn(json.get("input", []))}, raise_for_status=Mock()
             )
         )

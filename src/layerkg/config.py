@@ -56,6 +56,7 @@ class LayerKGConfig:
     build_include_docs: bool = True
     build_doc_extensions: list[str] = field(default_factory=lambda: [".md", ".rst"])
     build_doc_max_length: int = 2000
+    build_source_max_length: int = 2000
     build_skip_dirs: set[str] = field(
         default_factory=lambda: {
             "__pycache__",
@@ -138,6 +139,7 @@ class LayerKGConfig:
             build_doc_extensions=build_doc_extensions,
             build_skip_dirs=build_skip_dirs,
             build_doc_max_length=int(os.getenv("LAYERKG_BUILD_DOC_MAX_LENGTH", "2000")),
+            build_source_max_length=int(os.getenv("LAYERKG_BUILD_SOURCE_MAX_LENGTH", "2000")),
             semantic_llm_provider=os.getenv("LAYERKG_SEMANTIC_LLM_PROVIDER", cls.semantic_llm_provider),
             semantic_llm_api_key=os.getenv("LAYERKG_SEMANTIC_API_KEY", cls.semantic_llm_api_key),
             semantic_llm_base_url=os.getenv("LAYERKG_SEMANTIC_BASE_URL", cls.semantic_llm_base_url),
