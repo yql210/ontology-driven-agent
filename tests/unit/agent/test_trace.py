@@ -199,8 +199,8 @@ async def test_list_traces(trace_collector: TraceCollector):
 
 
 @pytest.mark.asyncio
-async def test_tool_args_truncation(trace_collector: TraceCollector):
-    """Test that long tool_args are truncated to 1000 chars."""
+async def test_tool_args_preserved(trace_collector: TraceCollector):
+    """Test that long tool_args are preserved in full."""
     await trace_collector.start_trace("thread-1", "test")
 
     # Create a very long args dict
@@ -214,7 +214,8 @@ async def test_tool_args_truncation(trace_collector: TraceCollector):
     )
 
     assert step.tool_args is not None
-    assert len(step.tool_args) <= 1000
+    parsed = json.loads(step.tool_args)
+    assert parsed["data"] == "x" * 2000
 
 
 @pytest.mark.asyncio

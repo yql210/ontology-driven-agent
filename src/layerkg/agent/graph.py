@@ -221,7 +221,7 @@ async def run_query_stream(
                 yield {
                     "type": "tool_end",
                     "tool": tool_name,
-                    "result": output_str[:500],
+                    "result": output_str,
                 }
                 if trace_collector:
                     await trace_collector.add_step(
@@ -229,7 +229,7 @@ async def run_query_stream(
                         type="tool_result",
                         content=f"{tool_name} 返回结果",
                         tool_name=tool_name,
-                        tool_result=output_str[:500],
+                        tool_result=output_str,
                         duration_ms=duration,
                     )
     except Exception as e:

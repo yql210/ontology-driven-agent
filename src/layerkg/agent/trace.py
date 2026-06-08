@@ -216,10 +216,10 @@ class TraceCollector:
             step_id = self._step_counters.get(thread_id, 0)
             self._step_counters[thread_id] = step_id + 1
 
-            # Serialize tool_args to JSON string, truncate to 1000 chars
+            # Serialize tool_args to JSON string
             args_str = None
             if tool_args is not None:
-                args_str = json.dumps(tool_args, ensure_ascii=False)[:1000]
+                args_str = json.dumps(tool_args, ensure_ascii=False)
 
             step = TraceStep(
                 step_id=step_id,
