@@ -11,14 +11,19 @@ export async function sendChatStream(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
     onmessage(ev) {
-      const data = JSON.parse(ev.data)
-      const eventType = ev.event
-      // 验证事件类型（P0-2 防御性检查）
-      if (!['token', 'tool_start', 'tool_end', 'error', 'done'].includes(eventType)) {
-        console.warn('Unknown SSE event type:', eventType)
-        return
+      if (!ev.data || !ev.data.trim()) return
+      try {
+        const data = JSON.parse(ev.data)
+        const eventType = ev.event
+        if (!['token', 'tool_start', 'tool_end', 'error', 'done'].includes(eventType)) {
+          console.warn('Unknown SSE event type:', eventType)
+          return
+        }
+        onEvent({ type: eventType as SSEEvent['type'], ...data } as SSEEvent)
+      } catch {
+        // SSE 数据不完整时（DeepSeek 断连等），跳过该片段而非中断整个流
+        console.warn('SSE parse skipped (incomplete data)')
       }
-      onEvent({ type: eventType as SSEEvent['type'], ...data } as SSEEvent)
     },
     onerror(err) {
       onError(err as Error)

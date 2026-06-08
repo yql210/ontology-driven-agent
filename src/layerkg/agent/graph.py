@@ -60,7 +60,8 @@ def _create_llm() -> ChatOpenAI:
         model=cfg.agent_llm_model,
         base_url=cfg.agent_base_url,
         api_key=cfg.agent_api_key,
-        timeout=90,
+        timeout=180,
+        max_retries=3,
     )
 
 
