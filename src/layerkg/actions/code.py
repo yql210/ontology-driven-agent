@@ -1,5 +1,9 @@
 """CodeEntity 相关 Action Function 实现。
 
+.. deprecated::
+    本模块的 4 个 Function 已迁移至 ``layerkg.functions.builtin``（新 ActionContext 签名）。
+    请使用新签名函数，本文件保留仅为兼容，将在后续版本移除。
+
 Phase 1 只实现 split_large_function（只读分析），其余为空壳。
 """
 
