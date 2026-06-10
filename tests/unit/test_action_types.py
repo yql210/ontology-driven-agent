@@ -1,4 +1,5 @@
 """Tests for action_types data structures."""
+
 from __future__ import annotations
 
 from layerkg.action_types import ActionConfig, ActionContext, ActionResult, FunctionResult

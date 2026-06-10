@@ -45,11 +45,14 @@ def register_schema_version(store: GraphStore) -> None:
     SET sv.description = $description,
         sv.applied_at = $applied_at
     """
-    store.query(cypher, {
-        "version": CURRENT_SCHEMA_VERSION,
-        "description": "初始本体：6实体11关系+语义约束+溯源",
-        "applied_at": applied_at,
-    })
+    store.query(
+        cypher,
+        {
+            "version": CURRENT_SCHEMA_VERSION,
+            "description": "初始本体：6实体11关系+语义约束+溯源",
+            "applied_at": applied_at,
+        },
+    )
     logger.info("Registered schema version %s", CURRENT_SCHEMA_VERSION)
 
 

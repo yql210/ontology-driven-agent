@@ -90,5 +90,6 @@ class TestCheckSchemaVersion:
 class TestSchemaMigrationError:
     def test_is_layerkg_error(self):
         from layerkg.exceptions import LayerKGError
+
         err = SchemaMigrationError("test")
         assert isinstance(err, LayerKGError)

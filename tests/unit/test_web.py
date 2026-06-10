@@ -111,6 +111,7 @@ class TestChatStream:
 
     def test_stream_done_after_normal(self, client):
         """正常路径最后收到 done 事件"""
+
         async def fake_stream(*args, **kwargs):
             yield {"type": "token", "content": "Hello"}
             yield {"type": "tool_start", "tool": "search", "args": {}}
@@ -129,6 +130,7 @@ class TestChatStream:
 
     def test_stream_error_no_done(self, client):
         """异常路径：error 事件后没有 done"""
+
         async def fake_stream_error(*args, **kwargs):
             yield {"type": "token", "content": "Hello"}
             raise ValueError("Something went wrong")

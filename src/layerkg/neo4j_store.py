@@ -247,11 +247,13 @@ class Neo4jGraphStore(GraphStore):
 
             batch_data = []
             for rel in group_rels:
-                batch_data.append({
-                    "source_id": rel["source_id"],
-                    "target_id": rel["target_id"],
-                    "properties": rel.get("properties", {}),
-                })
+                batch_data.append(
+                    {
+                        "source_id": rel["source_id"],
+                        "target_id": rel["target_id"],
+                        "properties": rel.get("properties", {}),
+                    }
+                )
 
             for i in range(0, len(batch_data), batch_size):
                 batch = batch_data[i : i + batch_size]
@@ -475,10 +477,7 @@ class Neo4jGraphStore(GraphStore):
             logger.debug(f"Ensured constraint for {label}")
 
         # Schema 版本约束
-        schema_version_cypher = (
-            "CREATE CONSTRAINT IF NOT EXISTS "
-            "FOR (n:SchemaVersion) REQUIRE n.version IS UNIQUE"
-        )
+        schema_version_cypher = "CREATE CONSTRAINT IF NOT EXISTS FOR (n:SchemaVersion) REQUIRE n.version IS UNIQUE"
         with self._driver.session() as session:
             session.run(schema_version_cypher)
         logger.debug("Ensured constraint for SchemaVersion")

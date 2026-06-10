@@ -1,4 +1,5 @@
 """Tests for TraceCollector."""
+
 from __future__ import annotations
 
 import asyncio
@@ -309,9 +310,7 @@ async def test_trace_load_from_db(tmp_path: Path):
 
     # Manually create a trace in SQLite
     db = sqlite3.connect(str(db_path))
-    db.execute(
-        "CREATE TABLE IF NOT EXISTS traces (thread_id TEXT PRIMARY KEY, data TEXT NOT NULL)"
-    )
+    db.execute("CREATE TABLE IF NOT EXISTS traces (thread_id TEXT PRIMARY KEY, data TEXT NOT NULL)")
     trace_data = {
         "thread_id": "existing-thread",
         "query": "existing query",
@@ -319,8 +318,15 @@ async def test_trace_load_from_db(tmp_path: Path):
         "created_at": 1234567890.0,
         "total_duration_ms": 5000,
         "steps": [
-            {"step_id": 0, "type": "thinking", "content": "thought", "tool_name": None,
-             "tool_args": None, "tool_result": None, "duration_ms": None}
+            {
+                "step_id": 0,
+                "type": "thinking",
+                "content": "thought",
+                "tool_name": None,
+                "tool_args": None,
+                "tool_result": None,
+                "duration_ms": None,
+            }
         ],
     }
     db.execute(
@@ -349,9 +355,7 @@ async def test_trace_db_corrupted(tmp_path: Path):
 
     # Create DB with corrupted data
     db = sqlite3.connect(str(db_path))
-    db.execute(
-        "CREATE TABLE IF NOT EXISTS traces (thread_id TEXT PRIMARY KEY, data TEXT NOT NULL)"
-    )
+    db.execute("CREATE TABLE IF NOT EXISTS traces (thread_id TEXT PRIMARY KEY, data TEXT NOT NULL)")
     # Valid trace
     db.execute(
         "INSERT INTO traces (thread_id, data) VALUES (?, ?)",

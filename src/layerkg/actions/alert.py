@@ -1,11 +1,14 @@
 """AlertEntity 相关 Action Function 实现。"""
+
 from __future__ import annotations
 
 from typing import Any
 
 
 def analyze_by_log_pattern(
-    entity_id: str, context: dict, graph_store: Any,
+    entity_id: str,
+    context: dict,
+    graph_store: Any,
 ) -> dict:
     """按日志模式分析 — 只读分析。
 
@@ -62,7 +65,9 @@ def analyze_by_log_pattern(
 
 
 def analyze_by_call_chain(
-    entity_id: str, context: dict, graph_store: Any,
+    entity_id: str,
+    context: dict,
+    graph_store: Any,
 ) -> dict:
     """按调用链分析 — 只读分析。
 
@@ -99,11 +104,13 @@ def analyze_by_call_chain(
                 "WHERE caller.name = $name RETURN callee.name AS callee_name LIMIT 10",
                 {"name": code_name},
             )
-            call_chain.append({
-                "code": code_name,
-                "service": svc.get("service", ""),
-                "downstream": [c["callee_name"] for c in chain],
-            })
+            call_chain.append(
+                {
+                    "code": code_name,
+                    "service": svc.get("service", ""),
+                    "downstream": [c["callee_name"] for c in chain],
+                }
+            )
 
     return {
         "success": True,
@@ -114,7 +121,9 @@ def analyze_by_call_chain(
 
 
 def find_last_stable(
-    entity_id: str, context: dict, graph_store: Any,
+    entity_id: str,
+    context: dict,
+    graph_store: Any,
 ) -> dict:
     """找到最近稳定版本 — 只读分析。
 
@@ -150,7 +159,9 @@ def find_last_stable(
 
 
 def create_ticket(
-    entity_id: str, context: dict, graph_store: Any,
+    entity_id: str,
+    context: dict,
+    graph_store: Any,
 ) -> dict:
     """创建工单 — Phase 3 空壳（需要外部系统集成）。
 

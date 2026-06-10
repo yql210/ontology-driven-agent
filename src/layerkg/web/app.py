@@ -17,9 +17,7 @@ _trace_collector = TraceCollector()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = LayerKGConfig.from_env()
-    store = Neo4jGraphStore(
-        uri=config.neo4j_uri, user=config.neo4j_user, password=config.neo4j_password
-    )
+    store = Neo4jGraphStore(uri=config.neo4j_uri, user=config.neo4j_user, password=config.neo4j_password)
     app.state.graph_store = store
     yield
     store.close()

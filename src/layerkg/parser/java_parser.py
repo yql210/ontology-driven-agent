@@ -250,26 +250,30 @@ class JavaParser(BaseParser):
             name_node = node.child_by_field_name("name")
             if name_node:
                 anno_name = name_node.text.decode("utf-8", errors="replace")
-                entities.append(CodeEntity(
-                    name=anno_name,
-                    entity_type="interface",
-                    file_path=file_path,
-                    start_line=node.start_point[0],
-                    end_line=node.end_point[0],
-                    language="java",
-                    source=node.text.decode("utf-8", errors="replace")[:500],
-                ))
+                entities.append(
+                    CodeEntity(
+                        name=anno_name,
+                        entity_type="interface",
+                        file_path=file_path,
+                        start_line=node.start_point[0],
+                        end_line=node.end_point[0],
+                        language="java",
+                        source=node.text.decode("utf-8", errors="replace")[:500],
+                    )
+                )
                 source_entity = parent_class_name if parent_class_name else package_name
                 source_type = "class" if parent_class_name else "module"
                 if source_entity:
-                    relations.append(ExtractedRelation(
-                        source_name=source_entity,
-                        source_type=source_type,
-                        target_name=anno_name,
-                        target_type="interface",
-                        relation_type="contains",
-                        file_path=file_path,
-                    ))
+                    relations.append(
+                        ExtractedRelation(
+                            source_name=source_entity,
+                            source_type=source_type,
+                            target_name=anno_name,
+                            target_type="interface",
+                            relation_type="contains",
+                            file_path=file_path,
+                        )
+                    )
 
         # import_declaration
         elif node_type == "import_declaration":
@@ -589,23 +593,27 @@ class JavaParser(BaseParser):
                                 break
                         if name_node:
                             const_name = name_node.text.decode("utf-8", errors="replace")
-                            entities.append(CodeEntity(
-                                name=const_name,
-                                entity_type="field",
-                                file_path=file_path,
-                                start_line=body_child.start_point[0],
-                                end_line=body_child.end_point[0],
-                                language="java",
-                                source=body_child.text.decode("utf-8", errors="replace")[:500],
-                            ))
-                            relations.append(ExtractedRelation(
-                                source_name=enum_name,
-                                source_type="enum",
-                                target_name=const_name,
-                                target_type="field",
-                                relation_type="contains",
-                                file_path=file_path,
-                            ))
+                            entities.append(
+                                CodeEntity(
+                                    name=const_name,
+                                    entity_type="field",
+                                    file_path=file_path,
+                                    start_line=body_child.start_point[0],
+                                    end_line=body_child.end_point[0],
+                                    language="java",
+                                    source=body_child.text.decode("utf-8", errors="replace")[:500],
+                                )
+                            )
+                            relations.append(
+                                ExtractedRelation(
+                                    source_name=enum_name,
+                                    source_type="enum",
+                                    target_name=const_name,
+                                    target_type="field",
+                                    relation_type="contains",
+                                    file_path=file_path,
+                                )
+                            )
                 break
 
         return enum_name

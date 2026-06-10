@@ -56,9 +56,7 @@ def test_list_traces_with_data(test_client: TestClient, trace_collector: TraceCo
 
     async def add_trace():
         await trace_collector.start_trace("thread-1", "test query")
-        await trace_collector.add_step(
-            "thread-1", type="thinking", content="thinking"
-        )
+        await trace_collector.add_step("thread-1", type="thinking", content="thinking")
         await trace_collector.end_trace("thread-1", status="completed")
 
     asyncio.run(add_trace())

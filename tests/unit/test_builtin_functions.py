@@ -1,4 +1,5 @@
 """Tests for builtin functions registered via the new registry."""
+
 from __future__ import annotations
 
 from layerkg.action_types import ActionContext
@@ -22,6 +23,7 @@ class MockGraphStore:
 def _register_builtins():
     """Import + register builtin functions (works after clear_registry)."""
     from layerkg.functions.builtin import register_all
+
     register_all()
 
 
@@ -32,7 +34,9 @@ def test_check_refactor_eligibility_success():
     assert fn is not None, "check_refactor_eligibility not registered"
 
     store = MockGraphStore(entities={"e1": {"name": "big_fn", "lines": 250, "branches": 15}})
-    ctx = ActionContext(graph_store=store, match_data={"entity": {"lines": 250, "branches": 15}, "entity_id": "e1", "max_lines": 100})
+    ctx = ActionContext(
+        graph_store=store, match_data={"entity": {"lines": 250, "branches": 15}, "entity_id": "e1", "max_lines": 100}
+    )
     result = fn(ctx)
     assert result.success is True
     assert "total_lines" in result.data
@@ -46,7 +50,9 @@ def test_check_refactor_eligibility_too_small():
     assert fn is not None
 
     store = MockGraphStore(entities={"e1": {"name": "small_fn", "lines": 50, "branches": 2}})
-    ctx = ActionContext(graph_store=store, match_data={"entity": {"lines": 50, "branches": 2}, "entity_id": "e1", "max_lines": 100})
+    ctx = ActionContext(
+        graph_store=store, match_data={"entity": {"lines": 50, "branches": 2}, "entity_id": "e1", "max_lines": 100}
+    )
     result = fn(ctx)
     assert result.success is False
     assert result.error is not None
@@ -101,7 +107,17 @@ def test_generate_api_doc_success():
     fn = get_function("generate_api_doc")
     assert fn is not None
 
-    store = MockGraphStore(entities={"e1": {"name": "my_func", "entityType": "function", "params": ["x", "y"], "return_type": "int", "docstring": "Does stuff."}})
+    store = MockGraphStore(
+        entities={
+            "e1": {
+                "name": "my_func",
+                "entityType": "function",
+                "params": ["x", "y"],
+                "return_type": "int",
+                "docstring": "Does stuff.",
+            }
+        }
+    )
     ctx = ActionContext(graph_store=store, match_data={"entity": {"name": "my_func"}, "entity_id": "e1"})
     result = fn(ctx)
     assert result.success is True
@@ -118,7 +134,11 @@ def test_extract_interface_success():
     store = MockGraphStore(entities={"e1": {"name": "Cache", "entityType": "class"}})
     ctx = ActionContext(
         graph_store=store,
-        match_data={"entity": {"name": "Cache", "entityType": "class"}, "entity_id": "e1", "class_methods": ["get", "set", "_internal", "clear"]},
+        match_data={
+            "entity": {"name": "Cache", "entityType": "class"},
+            "entity_id": "e1",
+            "class_methods": ["get", "set", "_internal", "clear"],
+        },
     )
     result = fn(ctx)
     assert result.success is True

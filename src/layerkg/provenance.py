@@ -7,29 +7,27 @@ from datetime import UTC, datetime
 from layerkg.exceptions import SchemaValidationError
 
 # 来源类型
-PROVENANCE_SOURCES = frozenset({
-    "ast_parser",       # AST 解析器（结构关系，置信度 1.0）
-    "llm_extraction",   # LLM 提取（语义关系，置信度 0.7-0.95）
-    "clustering",       # 模块聚类
-    "manual",           # 手动添加
-    "imported",         # 外部导入
-})
+PROVENANCE_SOURCES = frozenset(
+    {
+        "ast_parser",  # AST 解析器（结构关系，置信度 1.0）
+        "llm_extraction",  # LLM 提取（语义关系，置信度 0.7-0.95）
+        "clustering",  # 模块聚类
+        "manual",  # 手动添加
+        "imported",  # 外部导入
+    }
+)
 
 
 def validate_confidence(value: float) -> None:
     """校验置信度在 [0.0, 1.0] 范围。"""
     if not isinstance(value, (int, float)) or not (0.0 <= value <= 1.0):
-        raise SchemaValidationError(
-            f"confidence must be a float in [0.0, 1.0], got {value!r}"
-        )
+        raise SchemaValidationError(f"confidence must be a float in [0.0, 1.0], got {value!r}")
 
 
 def validate_provenance_source(source: str) -> None:
     """校验来源类型。"""
     if source not in PROVENANCE_SOURCES:
-        raise SchemaValidationError(
-            f"provenance_source must be one of {PROVENANCE_SOURCES}, got '{source}'"
-        )
+        raise SchemaValidationError(f"provenance_source must be one of {PROVENANCE_SOURCES}, got '{source}'")
 
 
 def add_provenance(

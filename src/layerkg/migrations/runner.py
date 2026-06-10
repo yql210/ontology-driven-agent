@@ -38,9 +38,7 @@ class MigrationRunner:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             lock_file.close()
-            raise SchemaMigrationError(
-                "Another migration is in progress. Remove ~/.layerkg/migrate.lock if stale."
-            )
+            raise SchemaMigrationError("Another migration is in progress. Remove ~/.layerkg/migrate.lock if stale.")
         return lock_file
 
     def _release_lock(self, lock_file) -> None:
@@ -68,8 +66,7 @@ class MigrationRunner:
             if status == SchemaStatus.AHEAD:
                 db_ver = get_current_db_version(self._store)
                 raise SchemaMigrationError(
-                    f"Database schema ({db_ver}) is ahead of code ({CURRENT_SCHEMA_VERSION}). "
-                    f"Please update LayerKG."
+                    f"Database schema ({db_ver}) is ahead of code ({CURRENT_SCHEMA_VERSION}). Please update LayerKG."
                 )
 
             current = get_current_db_version(self._store) or "0.0.0"
@@ -87,9 +84,7 @@ class MigrationRunner:
                     migration.upgrade(self._store)
                     register_schema_version(self._store)
                     applied.append(migration.version_to)
-                    logger.info(
-                        "Applied migration %s → %s", migration.version_from, migration.version_to
-                    )
+                    logger.info("Applied migration %s → %s", migration.version_from, migration.version_to)
                 except Exception as e:
                     logger.error("Migration %s → %s failed: %s", migration.version_from, migration.version_to, e)
                     raise SchemaMigrationError(
@@ -124,9 +119,7 @@ class MigrationRunner:
             for migration in reverse_path:
                 migration.downgrade(self._store)
                 rolled_back.append(migration.version_from)
-                logger.info(
-                    "Rolled back migration %s → %s", migration.version_to, migration.version_from
-                )
+                logger.info("Rolled back migration %s → %s", migration.version_to, migration.version_from)
 
             # 更新版本节点到目标版本
             if to_version == "0.0.0":

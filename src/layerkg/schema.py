@@ -247,9 +247,7 @@ class LogEntity:
         if not self.name or not self.name.strip():
             raise SchemaValidationError("LogEntity.name cannot be empty")
         if self.level not in self.VALID_LEVELS:
-            raise SchemaValidationError(
-                f"LogEntity.level must be one of {self.VALID_LEVELS}, got '{self.level}'"
-            )
+            raise SchemaValidationError(f"LogEntity.level must be one of {self.VALID_LEVELS}, got '{self.level}'")
         if not self.message or not self.message.strip():
             raise SchemaValidationError("LogEntity.message cannot be empty")
 
@@ -423,6 +421,7 @@ class Relation:
 @dataclass
 class RelationConstraint:
     """单条关系的本体约束。"""
+
     domain: str | set[str]  # 源实体类型（如 "CodeEntity" 或 {"CodeEntity", "ConceptEntity"}）
     range: str | set[str]  # 目标实体类型
     description: str = ""  # 约束说明
@@ -431,19 +430,23 @@ class RelationConstraint:
 RELATION_CONSTRAINTS: dict[str, RelationConstraint] = {
     # --- 结构关系 (AST) ---
     "calls": RelationConstraint(
-        domain="CodeEntity", range="CodeEntity",
+        domain="CodeEntity",
+        range="CodeEntity",
         description="函数/方法调用关系",
     ),
     "extends": RelationConstraint(
-        domain="CodeEntity", range="CodeEntity",
+        domain="CodeEntity",
+        range="CodeEntity",
         description="类继承关系（支持多继承）",
     ),
     "implements": RelationConstraint(
-        domain="CodeEntity", range="CodeEntity",
+        domain="CodeEntity",
+        range="CodeEntity",
         description="接口实现关系",
     ),
     "imports": RelationConstraint(
-        domain="CodeEntity", range="CodeEntity",
+        domain="CodeEntity",
+        range="CodeEntity",
         description="模块导入关系",
     ),
     "contains": RelationConstraint(
@@ -533,8 +536,7 @@ def validate_relation_constraint(
     allowed_domain = {domain} if isinstance(domain, str) else domain
     if source_label not in allowed_domain:
         raise ConstraintViolationError(
-            f"关系 '{relation_type}' 的源实体必须是 {allowed_domain}，"
-            f"实际为 '{source_label}'"
+            f"关系 '{relation_type}' 的源实体必须是 {allowed_domain}，实际为 '{source_label}'"
         )
 
     # range 校验
@@ -542,6 +544,5 @@ def validate_relation_constraint(
     allowed_range = {range_val} if isinstance(range_val, str) else range_val
     if target_label not in allowed_range:
         raise ConstraintViolationError(
-            f"关系 '{relation_type}' 的目标实体必须是 {allowed_range}，"
-            f"实际为 '{target_label}'"
+            f"关系 '{relation_type}' 的目标实体必须是 {allowed_range}，实际为 '{target_label}'"
         )

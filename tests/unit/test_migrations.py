@@ -165,9 +165,9 @@ class TestMigrationRunnerRunPending:
         reg.register(m)
         # 模拟迁移后版本查询
         store.query.side_effect = [
-            [{"version": "0.9.0"}],   # get_current_db_version (check_schema_version)
-            [{"version": "0.9.0"}],   # get_current_db_version (run_pending)
-            [],                        # register_schema_version
+            [{"version": "0.9.0"}],  # get_current_db_version (check_schema_version)
+            [{"version": "0.9.0"}],  # get_current_db_version (run_pending)
+            [],  # register_schema_version
         ]
         runner = MigrationRunner(store, reg)
         with patch.object(runner, "_acquire_lock", return_value=MagicMock()):
@@ -195,9 +195,9 @@ class TestMigrationRunnerRunPending:
         reg.register(m_ok)
         reg.register(m_fail)
         store.query.side_effect = [
-            [{"version": "0.9.0"}],   # check
-            [{"version": "0.9.0"}],   # run_pending current
-            [],                        # register after first migration
+            [{"version": "0.9.0"}],  # check
+            [{"version": "0.9.0"}],  # run_pending current
+            [],  # register after first migration
         ]
         runner = MigrationRunner(store, reg)
         with patch.object(runner, "_acquire_lock", return_value=MagicMock()):
@@ -233,6 +233,7 @@ class TestMigrationRunnerLock:
     def test_lock_prevents_concurrent(self):
         """第二个 runner 应获取锁失败。"""
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             lock_path = Path(tmpdir) / "migrate.lock"
             # 手动创建锁

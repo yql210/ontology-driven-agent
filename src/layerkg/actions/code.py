@@ -338,11 +338,13 @@ def trace_call_chain(
     # 构建调用树
     call_tree: list[dict] = []
     for row in results:
-        call_tree.append({
-            "id": row.get("id", ""),
-            "name": row.get("name", ""),
-            "entity_type": row.get("entity_type", ""),
-        })
+        call_tree.append(
+            {
+                "id": row.get("id", ""),
+                "name": row.get("name", ""),
+                "entity_type": row.get("entity_type", ""),
+            }
+        )
 
     return {
         "success": True,

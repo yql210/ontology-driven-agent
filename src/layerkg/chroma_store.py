@@ -254,7 +254,9 @@ class ChromaStore:
                 self._collection.upsert(ids=batch_ids, documents=batch_docs, metadatas=batch_metas)
             except Exception as e:
                 failed += len(batch_ids)
-                self._logger.warning("Batch %d/%d failed (%d items): %s", i // batch_size + 1, total_batches, len(batch_ids), e)
+                self._logger.warning(
+                    "Batch %d/%d failed (%d items): %s", i // batch_size + 1, total_batches, len(batch_ids), e
+                )
             else:
                 self._logger.debug(
                     "Put batch (%d/%d): %d entities",

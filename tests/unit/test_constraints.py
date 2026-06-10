@@ -17,13 +17,12 @@ from layerkg.schema import (
 # A. 约束定义完整性（4 个测试）
 # =============================================================================
 
+
 @pytest.mark.unit
 def test_all_relation_types_have_constraints():
     """每种 VALID_RELATION_TYPES 都有对应的 RELATION_CONSTRAINTS 条目。"""
     for rel_type in VALID_RELATION_TYPES:
-        assert rel_type in RELATION_CONSTRAINTS, (
-            f"关系类型 '{rel_type}' 在 RELATION_CONSTRAINTS 中缺失约束定义"
-        )
+        assert rel_type in RELATION_CONSTRAINTS, f"关系类型 '{rel_type}' 在 RELATION_CONSTRAINTS 中缺失约束定义"
 
 
 @pytest.mark.unit
@@ -45,9 +44,7 @@ def test_all_constraint_domains_are_valid_entity_labels():
         domain = constraint.domain
         allowed_domain = {domain} if isinstance(domain, str) else domain
         for label in allowed_domain:
-            assert label in VALID_ENTITY_LABELS, (
-                f"关系 '{rel_type}' 的 domain 包含非法实体标签: '{label}'"
-            )
+            assert label in VALID_ENTITY_LABELS, f"关系 '{rel_type}' 的 domain 包含非法实体标签: '{label}'"
 
 
 @pytest.mark.unit
@@ -69,9 +66,7 @@ def test_all_constraint_ranges_are_valid_entity_labels():
         range_val = constraint.range
         allowed_range = {range_val} if isinstance(range_val, str) else range_val
         for label in allowed_range:
-            assert label in VALID_ENTITY_LABELS, (
-                f"关系 '{rel_type}' 的 range 包含非法实体标签: '{label}'"
-            )
+            assert label in VALID_ENTITY_LABELS, f"关系 '{rel_type}' 的 range 包含非法实体标签: '{label}'"
 
 
 @pytest.mark.unit
@@ -83,6 +78,7 @@ def test_relation_constraint_is_dataclass():
 # =============================================================================
 # B. domain/range 校验（8 个测试）
 # =============================================================================
+
 
 @pytest.mark.unit
 def test_calls_codeentity_to_codeentity_passes():
@@ -145,6 +141,7 @@ def test_affects_changesetentity_to_conceptentity_passes():
 # =============================================================================
 # C. 边界和向后兼容（4 个测试）
 # =============================================================================
+
 
 @pytest.mark.unit
 def test_unknown_relation_type_does_not_raise():

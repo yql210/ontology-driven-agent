@@ -294,8 +294,11 @@ def test_alert_entity_invalid_severity():
     """Test that AlertEntity rejects invalid severity."""
     with pytest.raises(SchemaValidationError, match="AlertEntity.severity"):
         AlertEntity(
-            name="a1", alert_type="error_spike", severity="URGENT",
-            description="d", source_service="svc",
+            name="a1",
+            alert_type="error_spike",
+            severity="URGENT",
+            description="d",
+            source_service="svc",
         )
 
 

@@ -51,9 +51,7 @@ class TestGetContextChromaHandling:
 
     @patch("layerkg.agent.tools.get_neo4j")
     @patch("layerkg.agent.tools.get_chroma")
-    def test_get_context_chroma_list_result(
-        self, mock_get_chroma: MagicMock, mock_get_neo4j: MagicMock
-    ) -> None:
+    def test_get_context_chroma_list_result(self, mock_get_chroma: MagicMock, mock_get_neo4j: MagicMock) -> None:
         """mock chroma.search 返回 list 时，similar_entities 正确."""
         # Arrange
         from layerkg.agent.tools import get_context
@@ -83,9 +81,7 @@ class TestGetContextChromaHandling:
 
     @patch("layerkg.agent.tools.get_neo4j")
     @patch("layerkg.agent.tools.get_chroma")
-    def test_get_context_chroma_dict_result(
-        self, mock_get_chroma: MagicMock, mock_get_neo4j: MagicMock
-    ) -> None:
+    def test_get_context_chroma_dict_result(self, mock_get_chroma: MagicMock, mock_get_neo4j: MagicMock) -> None:
         """mock chroma.search 返回 dict 时，similar_entities 正确."""
         # Arrange
         from layerkg.agent.tools import get_context
@@ -158,6 +154,6 @@ class TestDetectChangesSignature:
         # 验证源码中包含 keyword-only 参数定义
         assert "*, repo_path: str" in source or "*,repo_path:str" in source.replace(" ", "")
         # 验证默认值为 "."
-        assert 'repo_path: str = "."' in source or "repo_path: str = \".\"" in source
+        assert 'repo_path: str = "."' in source or 'repo_path: str = "."' in source
         # 确保没有硬编码路径
         assert "/opt/data/workspace/ontology-driven-agent" not in source

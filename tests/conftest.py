@@ -10,6 +10,7 @@ def _reset_singletons():
     """每个测试后重置全局单例"""
     yield
     from layerkg.agent.graph import _reset_llm
+
     _reset_llm()
 
 
@@ -17,5 +18,6 @@ def _reset_singletons():
 def trace_collector(tmp_path: Path):
     """Create TraceCollector with isolated temporary database."""
     from layerkg.agent.trace import TraceCollector
+
     db_path = tmp_path / "test_traces.db"
     return TraceCollector(max_traces=10, max_age_seconds=60, persist_path=str(db_path))

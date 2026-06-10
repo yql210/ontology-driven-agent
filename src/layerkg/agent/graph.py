@@ -202,9 +202,7 @@ async def run_query_stream(
                 if hasattr(output, "content"):
                     content = str(output.content)[:200]
                 if trace_collector and content:
-                    await trace_collector.add_step(
-                        thread_id, type="thinking", content=content
-                    )
+                    await trace_collector.add_step(thread_id, type="thinking", content=content)
             elif kind == "on_tool_start":
                 tool_name = event["name"]
                 args = event["data"].get("input", {})
@@ -222,11 +220,7 @@ async def run_query_stream(
                 tool_name = event["name"]
                 raw_output = event["data"].get("output", "")
                 # Extract pure content from ToolMessage objects
-                output_str = (
-                    str(raw_output.content)
-                    if hasattr(raw_output, "content")
-                    else str(raw_output)
-                )
+                output_str = str(raw_output.content) if hasattr(raw_output, "content") else str(raw_output)
                 duration = None
                 if tool_name in tool_start_time:
                     duration = (time.time() - tool_start_time[tool_name]) * 1000

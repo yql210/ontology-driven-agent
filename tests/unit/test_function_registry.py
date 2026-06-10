@@ -1,4 +1,5 @@
 """Tests for function registry."""
+
 from __future__ import annotations
 
 from layerkg.action_types import ActionContext, FunctionResult
@@ -36,9 +37,11 @@ def test_register_duplicate_raises():
         return FunctionResult(success=True)
 
     try:
+
         @register_function("dup_fn")
         def fn2(ctx: ActionContext) -> FunctionResult:
             return FunctionResult(success=False)
+
         raise AssertionError("Expected ValueError")
     except ValueError as e:
         assert "already registered" in str(e)

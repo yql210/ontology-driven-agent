@@ -18,11 +18,7 @@ async def test_trace_thinking_recorded(trace_collector: TraceCollector):
         """Mock astream_events to produce a thinking event."""
         yield {
             "event": "on_chat_model_end",
-            "data": {
-                "output": MagicMock(
-                    content="This is a thinking output"
-                )
-            },
+            "data": {"output": MagicMock(content="This is a thinking output")},
         }
 
     with patch("layerkg.agent.graph.create_agent") as mock_create_agent:

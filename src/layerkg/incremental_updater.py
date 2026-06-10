@@ -611,7 +611,7 @@ class IncrementalUpdater:
                 # If path starts with repo dirname prefix (git worktree is parent), strip it
                 prefix = self._repo_path.name + "/"
                 if rel.startswith(prefix):
-                    rel = rel[len(prefix):]
+                    rel = rel[len(prefix) :]
                 change.path = str((self._repo_path / rel).resolve())
 
         # Stage 2: 影响传播

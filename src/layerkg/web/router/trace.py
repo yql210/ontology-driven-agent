@@ -75,9 +75,7 @@ async def list_traces() -> list[TraceListItem]:
 async def get_trace(thread_id: str) -> TraceResponse:
     """获取单个 trace 详情。"""
     if not collector:
-        raise HTTPException(
-            status_code=404, detail="Trace collector not initialized"
-        )
+        raise HTTPException(status_code=404, detail="Trace collector not initialized")
     log = await collector.get_trace(thread_id)
     if not log:
         raise HTTPException(status_code=404, detail=f"Trace {thread_id} not found")
@@ -114,9 +112,7 @@ async def get_graph_mermaid() -> MermaidResponse:
 async def delete_trace(thread_id: str) -> dict[str, bool]:
     """删除指定 trace。"""
     if not collector:
-        raise HTTPException(
-            status_code=404, detail="Trace collector not initialized"
-        )
+        raise HTTPException(status_code=404, detail="Trace collector not initialized")
     deleted = await collector.delete_trace(thread_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Trace {thread_id} not found")

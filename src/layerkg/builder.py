@@ -303,18 +303,12 @@ class LayerKGBuilder:
             graph_store.ensure_constraints()
 
             # Batch write CodeEntities
-            code_dicts = [
-                add_provenance(self._entity_to_dict(e), extracted_at=batch_time)
-                for e in all_entities
-            ]
+            code_dicts = [add_provenance(self._entity_to_dict(e), extracted_at=batch_time) for e in all_entities]
             graph_store.merge_nodes_batch("CodeEntity", code_dicts, batch_size=200)
             self._logger.info("[Neo4j] Merged %d CodeEntities complete", len(all_entities))
 
             # Batch write DocEntities
-            doc_dicts = [
-                add_provenance(self._doc_entity_to_dict(d), extracted_at=batch_time)
-                for d in doc_entities
-            ]
+            doc_dicts = [add_provenance(self._doc_entity_to_dict(d), extracted_at=batch_time) for d in doc_entities]
             graph_store.merge_nodes_batch("DocEntity", doc_dicts, batch_size=200)
             self._logger.info("[Neo4j] Merged %d DocEntities complete", len(doc_entities))
 
@@ -352,7 +346,9 @@ class LayerKGBuilder:
                     file_path="__external__",
                     language="unknown",
                 )
-                ext_dicts.append(add_provenance(self._entity_to_dict(ext_entity), source="imported", extracted_at=batch_time))
+                ext_dicts.append(
+                    add_provenance(self._entity_to_dict(ext_entity), source="imported", extracted_at=batch_time)
+                )
                 external_modules[ext_name] = ext_entity.id
             if ext_dicts:
                 graph_store.merge_nodes_batch("CodeEntity", ext_dicts, batch_size=200)
@@ -363,19 +359,21 @@ class LayerKGBuilder:
                 source_id = name_to_id.get(rel.source_name)
                 target_id = external_modules.get(rel.target_name)
                 if source_id and target_id:
-                    ext_rel_data.append({
-                        "source_id": source_id,
-                        "target_id": target_id,
-                        "rel_type": "imports",
-                        "source_label": "CodeEntity",
-                        "target_label": "CodeEntity",
-                        "properties": add_provenance(
-                            {},
-                            source="imported",
-                            confidence=1.0,
-                            extracted_at=batch_time,
-                        ),
-                    })
+                    ext_rel_data.append(
+                        {
+                            "source_id": source_id,
+                            "target_id": target_id,
+                            "rel_type": "imports",
+                            "source_label": "CodeEntity",
+                            "target_label": "CodeEntity",
+                            "properties": add_provenance(
+                                {},
+                                source="imported",
+                                confidence=1.0,
+                                extracted_at=batch_time,
+                            ),
+                        }
+                    )
             ext_rel_count = 0
             if ext_rel_data:
                 ext_rel_count = graph_store.merge_relations_batch(ext_rel_data, batch_size=200)
@@ -533,8 +531,7 @@ class LayerKGBuilder:
             elif status == SchemaStatus.AHEAD:
                 db_ver = get_current_db_version(graph_store)
                 raise LayerKGError(
-                    f"Database schema ({db_ver}) is ahead of code ({CURRENT_SCHEMA_VERSION}). "
-                    f"Please update LayerKG."
+                    f"Database schema ({db_ver}) is ahead of code ({CURRENT_SCHEMA_VERSION}). Please update LayerKG."
                 )
         except Exception as e:
             self._logger.debug("Schema version check skipped (store unavailable or check failed): %s", e)
@@ -595,7 +592,12 @@ class LayerKGBuilder:
                 extracted_at=batch_time,
             )
             graph_store.merge_relation(
-                rel.source_id, rel.target_id, rel.relation_type, properties=rel_props, source_label="DocEntity", target_label="CodeEntity"
+                rel.source_id,
+                rel.target_id,
+                rel.relation_type,
+                properties=rel_props,
+                source_label="DocEntity",
+                target_label="CodeEntity",
             )
         self._logger.info("═══ Stage 2.5/5 complete: %d DESCRIBES relations ═══", len(describes_rels))
 

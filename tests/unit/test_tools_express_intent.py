@@ -102,7 +102,102 @@ def test_action_executor_singleton() -> None:
         result2 = tools_mod._get_action_executor(mock_store)
 
         assert result1 is result2
-        mock_executor_cls.assert_called_once_with(mock_store)
+        mock_executor_cls.assert_called_once_with(mock_store, function_runner=mock_executor_cls.call_args[1]["function_runner"])
 
     # Cleanup
     tools_mod._action_executor = None
+
+
+class TestGap1FunctionRunnerInjection:
+    """Gap 1: express_intent must inject FunctionRunner into ActionExecutor."""
+
+    def test_action_executor_receives_function_runner(self) -> None:
+        """ActionExecutor 单例应注入 FunctionRunner."""
+        import layerkg.agent.tools as tools_mod
+
+        tools_mod._action_executor = None
+        mock_store = MagicMock()
+
+        try:
+            executor = tools_mod._get_action_executor(mock_store)
+            assert executor._function_runner is not None, (
+                "ActionExecutor was created without a FunctionRunner — "
+                "functions will bypass retry/circuit-breaker/fallback"
+            )
+        finally:
+            tools_mod._action_executor = None
+
+    def test_function_runner_is_shared_singleton(self) -> None:
+        """Repeated _get_action_executor calls share the same FunctionRunner."""
+        import layerkg.agent.tools as tools_mod
+
+        mock_store = MagicMock()
+
+        tools_mod._action_executor = None
+        try:
+            executor1 = tools_mod._get_action_executor(mock_store)
+            runner1 = executor1._function_runner
+
+            tools_mod._action_executor = None
+            executor2 = tools_mod._get_action_executor(mock_store)
+            runner2 = executor2._function_runner
+
+            assert runner1 is runner2, "FunctionRunner should be a shared singleton"
+        finally:
+            tools_mod._action_executor = None
+
+
+class TestGap2GeneralFunctionsRegistered:
+    """Gap 2: general.py functions (query_entity, etc.) must be in registry at import time."""
+
+    def test_general_functions_registered_on_tools_import(self) -> None:
+        """Importing tools.py should trigger general function registration."""
+        from layerkg.functions.registry import list_functions
+
+        expected = [
+            "query_entity",
+            "update_entity",
+            "create_entity",
+            "create_relation",
+            "check_condition",
+            "send_notification",
+        ]
+
+        # Import tools triggers the chain
+        import layerkg.agent.tools  # noqa: F401
+
+        registered = list_functions()
+        for name in expected:
+            assert name in registered, f"General function '{name}' not in registry. Registered: {registered}"
+
+    def test_query_entity_callable_from_registry(self) -> None:
+        """query_entity should be callable from the registry."""
+        import layerkg.agent.tools  # noqa: F401
+        from layerkg.action_types import ActionContext
+        from layerkg.functions.registry import get_function
+
+        fn = get_function("query_entity")
+        assert fn is not None
+        ctx = ActionContext(
+            graph_store=None,
+            match_data={"target": "foo", "entity": {"name": "foo", "id": "e1"}},
+        )
+        result = fn(ctx)
+        assert result.success is True
+        assert result.data["name"] == "foo"
+
+    def test_check_condition_callable_from_registry(self) -> None:
+        """check_condition should be callable from the registry."""
+        import layerkg.agent.tools  # noqa: F401
+        from layerkg.action_types import ActionContext
+        from layerkg.functions.registry import get_function
+
+        fn = get_function("check_condition")
+        assert fn is not None
+        ctx = ActionContext(
+            graph_store=None,
+            match_data={"entity": {"lines": 200}},
+        )
+        result = fn(ctx, field="lines", operator=">", value=100)
+        assert result.success is True
+        assert result.data["condition_met"] is True

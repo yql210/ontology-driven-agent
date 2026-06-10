@@ -1414,7 +1414,7 @@ class TestDay5Reflection:
 
     def test_annotation_type(self):
         """@interface 注解类型被提取。"""
-        code = b"public @interface MyAnnotation { String value() default \"\"; }"
+        code = b'public @interface MyAnnotation { String value() default ""; }'
         result = self.parser.parse_source(code, "MyAnnotation.java")
         interfaces = [e for e in result.entities if e.entity_type == "interface" and e.name == "MyAnnotation"]
         assert len(interfaces) == 1

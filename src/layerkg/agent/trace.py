@@ -1,4 +1,5 @@
 """Trace data model and collector for agent observability."""
+
 from __future__ import annotations
 
 import asyncio
@@ -162,6 +163,7 @@ class TraceCollector:
 
     async def _delete_trace_persisted(self, thread_id: str) -> None:
         """异步删除 trace"""
+
         def _delete() -> None:
             db = self._get_db()
             try:
@@ -174,10 +176,7 @@ class TraceCollector:
 
     async def _rewrite_all_traces(self) -> None:
         """全量重写（清理后）"""
-        pairs = [
-            (tid, json.dumps(self._trace_to_dict(log), ensure_ascii=False))
-            for tid, log in self._traces.items()
-        ]
+        pairs = [(tid, json.dumps(self._trace_to_dict(log), ensure_ascii=False)) for tid, log in self._traces.items()]
 
         def _bulk_write() -> None:
             db = self._get_db()
@@ -271,11 +270,7 @@ class TraceCollector:
         """Clean old and excess traces (must be called within lock)."""
         now = time.time()
         # 1. Clean expired traces
-        to_delete = [
-            tid
-            for tid, log in self._traces.items()
-            if now - log.created_at > self._max_age_seconds
-        ]
+        to_delete = [tid for tid, log in self._traces.items() if now - log.created_at > self._max_age_seconds]
         for tid in to_delete[:max_delete]:
             del self._traces[tid]
             self._step_counters.pop(tid, None)

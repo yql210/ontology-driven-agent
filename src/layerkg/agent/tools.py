@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import subprocess
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from langchain_core.tools import tool
 
 if TYPE_CHECKING:
     from layerkg.action_executor import ActionExecutor
 
+import layerkg.functions.general  # noqa: F401
 from layerkg.agent._helpers import (
     get_aligner,
     get_chroma,
@@ -393,6 +394,17 @@ def express_intent(intent_type: str, target: str, params: dict | None = None) ->
 
 
 _action_executor: ActionExecutor | None = None
+_function_runner: Any | None = None
+
+
+def _get_function_runner() -> Any:
+    """获取全局 FunctionRunner 单例（lazy init）。"""
+    global _function_runner
+    if _function_runner is None:
+        from layerkg.function_runner import FunctionRunner
+
+        _function_runner = FunctionRunner()
+    return _function_runner
 
 
 def _get_action_executor(graph_store: object) -> ActionExecutor:
@@ -401,7 +413,7 @@ def _get_action_executor(graph_store: object) -> ActionExecutor:
     if _action_executor is None:
         from layerkg.action_executor import ActionExecutor
 
-        _action_executor = ActionExecutor(graph_store)
+        _action_executor = ActionExecutor(graph_store, function_runner=_get_function_runner())
     return _action_executor
 
 
