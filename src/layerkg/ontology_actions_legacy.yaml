@@ -1,0 +1,78 @@
+code_entity:
+  actions:
+    - name: refactor
+      description: "重构建议"
+      requires_approval: false
+      functions:
+        - name: split_large_function
+          description: "拆分大函数"
+          implementation: "layerkg.actions.code:split_large_function"
+
+        - name: extract_interface
+          description: "提取接口"
+          implementation: "layerkg.actions.code:extract_interface"
+
+        - name: reduce_complexity
+          description: "降低圈复杂度"
+          implementation: "layerkg.actions.code:reduce_complexity"
+
+    - name: document
+      description: "补充文档"
+      requires_approval: false
+      functions:
+        - name: generate_api_doc
+          description: "生成API文档"
+          implementation: "layerkg.actions.code:generate_api_doc"
+
+        - name: annotate_complex_logic
+          description: "注释复杂逻辑"
+          implementation: "layerkg.actions.code:annotate_complex_logic"
+
+    - name: analyze_impact
+      description: "影响分析"
+      requires_approval: false
+      functions:
+        - name: trace_call_chain
+          description: "追踪调用链"
+          implementation: "layerkg.actions.code:trace_call_chain"
+
+        - name: find_dependent_modules
+          description: "查找依赖模块"
+          implementation: "layerkg.actions.code:find_dependent_modules"
+
+    - name: delete
+      description: "删除代码实体（高风险）"
+      requires_approval: true
+      functions:
+        - name: find_dependent_modules
+          description: "查找依赖模块"
+          implementation: "layerkg.actions.code:find_dependent_modules"
+
+alert_entity:
+  actions:
+    - name: diagnose
+      description: "诊断故障"
+      requires_approval: false
+      functions:
+        - name: analyze_by_log_pattern
+          description: "按日志模式分析"
+          implementation: "layerkg.actions.alert:analyze_by_log_pattern"
+        - name: analyze_by_call_chain
+          description: "按调用链分析"
+          implementation: "layerkg.actions.alert:analyze_by_call_chain"
+
+    - name: rollback
+      description: "回滚建议"
+      requires_approval: true
+      functions:
+        - name: find_last_stable
+          description: "找到最近稳定版本"
+          implementation: "layerkg.actions.alert:find_last_stable"
+
+    - name: notify
+      description: "通知"
+      requires_approval: false
+      functions:
+        - name: create_ticket
+          description: "创建工单"
+          implementation: "layerkg.actions.alert:create_ticket"

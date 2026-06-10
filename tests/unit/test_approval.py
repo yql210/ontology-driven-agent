@@ -45,7 +45,7 @@ def mock_graph_store() -> MagicMock:
 @pytest.fixture
 def yaml_path() -> Path:
     """返回 ontology_actions.yaml 的路径。"""
-    return Path(__file__).parent.parent.parent / "src" / "layerkg" / "ontology_actions.yaml"
+    return Path(__file__).parent.parent.parent / "src" / "layerkg" / "ontology_actions_legacy.yaml"
 
 
 @pytest.fixture

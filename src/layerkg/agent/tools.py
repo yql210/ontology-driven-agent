@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from langchain_core.tools import tool
 
 if TYPE_CHECKING:
-    from layerkg.ontology_engine import OntologyEngine
+    from layerkg.action_executor import ActionExecutor
 
 from layerkg.agent._helpers import (
     get_aligner,
@@ -38,7 +38,10 @@ def semantic_search(query: str, top_k: int = 5) -> str:
         return json.dumps(results, ensure_ascii=False, indent=2)
     except Exception as e:
         return json.dumps(
-            {"error": f"语义搜索失败: {e!s}", "suggestion": "请使用 graph_query 执行 Cypher 查询替代，例如: MATCH (n:CodeEntity) WHERE n.name CONTAINS '关键词' RETURN n.name, n.file_path LIMIT 10"},
+            {
+                "error": f"语义搜索失败: {e!s}",
+                "suggestion": "请使用 graph_query 执行 Cypher 查询替代，例如: MATCH (n:CodeEntity) WHERE n.name CONTAINS '关键词' RETURN n.name, n.file_path LIMIT 10",
+            },
             ensure_ascii=False,
         )
 
@@ -63,12 +66,18 @@ def graph_query(cypher: str) -> str:
         results = neo4j.query(cypher)
         if not results:
             return json.dumps(
-                {"info": "查询返回空结果。可能原因：1)查询的实体类型不存在 2)关键词不匹配 3)关系类型不匹配。请尝试修改查询条件或换用其他工具。", "results": []},
+                {
+                    "info": "查询返回空结果。可能原因：1)查询的实体类型不存在 2)关键词不匹配 3)关系类型不匹配。请尝试修改查询条件或换用其他工具。",
+                    "results": [],
+                },
                 ensure_ascii=False,
             )
         if len(results) > 100:
             return json.dumps(
-                {"warning": f"结果过多({len(results)}条)，已截断为前100条。建议加 LIMIT 子句缩小范围。", "results": results[:100]},
+                {
+                    "warning": f"结果过多({len(results)}条)，已截断为前100条。建议加 LIMIT 子句缩小范围。",
+                    "results": results[:100],
+                },
                 ensure_ascii=False,
                 indent=2,
             )
@@ -204,7 +213,10 @@ def list_concepts() -> str:
     concepts = aligner.list_concepts()
     if not concepts:
         return json.dumps(
-            {"info": "当前知识图谱中没有概念实体（ConceptEntity）。可能构建时跳过了语义提取阶段。请使用 graph_query 查询 CodeEntity 或其他实体类型。", "count": 0},
+            {
+                "info": "当前知识图谱中没有概念实体（ConceptEntity）。可能构建时跳过了语义提取阶段。请使用 graph_query 查询 CodeEntity 或其他实体类型。",
+                "count": 0,
+            },
             ensure_ascii=False,
         )
     return json.dumps(concepts, ensure_ascii=False, indent=2)
@@ -225,7 +237,10 @@ def get_module_tree() -> str:
 
         if not tree:
             return json.dumps(
-                {"info": "当前知识图谱中没有模块聚类数据。可能构建时跳过了聚类阶段。请使用 graph_query 查询 CodeEntity。", "count": 0},
+                {
+                    "info": "当前知识图谱中没有模块聚类数据。可能构建时跳过了聚类阶段。请使用 graph_query 查询 CodeEntity。",
+                    "count": 0,
+                },
                 ensure_ascii=False,
             )
 
@@ -357,75 +372,37 @@ def export_graph(limit: int = 100) -> str:
 
 
 @tool
-def ontology_action(entity_name: str, action: str, context: dict) -> str:
-    """通过 Ontology Action 对实体执行操作。
-
-    Agent 只能调用已注册的 Action，不能自由操作图谱。
-    Action 内部会根据上下文选择最合适的 Function 执行。
+def express_intent(intent_type: str, target: str, params: dict | None = None) -> str:
+    """当你识别到用户有操作意图时调用此工具。可用操作类型会在系统提示中列出。
 
     Args:
-        entity_name: 目标实体名称
-        action: 要执行的 Action 名称（如 refactor、diagnose）
-        context: 场景上下文（dict），Agent 用于选择 Function 的依据
-            例: {"lines": 150, "branches": 20, "max_lines": 100}
+        intent_type: 操作类型（如 refactor, document, analyze_impact）
+        target: 目标实体名称
+        params: 可选参数（dict）
 
     Returns:
         执行结果的 JSON 格式字符串
     """
     try:
         neo4j = get_neo4j()
-
-        # 先通过 name 查找 entity_id
-        cypher = "MATCH (n {name: $name}) RETURN n.id AS id LIMIT 1"
-        result = neo4j.query(cypher, {"name": entity_name})
-
-        if not result:
-            return json.dumps(
-                {"error": f"未找到实体 '{entity_name}'"},
-                ensure_ascii=False,
-            )
-
-        entity_id = result[0]["id"]
-
-        engine = _get_ontology_engine(neo4j)
-
-        action_result = engine.execute(entity_id=entity_id, action_name=action, context=context)
-
-        return json.dumps(
-            {
-                "success": action_result.success,
-                "function_name": action_result.function_name,
-                "result": action_result.result,
-                "side_effects": action_result.side_effects,
-                "audit_id": action_result.audit_id,
-            },
-            ensure_ascii=False,
-            indent=2,
-            default=str,
-        )
+        executor = _get_action_executor(neo4j)
+        result = executor.execute(intent_type, {"target": target, **(params or {})})
+        return json.dumps(result.to_dict(), ensure_ascii=False, indent=2)
     except Exception as e:
-        return json.dumps(
-            {"error": f"Ontology action 执行失败: {e!s}"},
-            ensure_ascii=False,
-        )
+        return json.dumps({"error": f"操作执行失败: {e!s}"}, ensure_ascii=False)
 
 
-_ontology_engine: OntologyEngine | None = None
+_action_executor: ActionExecutor | None = None
 
 
-def _get_ontology_engine(graph_store: object) -> OntologyEngine:
-    """获取或初始化 OntologyEngine 单例。"""
-    global _ontology_engine
-    if _ontology_engine is None:
-        from pathlib import Path
+def _get_action_executor(graph_store: object) -> ActionExecutor:
+    """获取或初始化 ActionExecutor 单例。"""
+    global _action_executor
+    if _action_executor is None:
+        from layerkg.action_executor import ActionExecutor
 
-        from layerkg.ontology_engine import OntologyEngine
-
-        engine = OntologyEngine(graph_store)
-        yaml_path = Path(__file__).parent.parent / "ontology_actions.yaml"
-        engine.load_from_yaml(yaml_path)
-        _ontology_engine = engine
-    return _ontology_engine
+        _action_executor = ActionExecutor(graph_store)
+    return _action_executor
 
 
 ALL_TOOLS = [
@@ -437,5 +414,5 @@ ALL_TOOLS = [
     get_module_tree,
     detect_changes,
     export_graph,
-    ontology_action,
+    express_intent,
 ]

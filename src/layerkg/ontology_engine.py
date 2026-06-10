@@ -1,6 +1,11 @@
 """Ontology Action/Function 引擎 — Palantir 式本体行为层。
 
 实现 Action 绑定实体类型、Function 挂载在 Action 下、Agent 选择 Function 的三层架构。
+
+.. deprecated::
+    本模块已被 V3.4 Action 系统（ActionExecutor + IntentRouter）替代。
+    请使用 ``layerkg.action_executor.ActionExecutor`` 代替 ``OntologyEngine``。
+    本文件保留仅为兼容旧测试，将在后续版本移除。
 """
 
 from __future__ import annotations
@@ -8,6 +13,7 @@ from __future__ import annotations
 import importlib
 import logging
 import uuid
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -386,9 +392,17 @@ class ApprovalManager:
 
 
 class OntologyEngine:
-    """本体引擎 — 组合 ActionResolver/FunctionSelector/AuditLogger，对外提供统一接口。"""
+    """本体引擎 — 组合 ActionResolver/FunctionSelector/AuditLogger，对外提供统一接口。
+
+    .. deprecated:: 使用 ActionExecutor 代替。
+    """
 
     def __init__(self, graph_store: GraphStoreProtocol) -> None:
+        warnings.warn(
+            "OntologyEngine is deprecated. Use layerkg.action_executor.ActionExecutor instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._actions: dict[str, dict[str, ActionDef]] = {}
         self._resolver = ActionResolver(graph_store)
         self._selector = FunctionSelector()

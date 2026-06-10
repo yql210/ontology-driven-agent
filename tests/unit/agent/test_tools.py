@@ -21,7 +21,7 @@ def test_all_tools_defined() -> None:
         "get_module_tree",
         "detect_changes",
         "export_graph",
-        "ontology_action",
+        "express_intent",
     }
     assert tool_names == expected_tools
 
