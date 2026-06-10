@@ -6,6 +6,8 @@ import pytest
 
 from layerkg.exceptions import SchemaValidationError
 from layerkg.schema import (
+    RELATION_CONSTRAINTS,
+    VALID_RELATION_TYPES,
     AlertEntity,
     CodeEntity,
     ConceptEntity,
@@ -13,8 +15,6 @@ from layerkg.schema import (
     LogEntity,
     ResourceEntity,
     ServiceEntity,
-    RELATION_CONSTRAINTS,
-    VALID_RELATION_TYPES,
 )
 
 
@@ -258,14 +258,14 @@ def test_log_entity_valid():
 @pytest.mark.unit
 def test_log_entity_invalid_level():
     """Test that LogEntity rejects invalid level."""
-    with pytest.raises(SchemaValidationError, match="LogEntity.level"):
+    with pytest.raises(SchemaValidationError, match=r"LogEntity\.level"):
         LogEntity(name="log-1", level="FATAL", message="msg", source_service="svc")
 
 
 @pytest.mark.unit
 def test_log_entity_empty_message():
     """Test that LogEntity rejects empty message."""
-    with pytest.raises(SchemaValidationError, match="LogEntity.message"):
+    with pytest.raises(SchemaValidationError, match=r"LogEntity\.message"):
         LogEntity(name="log-1", level="ERROR", message="   ", source_service="svc")
 
 
@@ -292,7 +292,7 @@ def test_alert_entity_valid():
 @pytest.mark.unit
 def test_alert_entity_invalid_severity():
     """Test that AlertEntity rejects invalid severity."""
-    with pytest.raises(SchemaValidationError, match="AlertEntity.severity"):
+    with pytest.raises(SchemaValidationError, match=r"AlertEntity\.severity"):
         AlertEntity(
             name="a1",
             alert_type="error_spike",
@@ -320,7 +320,7 @@ def test_service_entity_valid():
 @pytest.mark.unit
 def test_service_entity_invalid_status():
     """Test that ServiceEntity rejects invalid status."""
-    with pytest.raises(SchemaValidationError, match="ServiceEntity.status"):
+    with pytest.raises(SchemaValidationError, match=r"ServiceEntity\.status"):
         ServiceEntity(name="svc", version="1.0", status="crashed")
 
 

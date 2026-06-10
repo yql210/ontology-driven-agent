@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from layerkg.exceptions import SchemaMigrationError
 from layerkg.schema_version import (
     CURRENT_SCHEMA_VERSION,

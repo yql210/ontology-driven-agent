@@ -431,8 +431,8 @@ class TestMigrateCommand:
             patch("layerkg.cli.LayerKGConfig") as mock_config_cls,
             patch("layerkg.cli.Neo4jGraphStore", return_value=mock_store),
             patch("layerkg.cli.check_schema_version") as mock_check,
-            patch("layerkg.cli.MigrationRunner") as MockRunner,
-            patch("layerkg.cli.MigrationRegistry") as MockRegistry,
+            patch("layerkg.cli.MigrationRunner") as mock_runner_cls,
+            patch("layerkg.cli.MigrationRegistry") as mock_registry_cls,
         ):
             mock_config_cls.from_env.return_value = mock_config
             mock_config.neo4j_uri = "bolt://localhost:7687"
@@ -441,8 +441,8 @@ class TestMigrateCommand:
             mock_check.return_value = SchemaStatus.MATCH
             mock_runner = MagicMock()
             mock_runner.run_pending.return_value = []
-            MockRunner.return_value = mock_runner
-            MockRegistry.return_value = MagicMock()
+            mock_runner_cls.return_value = mock_runner
+            mock_registry_cls.return_value = MagicMock()
 
             # Act
             result = runner.invoke(main, ["migrate"])
@@ -462,8 +462,8 @@ class TestMigrateCommand:
             patch("layerkg.cli.LayerKGConfig") as mock_config_cls,
             patch("layerkg.cli.Neo4jGraphStore", return_value=mock_store),
             patch("layerkg.cli.check_schema_version") as mock_check,
-            patch("layerkg.cli.MigrationRunner") as MockRunner,
-            patch("layerkg.cli.MigrationRegistry") as MockRegistry,
+            patch("layerkg.cli.MigrationRunner") as mock_runner_cls,
+            patch("layerkg.cli.MigrationRegistry") as mock_registry_cls,
         ):
             mock_config_cls.from_env.return_value = mock_config
             mock_config.neo4j_uri = "bolt://localhost:7687"
@@ -472,8 +472,8 @@ class TestMigrateCommand:
             mock_check.return_value = SchemaStatus.BEHIND
             mock_runner = MagicMock()
             mock_runner.run_pending.return_value = ["1.0.0"]
-            MockRunner.return_value = mock_runner
-            MockRegistry.return_value = MagicMock()
+            mock_runner_cls.return_value = mock_runner
+            mock_registry_cls.return_value = MagicMock()
 
             # Act
             result = runner.invoke(main, ["migrate"])
@@ -492,8 +492,8 @@ class TestMigrateCommand:
         with (
             patch("layerkg.cli.LayerKGConfig") as mock_config_cls,
             patch("layerkg.cli.Neo4jGraphStore", return_value=mock_store),
-            patch("layerkg.cli.MigrationRunner") as MockRunner,
-            patch("layerkg.cli.MigrationRegistry") as MockRegistry,
+            patch("layerkg.cli.MigrationRunner") as mock_runner_cls,
+            patch("layerkg.cli.MigrationRegistry") as mock_registry_cls,
         ):
             mock_config_cls.from_env.return_value = mock_config
             mock_config.neo4j_uri = "bolt://localhost:7687"
@@ -501,8 +501,8 @@ class TestMigrateCommand:
             mock_config.neo4j_password = "password"
             mock_runner = MagicMock()
             mock_runner.rollback.return_value = ["0.9.0"]
-            MockRunner.return_value = mock_runner
-            MockRegistry.return_value = MagicMock()
+            mock_runner_cls.return_value = mock_runner
+            mock_registry_cls.return_value = MagicMock()
 
             # Act
             result = runner.invoke(main, ["migrate", "--target", "0.9.0"])

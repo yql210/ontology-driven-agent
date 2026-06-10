@@ -13,7 +13,6 @@ from layerkg.migrations.registry import MigrationRegistry
 from layerkg.migrations.runner import MigrationRunner
 from layerkg.schema_version import (
     CURRENT_SCHEMA_VERSION,
-    SchemaStatus,
 )
 
 
@@ -141,9 +140,8 @@ class TestMigrationRunnerRunPending:
         store = _make_store(CURRENT_SCHEMA_VERSION)
         reg = MigrationRegistry()
         runner = MigrationRunner(store, reg)
-        with patch.object(runner, "_acquire_lock", return_value=MagicMock()):
-            with patch.object(runner, "_release_lock"):
-                applied = runner.run_pending()
+        with patch.object(runner, "_acquire_lock", return_value=MagicMock()), patch.object(runner, "_release_lock"):
+            applied = runner.run_pending()
         assert applied == []
 
     def test_registers_version_for_empty_db(self):
@@ -151,9 +149,8 @@ class TestMigrationRunnerRunPending:
         store = _make_store(None)
         reg = MigrationRegistry()
         runner = MigrationRunner(store, reg)
-        with patch.object(runner, "_acquire_lock", return_value=MagicMock()):
-            with patch.object(runner, "_release_lock"):
-                applied = runner.run_pending()
+        with patch.object(runner, "_acquire_lock", return_value=MagicMock()), patch.object(runner, "_release_lock"):
+            applied = runner.run_pending()
         # 无迁移脚本时只注册版本
         assert applied == []
 
@@ -170,9 +167,8 @@ class TestMigrationRunnerRunPending:
             [],  # register_schema_version
         ]
         runner = MigrationRunner(store, reg)
-        with patch.object(runner, "_acquire_lock", return_value=MagicMock()):
-            with patch.object(runner, "_release_lock"):
-                applied = runner.run_pending()
+        with patch.object(runner, "_acquire_lock", return_value=MagicMock()), patch.object(runner, "_release_lock"):
+            applied = runner.run_pending()
         assert applied == ["1.0.0"]
         assert m.upgrade_called
 
@@ -181,10 +177,12 @@ class TestMigrationRunnerRunPending:
         store = _make_store("2.0.0")
         reg = MigrationRegistry()
         runner = MigrationRunner(store, reg)
-        with patch.object(runner, "_acquire_lock", return_value=MagicMock()):
-            with patch.object(runner, "_release_lock"):
-                with pytest.raises(SchemaMigrationError, match="ahead"):
-                    runner.run_pending()
+        with (
+            patch.object(runner, "_acquire_lock", return_value=MagicMock()),
+            patch.object(runner, "_release_lock"),
+            pytest.raises(SchemaMigrationError, match="ahead"),
+        ):
+            runner.run_pending()
 
     def test_migration_failure_reports_applied(self):
         """迁移失败时报告已应用的版本。"""
@@ -200,10 +198,12 @@ class TestMigrationRunnerRunPending:
             [],  # register after first migration
         ]
         runner = MigrationRunner(store, reg)
-        with patch.object(runner, "_acquire_lock", return_value=MagicMock()):
-            with patch.object(runner, "_release_lock"):
-                with pytest.raises(SchemaMigrationError, match="Previously applied"):
-                    runner.run_pending()
+        with (
+            patch.object(runner, "_acquire_lock", return_value=MagicMock()),
+            patch.object(runner, "_release_lock"),
+            pytest.raises(SchemaMigrationError, match="Previously applied"),
+        ):
+            runner.run_pending()
 
 
 class TestMigrationRunnerRollback:
@@ -211,9 +211,8 @@ class TestMigrationRunnerRollback:
         store = _make_store("1.0.0")
         reg = MigrationRegistry()
         runner = MigrationRunner(store, reg)
-        with patch.object(runner, "_acquire_lock", return_value=MagicMock()):
-            with patch.object(runner, "_release_lock"):
-                result = runner.rollback("1.0.0")
+        with patch.object(runner, "_acquire_lock", return_value=MagicMock()), patch.object(runner, "_release_lock"):
+            result = runner.rollback("1.0.0")
         assert result == []
 
     def test_rollback_single_step(self):
@@ -222,9 +221,8 @@ class TestMigrationRunnerRollback:
         m = DummyMigration("0.0.0", "1.0.0")
         reg.register(m)
         runner = MigrationRunner(store, reg)
-        with patch.object(runner, "_acquire_lock", return_value=MagicMock()):
-            with patch.object(runner, "_release_lock"):
-                result = runner.rollback("0.0.0")
+        with patch.object(runner, "_acquire_lock", return_value=MagicMock()), patch.object(runner, "_release_lock"):
+            result = runner.rollback("0.0.0")
         assert result == ["0.0.0"]
         assert m.downgrade_called
 
@@ -237,7 +235,7 @@ class TestMigrationRunnerLock:
         with tempfile.TemporaryDirectory() as tmpdir:
             lock_path = Path(tmpdir) / "migrate.lock"
             # 手动创建锁
-            f1 = open(lock_path, "w")
+            f1 = open(lock_path, "w")  # noqa: SIM115
             fcntl.flock(f1.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
             store = _make_store(None)

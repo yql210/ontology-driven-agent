@@ -12,7 +12,7 @@ from layerkg.incremental_updater import IncrementalUpdater
 from layerkg.migrations.registry import MigrationRegistry
 from layerkg.migrations.runner import MigrationRunner
 from layerkg.neo4j_store import Neo4jGraphStore
-from layerkg.schema_version import SchemaStatus, check_schema_version, get_current_db_version
+from layerkg.schema_version import check_schema_version
 
 
 @click.group()

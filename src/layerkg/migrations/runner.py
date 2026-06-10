@@ -8,7 +8,6 @@ from pathlib import Path
 
 from layerkg.exceptions import SchemaMigrationError
 from layerkg.graph_store import GraphStore
-from layerkg.migrations import MigrationBase
 from layerkg.migrations.registry import MigrationRegistry
 from layerkg.schema_version import (
     CURRENT_SCHEMA_VERSION,
@@ -38,7 +37,9 @@ class MigrationRunner:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
             lock_file.close()
-            raise SchemaMigrationError("Another migration is in progress. Remove ~/.layerkg/migrate.lock if stale.")
+            raise SchemaMigrationError(
+                "Another migration is in progress. Remove ~/.layerkg/migrate.lock if stale."
+            ) from None
         return lock_file
 
     def _release_lock(self, lock_file) -> None:

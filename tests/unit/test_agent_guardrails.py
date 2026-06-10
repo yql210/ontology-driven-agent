@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from layerkg.agent.prompt import AGENT_SYSTEM_PROMPT
-from layerkg.agent.tools import detect_changes
 
 
 class TestPromptGuardrails:

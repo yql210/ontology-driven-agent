@@ -1,6 +1,6 @@
 [project]
 name = "layerkg"
-version = "0.1.0"
+version = "0.2.0"
 description = "Ontology-Driven Agent + LayerKG: 基于本体驱动的可更新知识图谱引擎"
 readme = "README.md"
 requires-python = ">=3.13"

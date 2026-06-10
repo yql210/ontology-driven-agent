@@ -7,11 +7,10 @@ import pytest
 from layerkg.exceptions import ConstraintViolationError
 from layerkg.schema import (
     RELATION_CONSTRAINTS,
-    RelationConstraint,
     VALID_RELATION_TYPES,
+    RelationConstraint,
     validate_relation_constraint,
 )
-
 
 # =============================================================================
 # A. 约束定义完整性（4 个测试）
@@ -28,7 +27,7 @@ def test_all_relation_types_have_constraints():
 @pytest.mark.unit
 def test_all_constraint_domains_are_valid_entity_labels():
     """每个约束的 domain 值都是合法的实体标签名。"""
-    VALID_ENTITY_LABELS = {
+    valid_entity_labels = {
         "CodeEntity",
         "ConceptEntity",
         "DocEntity",
@@ -44,13 +43,13 @@ def test_all_constraint_domains_are_valid_entity_labels():
         domain = constraint.domain
         allowed_domain = {domain} if isinstance(domain, str) else domain
         for label in allowed_domain:
-            assert label in VALID_ENTITY_LABELS, f"关系 '{rel_type}' 的 domain 包含非法实体标签: '{label}'"
+            assert label in valid_entity_labels, f"关系 '{rel_type}' 的 domain 包含非法实体标签: '{label}'"
 
 
 @pytest.mark.unit
 def test_all_constraint_ranges_are_valid_entity_labels():
     """每个约束的 range 值都是合法的实体标签名。"""
-    VALID_ENTITY_LABELS = {
+    valid_entity_labels = {
         "CodeEntity",
         "ConceptEntity",
         "DocEntity",
@@ -66,7 +65,7 @@ def test_all_constraint_ranges_are_valid_entity_labels():
         range_val = constraint.range
         allowed_range = {range_val} if isinstance(range_val, str) else range_val
         for label in allowed_range:
-            assert label in VALID_ENTITY_LABELS, f"关系 '{rel_type}' 的 range 包含非法实体标签: '{label}'"
+            assert label in valid_entity_labels, f"关系 '{rel_type}' 的 range 包含非法实体标签: '{label}'"
 
 
 @pytest.mark.unit

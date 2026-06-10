@@ -8,7 +8,7 @@
   <a href="https://github.com/anthropics/claude-code">
     <img src="https://img.shields.io/badge/Python-3.13+-blue.svg" alt="Python">
   </a>
-  <img src="https://img.shields.io/badge/tests-1131%20passed%2C%201%20skipped-green.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-1274%20passed%2C%201%20skipped-green.svg" alt="Tests">
   <img src="https://img.shields.io/badge/src-54%20files%2C%2012K%20LOC-orange.svg" alt="LOC">
   <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
 </p>
@@ -35,11 +35,30 @@ LayerKG is an **ontology-driven intelligent DevOps platform** that automatically
 
 ## Architecture
 
-LayerKG is organized in three layers:
+LayerKG V3.4 adopts a four-layer architecture: **Intent → Control → Capability → Semantic**.
 
-- **Storage Layer** — Neo4j (graph) + ChromaDB (vectors) + SQLite (metadata)
-- **Engine Layer** — 7-stage build pipeline, incremental updater with BFS propagation, concept clustering, schema constraints
-- **Agent Layer** — LangGraph ReAct agents, Butler event-driven framework, MCP server
+```
+┌─────────────────────────────────────────────────────┐
+│  Intent — 意图层                                     │
+│  Agent 识别意图，直接调度 Action                       │
+├─────────────────────────────────────────────────────┤
+│  Control — 控制层                                     │
+│  ActionExecutor · SAGA 事务 · Submission Criteria     │
+├─────────────────────────────────────────────────────┤
+│  Capability — 能力层                                  │
+│  Function (通用 + 领域) · FunctionRunner · Connector   │
+├─────────────────────────────────────────────────────┤
+│  Semantic — 语义层                                    │
+│  Schema · GraphStore (Neo4j + ChromaDB)               │
+└─────────────────────────────────────────────────────┘
+```
+
+| Layer | Responsibility | Key Components |
+|-------|---------------|----------------|
+| **Intent** | Parse natural-language requests into structured intents; dispatch to Actions | LangGraph ReAct Agent |
+| **Control** | Orchestrate execution with transaction safety, fault tolerance, and acceptance criteria | ActionExecutor, TransactionManager (SAGA), CircuitBreaker, Submission Criteria |
+| **Capability** | Composable domain functions as reusable building blocks | Function (General + Domain), FunctionRunner, Connector framework, MCP server |
+| **Semantic** | Persistent knowledge infrastructure with ontology-driven validation | Schema (6 entities, 11 relations), Neo4j, ChromaDB, Schema constraints |
 
 ## Quick Start
 
@@ -147,8 +166,8 @@ src/layerkg/
 |--------|-------|
 | Source Code | 54 files, 12,157 LOC |
 | Test Code | 72 files, 23,145 LOC |
-| Tests | 1,131 passed, 1 skipped |
-| Latest Commit | 75632ac |
+| Tests | 1,274 passed, 1 skipped |
+| Latest Commit | 54f5763 |
 
 ## License
 
