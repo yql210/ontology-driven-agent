@@ -10,8 +10,14 @@ from layerkg.intent_router import build_intent_map
 
 
 class ActionExecutor:
-    def __init__(self, graph_store: Any, yaml_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        graph_store: Any,
+        yaml_path: Path | None = None,
+        function_runner: Any | None = None,
+    ) -> None:
         self._graph_store = graph_store
+        self._function_runner = function_runner
         if yaml_path is None:
             yaml_path = Path(__file__).parent / "ontology_actions.yaml"
         self._intent_map = build_intent_map(yaml_path)
@@ -59,7 +65,10 @@ class ActionExecutor:
         # 5. Execute function chain sequentially
         results: list[FunctionResult] = []
         for func_name in config.functions:
-            result = ctx.call_function(func_name)
+            if self._function_runner is not None:
+                result = self._function_runner.run(func_name, ctx)
+            else:
+                result = ctx.call_function(func_name)
             results.append(result)
             if not result.success:
                 return ActionResult(

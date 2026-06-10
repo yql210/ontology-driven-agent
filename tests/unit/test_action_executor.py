@@ -256,3 +256,57 @@ class TestActionExecutorDocument:
         assert result.success is True
         assert result.action_name == "document"
         assert len(result.results) == 1
+
+
+class TestActionExecutorFunctionRunner:
+    """Tests for optional FunctionRunner injection into ActionExecutor."""
+
+    def test_execute_with_function_runner(self, tmp_path):
+        """When FunctionRunner is injected, it is used instead of ctx.call_function."""
+        from unittest.mock import MagicMock
+
+        from layerkg.action_types import FunctionResult
+        from layerkg.function_runner import FunctionRunner
+
+        runner = MagicMock(spec=FunctionRunner)
+        runner.run.return_value = FunctionResult(success=True, data={"via": "runner"})
+
+        store = MockGraphStore(ENTITIES)
+        executor = ActionExecutor(store, yaml_path=_make_yaml(tmp_path), function_runner=runner)
+
+        result = executor.execute("refactor", {"target": "Cache"})
+
+        assert result.success is True
+        runner.run.assert_called_once()
+        assert runner.run.call_args[0][0] == "check_refactor_eligibility"
+        assert result.results[0].data == {"via": "runner"}
+
+    def test_execute_without_function_runner_fallback(self, tmp_path):
+        """Without FunctionRunner, the legacy ctx.call_function path is used."""
+        store = MockGraphStore(ENTITIES)
+        executor = ActionExecutor(store, yaml_path=_make_yaml(tmp_path))
+
+        result = executor.execute("multi_fn", {"target": "Cache"})
+
+        assert result.success is True
+        assert len(result.results) == 2
+        assert result.results[0].data["step"] == "a"
+        assert result.results[1].data["step"] == "b"
+
+    def test_execute_with_function_runner_failure(self, tmp_path):
+        """When FunctionRunner returns failure, action result reflects it."""
+        from unittest.mock import MagicMock
+
+        from layerkg.action_types import FunctionResult
+        from layerkg.function_runner import FunctionRunner
+
+        runner = MagicMock(spec=FunctionRunner)
+        runner.run.return_value = FunctionResult(success=False, error="runner failed")
+
+        store = MockGraphStore(ENTITIES)
+        executor = ActionExecutor(store, yaml_path=_make_yaml(tmp_path), function_runner=runner)
+
+        result = executor.execute("refactor", {"target": "Cache"})
+
+        assert result.success is False
+        assert "runner failed" in result.error

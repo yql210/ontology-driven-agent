@@ -335,6 +335,20 @@ class ServiceEntity:
             )
 
 
+VALID_ENTITY_LABELS: frozenset[str] = frozenset(
+    {
+        "CodeEntity",
+        "ConceptEntity",
+        "DocEntity",
+        "ResourceEntity",
+        "ModuleEntity",
+        "ChangeSetEntity",
+        "LogEntity",
+        "AlertEntity",
+        "ServiceEntity",
+    }
+)
+
 VALID_RELATION_TYPES = frozenset(
     {
         "calls",
