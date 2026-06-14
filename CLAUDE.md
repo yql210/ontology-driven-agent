@@ -1,104 +1,129 @@
-# Ontology-Driven Agent + LayerKG
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 > **For Hermes:** 使用 claude-code skill 的 print mode (`-p`) 执行任务。每个任务 2-5 分钟粒度。强制 TDD。详细规范见 `.claude/rules/` 目录。
 
 ## 项目简介
-基于本体驱动的智能开发运维平台。底层 LayerKG 知识图谱引擎（Neo4j + ChromaDB），上层 LangGraph 多Agent编排。
 
-## 技术栈
-| 类别 | 技术 | 版本 |
-|------|------|------|
-| 语言 | Python | 3.13+ |
-| 包管理 | uv | 0.11+ |
-| AST解析 | tree-sitter | latest |
-| 图数据库 | Neo4j | 5.x (环境变量配置) |
-| 向量库 | ChromaDB | latest |
-| 代码嵌入 | Qwen2.5-0.5B-Coder (Ollama) | 环境变量配置 |
-| Agent框架 | LangGraph | Phase 1 |
-| CLI | Click | latest |
-| 格式化/检查 | ruff | latest |
-| 类型检查 | pyright | latest |
+LayerKG — 基于本体驱动的可更新知识图谱引擎。从源代码 + 文档自动构建知识图谱（Neo4j + ChromaDB），支持自然语言查询、变更影响分析、增量更新。上层 LangGraph ReAct Agent 编排查询与操作。
 
-## 精确命令（Claude 直接执行）
+技术栈：Python 3.13+ · uv · tree-sitter（Python+Java）· Neo4j 5.x · ChromaDB · LangGraph · Click · ruff · pyright。
+
+## 精确命令
+
 ```bash
 # 包管理
-uv add <package>              # 添加依赖
+uv add <package>              # 添加依赖（运行时）
 uv add --dev <package>        # 添加开发依赖
 uv sync                       # 同步环境
 
-# 测试
-uv run pytest tests/ -v                           # 全量测试
-uv run pytest tests/unit/ -v                      # 只跑单元测试
-uv run pytest tests/ -m "not integration" -v      # 跳过集成测试
-uv run pytest tests/unit/test_schema.py::test_x -v # 单个测试
+# 测试（markers: unit / integration / slow）
+uv run pytest tests/ -v                              # 全量
+uv run pytest tests/unit/ -v                         # 仅单元测试
+uv run pytest -m "not integration" -v                # 跳过集成测试（无需 Neo4j）
+uv run pytest tests/unit/test_schema.py::test_x -v   # 单个测试
 uv run pytest tests/ --cov=layerkg --cov-report=term-missing  # 覆盖率
 
-# 格式化与检查
-uv run ruff check src/ tests/    # 静态检查
-uv run ruff format src/ tests/   # 自动格式化
-uv run ruff check --fix src/     # 自动修复
+# 静态检查 / 格式化 / 类型检查（提交前必须通过）
+uv run ruff check src/ tests/        # 静态检查
+uv run ruff check --fix src/ tests/  # 自动修复
+uv run ruff format src/ tests/       # 自动格式化
+uv run pyright src/                  # 类型检查
 
-# 类型检查
-uv run pyright src/              # 类型检查
-
-# CLI (Phase 0 D5+)
-uv run layerkg build ./repo      # 全量构建
-uv run layerkg query "foo"       # 查询
-uv run layerkg update --since HEAD~1  # 增量更新
+# CLI（入口 layerkg = layerkg.cli:main；配置从 .env / 环境变量读取）
+uv run layerkg build ./repo [--skip-semantic] [--skip-clustering] [--clear] [--verbose-build]
+uv run layerkg query "text" [-t function|class|...] [-n 10]
+uv run layerkg update ./repo [--since HEAD~1] [--dry-run] [--full-scan]   # 增量更新
+uv run layerkg migrate [--target <ver>]                                    # schema 迁移 / 回滚
+uv run layerkg ask "merge_node 被谁调用" | ask -i                          # LangGraph Agent 问答
+uv run layerkg serve [--transport stdio|http] [--port 8000]                # MCP Server
+uv run layerkg web [--host 0.0.0.0] [--port 8000] [--reload]               # FastAPI Web API
+uv run layerkg info | version
+uv run layerkg butler {serve|update|build|status}                          # 事件驱动知识管理引擎
 
 # Git
 git add -A && git commit -m "type: description"
 ```
 
-## 项目结构（Phase 0 目标）
-```
-src/layerkg/
-├── __init__.py
-├── schema.py           # 6个实体 + 11个关系的 dataclass
-├── graph_store.py      # GraphStore 抽象接口
-├── neo4j_store.py      # Neo4j 实现
-├── chroma_store.py     # ChromaDB 向量存储
-├── parser/
-│   ├── __init__.py
-│   ├── base.py         # 解析器抽象
-│   └── python_parser.py # Tree-sitter Python 解析
-├── extractor/
-│   ├── __init__.py
-│   └── relation.py     # 结构关系提取
-├── cli.py              # Click CLI 入口
-└── config.py           # 配置管理
+## 架构（V3.4 四层架构 — 需要跨多个文件理解的全局图景）
 
-tests/
-├── conftest.py
-├── unit/
-│   ├── test_schema.py
-│   ├── test_graph_store.py
-│   └── test_parser.py
-└── integration/
-    ├── test_neo4j_store.py
-    └── test_chroma_store.py
 ```
+Intent（意图层）    Agent 识别意图 → express_intent 工具路由到 Action
+Control（控制层）   ActionExecutor · Submission Criteria · 审批 · SAGA · TransactionManager
+Capability（能力层）Function 注册表（通用+领域）· FunctionRunner（重试/熔断/并发）· Connector
+Semantic（语义层）  Schema（6 实体 11 关系）· GraphStore（Neo4j + ChromaDB）· 本体约束
+```
+
+**关键约束：每层只依赖下一层，不跨层不反向。** Action 只引用 Function 名；Function 通过 `graph_store` 操作语义层、通过 `Connector` 访问外部系统；Connector 只搬运数据不含业务逻辑。
+
+### 意图 → 执行 的完整链路
+1. Agent 收到自然语言 → prompt 中的 `trigger_hint` 列表匹配 `intent_type`（prompt 由 `intent_router.build_intent_prompt()` 从 `src/layerkg/ontology_actions.yaml` 自动生成）。
+2. Agent 调用工具 `express_intent(intent_type, target, params)`（`agent/tools.py`）。
+3. `ActionExecutor.execute()`（`action_executor.py`）：查 `intent_map` → `_resolve_entity` → `_check_criteria`（Submission Criteria）→ 通过 `FunctionRunner` 同步执行对应 Function。
+4. Function 经 `ActionContext` 注入 `graph_store` + `function_runner`，可链式调用其他 Function；写操作走 `TransactionManager` / SAGA 保证原子性与补偿。
+
+### 各层落地位置
+| 层 | 文件 |
+|----|------|
+| Intent | `agent/`（`graph.py` 建 LangGraph agent，`tools.py` 的 `ALL_TOOLS`，`prompt.py`），`intent_router.py`，`ontology_actions.yaml` |
+| Control | `action_executor.py`，`action_types.py`，`saga.py`，`transaction_manager.py`，`execution_policy.py`，`circuit_breaker.py` |
+| Capability | `functions/`（`registry.py` 装饰器注册、`builtin.py`、`general.py`），`function_runner.py`，`connectors/`（`base.py` + 实现），`mcp_server.py` |
+| Semantic | `schema.py`，`graph_store.py`（抽象），`neo4j_store.py`，`chroma_store.py`，`provenance.py`，`schema_version.py` |
+
+## 知识图谱构建流水线（`builder.py::LayerKGBuilder.build`）
+
+多阶段管线，**只有前两阶段是关键路径**（失败立即 `aborted=True`），后续阶段（语义/聚类/向量）可降级跳过：
+
+| 阶段 | 作用 | 失败行为 |
+|------|------|---------|
+| Stage 1 Parse | tree-sitter 扫描解析（`parser/`：Python+Java+doc）+ 结构关系提取 | 关键 |
+| Stage 2 Structural Write | 结构实体/关系 MERGE 写入 Neo4j | 关键（`RuntimeError`） |
+| Stage 2.5 Doc-Code Link | 文档→代码 `DESCRIBES` 关联 | 关键 |
+| Stage 3 Semantic | LLM 语义提取（`extractor/semantic.py`）+ 概念对齐（`aligner.py` 四步：精确→别名→向量→图结构）→ 写 ConceptEntity | 可降级 |
+| Stage 4 Clustering | 模块聚类（`module_clustering.py`）→ ModuleEntity | 可降级 |
+| Stage 5 Vector Index | 实体向量写入 ChromaDB（`chroma_store.py`，Ollama embedding） | 可降级 |
+
+增量更新走 `incremental_updater.py`（基于 `change_detector.py` git diff + `impact_propagator.py` 双向 BFS 影响传播）。Butler 引擎（`butler/`：EventBus + Handler + GitWatcher）把上述能力包装成事件驱动的常驻服务。
+
+## 测试结构
+```
+tests/
+├── conftest.py             # autouse fixture 在每个测试后重置 agent LLM 全局单例（_reset_llm）
+├── unit/                   # 无外部依赖（默认开发跑这一层）
+├── integration/            # 需要真实 Neo4j（@pytest.mark.integration）
+└── evaluation/             # 评测集 + run_eval.py
+```
+- 优先测真实行为，只对 LLM/外部服务 mock；mock 放测试函数内，不放 conftest。
+- 根目录的 `test_search.py` / `test_verify*.py` 是**手动验证脚本**，不在 pytest 套件内。
+- 详细 TDD / 命名 / AAA / 覆盖率规范见 `.claude/rules/testing.md`。
 
 ## LayerKG Schema 速查
-### 6 实体
-1. **CodeEntity** — function/class/interface/module/file
-2. **ConceptEntity** — business_concept/design_pattern/api_contract/data_model/process
-3. **DocEntity** — readme/module_doc/api_doc/comment/wiki/architecture_doc
-4. **ResourceEntity** — image/diagram/pdf/config/schema_file/log
-5. **ModuleEntity** — 功能模块（聚类结果）
-6. **ChangeSetEntity** — 变更集
+**6 实体**（Neo4j Label = dataclass 名）：`CodeEntity`（function/class/interface/module/file/enum/record/field）、`ConceptEntity`（business_concept/design_pattern/api_contract/data_model/process）、`DocEntity`、`ResourceEntity`、`ModuleEntity`、`ChangeSetEntity`。
 
-### 11 关系
-- 结构（AST）: calls, extends, implements, imports, contains
-- 语义（LLM）: semantic_impact, describes, illustrates, derived_from
-- 变更: changed_in, affects
+**11 关系**（Neo4j Type = UPPER_SNAKE）：
+- 结构（AST）：`CALLS` `EXTENDS` `IMPLEMENTS` `IMPORTS` `CONTAINS`
+- 语义（LLM）：`SEMANTIC_IMPACT` `DESCRIBES` `ILLUSTRATES` `DERIVED_FROM`
+- 变更：`CHANGED_IN` `AFFECTS`
 
-## 详细规范
-- `.claude/rules/python.md` — Python 编码规范
-- `.claude/rules/testing.md` — 测试 TDD 规范
-- `.claude/rules/neo4j.md` — Neo4j + LayerKG Schema 规范
+属性名 camelCase（`entityType`、`filePath`）；Cypher 必须**参数化**，禁止字符串拼接。约束规范见 `.claude/rules/neo4j.md`。
 
-## 外部服务（通过 `.env` 文件或环境变量配置，参考 `.env.example`）
-- Neo4j: `LAYERKG_NEO4J_URI` / `LAYERKG_NEO4J_USER` / `LAYERKG_NEO4J_PASSWORD`
-- Ollama: `LAYERKG_OLLAMA_URL` (qwen2.5-coder:0.5b, qwen3.5:9b)
-- 思源笔记: 按需配置
+## 配置 & 外部服务（`.env`，参考 `.env.example`）
+- **Neo4j**：`LAYERKG_NEO4J_URI` / `_USER` / `_PASSWORD`
+- **Ollama**：`LAYERKG_OLLAMA_URL`、`LAYERKG_EMBEDDING_MODEL`（默认 qwen2.5-coder:0.5b）、`LAYERKG_LLM_MODEL`
+- **语义提取 LLM**：`LAYERKG_SEMANTIC_LLM_PROVIDER`（ollama|openai）、`LAYERKG_SEMANTIC_API_KEY`、`LAYERKG_SEMANTIC_BASE_URL`
+- **Agent LLM**：`LAYERKG_AGENT_LLM_PROVIDER`（默认 zhipu）、`LAYERKG_AGENT_LLM_MODEL`、`LAYERKG_AGENT_API_KEY`、`LAYERKG_AGENT_BASE_URL`
+- **ChromaDB**：`LAYERKG_CHROMA_DIR`（默认 `.chroma`）
+- **构建**：`LAYERKG_BUILD_INCLUDE_DOCS`、`LAYERKG_BUILD_DOC_EXTENSIONS`、`LAYERKG_BUILD_SKIP_DIRS` 等
+- Docker：`docker compose up -d` 起 Neo4j + ChromaDB + LayerKG
+
+## 前端（`frontend/`，独立工程）
+Vue 3 + Vite + TypeScript。可视化图谱（cytoscape）、对话（SSE 经 `@microsoft/fetch-event-source` 连 Web API `/chat/stream`）、流程图（mermaid）、Markdown（marked）。`npm run dev` / `npm run build`。
+
+## 编码规范（详见 `.claude/rules/`，此处仅列高频项）
+- Python：`from __future__ import annotations` 头部；类型注解必须（`X | None`、`list[X]`、`Path`）；f-string；行宽 120；`@dataclass` + `__post_init__` 校验；自定义异常继承 `LayerKGError`；用 `logging` 不用 `print`。
+- 提交前：`ruff check` + `ruff format` + `pyright` 全部通过。
+
+## 设计文档 & 历史计划
+- `DESIGN_V34.md` — **当前架构**（四层）。`DESIGN_V3.md` / `DESIGN_V33.md` 为历史演进。
+- `docs/plans/`（75 份按天规划）、`.hermes/plans/`（Hermes day0-day4）— 历史实施计划，仅供回溯。

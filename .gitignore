@@ -55,3 +55,6 @@ docker-compose.override.yml
 # Frontend
 frontend/node_modules/
 frontend/dist/
+
+# Claude Code 本地权限配置（个人本地，不入库）
+.claude/settings.local.json
