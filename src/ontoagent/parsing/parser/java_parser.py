@@ -156,6 +156,10 @@ class JavaParser(BaseParser):
                 parent_class_name=None,
             )
 
+            from ontoagent.parsing.extractor.external_calls import extract_external_calls_java
+            external_rels = extract_external_calls_java(root_node, source, file_path)
+            relations.extend(external_rels)
+
         except Exception as e:
             # 语法错误时返回已有实体（至少有 file）
             _logger.warning("Parse failed for %s: %s", file_path, e)

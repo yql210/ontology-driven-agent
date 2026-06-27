@@ -204,6 +204,10 @@ class PythonParser(BaseParser):
                 parent_class_name=None,
             )
 
+            from ontoagent.parsing.extractor.external_calls import extract_external_calls_python
+            external_rels = extract_external_calls_python(root_node, source, module_name, file_path)
+            relations.extend(external_rels)
+
         except Exception:
             # 语法错误时返回已有实体（至少有 module）
             pass
