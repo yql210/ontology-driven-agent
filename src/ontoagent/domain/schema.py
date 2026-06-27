@@ -86,6 +86,7 @@ class ConceptEntity:
         "api_contract",
         "data_model",
         "process",
+        "message_topic",
     }
 
     def __post_init__(self) -> None:
@@ -370,6 +371,8 @@ class ServiceEntity:
     code_entity_id: str | None = None
     config: dict[str, str] = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    capability_label: str | None = None
+    team: str | None = None
 
     VALID_STATUSES = {"running", "stopped", "degraded"}
 
@@ -454,6 +457,9 @@ VALID_RELATION_TYPES = frozenset(
         "processes_data",
         "subject_to",
         "governed_by",
+        "calls_service",
+        "publishes_to",
+        "consumed_by",
     }
 )
 
@@ -476,6 +482,9 @@ RELATION_TYPE_TO_NEO4J: dict[str, str] = {
     "processes_data": "PROCESSES_DATA",
     "subject_to": "SUBJECT_TO",
     "governed_by": "GOVERNED_BY",
+    "calls_service": "CALLS_SERVICE",
+    "publishes_to": "PUBLISHES_TO",
+    "consumed_by": "CONSUMED_BY",
 }
 
 
@@ -614,6 +623,22 @@ RELATION_CONSTRAINTS: dict[str, RelationConstraint] = {
         domain="DataAsset",
         range="ComplianceItem",
         description="数据资产受合规要求约束",
+    ),
+    # --- 跨服务通信关系 ---
+    "calls_service": RelationConstraint(
+        domain="CodeEntity",
+        range="ServiceEntity",
+        description="代码调用了外部服务",
+    ),
+    "publishes_to": RelationConstraint(
+        domain="CodeEntity",
+        range="ConceptEntity",
+        description="代码发布消息到消息主题",
+    ),
+    "consumed_by": RelationConstraint(
+        domain="ConceptEntity",
+        range="CodeEntity",
+        description="消息主题被代码消费",
     ),
 }
 
