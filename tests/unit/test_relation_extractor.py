@@ -481,3 +481,147 @@ def test_build_name_map_multi_value() -> None:
     assert isinstance(name_map, dict)
     assert name_map["helper"] == ["uuid-1", "uuid-2"]
     assert name_map["main"] == ["uuid-3"]
+
+
+def test_unresolved_includes_calls_service() -> None:
+    """测试 calls_service 关系（目标不在实体列表中）被归入 unresolved。"""
+    # Arrange
+    entities = [
+        CodeEntity(name="myfunc", entity_type="function", id="uuid-1", file_path="test.py"),
+    ]
+    relations = [
+        ExtractedRelation(
+            source_name="myfunc",
+            source_type="function",
+            target_name="external-service",
+            target_type="service",
+            relation_type="calls_service",
+            file_path="test.py",
+        ),
+    ]
+
+    extractor = RelationExtractor()
+    extractor.add_parse_result(entities, relations)
+
+    # Act
+    resolved, unresolved = extractor.resolve_with_unresolved(entities)
+
+    # Assert
+    assert len(resolved) == 0
+    assert len(unresolved) == 1
+    assert unresolved[0].relation_type == "calls_service"
+    assert unresolved[0].target_name == "external-service"
+
+
+def test_unresolved_includes_publishes_to() -> None:
+    """测试 publishes_to 关系（目标不在实体列表中）被归入 unresolved。"""
+    # Arrange
+    entities = [
+        CodeEntity(name="producer", entity_type="function", id="uuid-1", file_path="test.py"),
+    ]
+    relations = [
+        ExtractedRelation(
+            source_name="producer",
+            source_type="function",
+            target_name="order-events",
+            target_type="topic",
+            relation_type="publishes_to",
+            file_path="test.py",
+        ),
+    ]
+
+    extractor = RelationExtractor()
+    extractor.add_parse_result(entities, relations)
+
+    # Act
+    resolved, unresolved = extractor.resolve_with_unresolved(entities)
+
+    # Assert
+    assert len(resolved) == 0
+    assert len(unresolved) == 1
+    assert unresolved[0].relation_type == "publishes_to"
+    assert unresolved[0].target_name == "order-events"
+
+
+def test_unresolved_includes_consumed_by() -> None:
+    """测试 consumed_by 关系（目标不在实体列表中）被归入 unresolved。"""
+    # Arrange
+    entities = [
+        CodeEntity(name="consumer", entity_type="function", id="uuid-1", file_path="test.py"),
+    ]
+    relations = [
+        ExtractedRelation(
+            source_name="consumer",
+            source_type="function",
+            target_name="order-events",
+            target_type="topic",
+            relation_type="consumed_by",
+            file_path="test.py",
+        ),
+    ]
+
+    extractor = RelationExtractor()
+    extractor.add_parse_result(entities, relations)
+
+    # Act
+    resolved, unresolved = extractor.resolve_with_unresolved(entities)
+
+    # Assert
+    assert len(resolved) == 0
+    assert len(unresolved) == 1
+    assert unresolved[0].relation_type == "consumed_by"
+    assert unresolved[0].target_name == "order-events"
+
+
+def test_unresolved_mixed_relation_types() -> None:
+    """测试混合关系类型（imports + calls_service + publishes_to）均被归入 unresolved。"""
+    # Arrange
+    entities = [
+        CodeEntity(name="mymodule", entity_type="module", id="uuid-1", file_path="test.py"),
+    ]
+    relations = [
+        ExtractedRelation(
+            source_name="mymodule",
+            source_type="module",
+            target_name="external_lib",
+            target_type="module",
+            relation_type="imports",
+            file_path="test.py",
+        ),
+        ExtractedRelation(
+            source_name="mymodule",
+            source_type="module",
+            target_name="payment-gateway",
+            target_type="service",
+            relation_type="calls_service",
+            file_path="test.py",
+        ),
+        ExtractedRelation(
+            source_name="mymodule",
+            source_type="module",
+            target_name="audit-log",
+            target_type="topic",
+            relation_type="publishes_to",
+            file_path="test.py",
+        ),
+        ExtractedRelation(
+            source_name="mymodule",
+            source_type="module",
+            target_name="stock-updates",
+            target_type="topic",
+            relation_type="consumed_by",
+            file_path="test.py",
+        ),
+    ]
+
+    extractor = RelationExtractor()
+    extractor.add_parse_result(entities, relations)
+
+    # Act
+    resolved, unresolved = extractor.resolve_with_unresolved(entities)
+
+    # Assert
+    assert len(resolved) == 0
+    assert len(unresolved) == 4
+    unresolved_types = {r.relation_type for r in unresolved}
+    assert unresolved_types == {"imports", "calls_service", "publishes_to", "consumed_by"}

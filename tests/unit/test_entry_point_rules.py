@@ -31,6 +31,48 @@ def test_flask_app_route_returns_http_api() -> None:
     assert result == "http_api"
 
 
+def test_router_post_returns_http_api() -> None:
+    """@router.post("/path") should be classified as http_api."""
+    result = classify_python_decorator(("router", "post"), "post")
+    assert result == "http_api"
+
+
+def test_router_put_returns_http_api() -> None:
+    """@router.put("/path") should be classified as http_api."""
+    result = classify_python_decorator(("router", "put"), "put")
+    assert result == "http_api"
+
+
+def test_router_delete_returns_http_api() -> None:
+    """@router.delete("/path") should be classified as http_api."""
+    result = classify_python_decorator(("router", "delete"), "delete")
+    assert result == "http_api"
+
+
+def test_router_patch_returns_http_api() -> None:
+    """@router.patch("/path") should be classified as http_api."""
+    result = classify_python_decorator(("router", "patch"), "patch")
+    assert result == "http_api"
+
+
+def test_app_put_returns_http_api() -> None:
+    """@app.put("/path") should be classified as http_api."""
+    result = classify_python_decorator(("app", "put"), "put")
+    assert result == "http_api"
+
+
+def test_app_delete_returns_http_api() -> None:
+    """@app.delete("/path") should be classified as http_api."""
+    result = classify_python_decorator(("app", "delete"), "delete")
+    assert result == "http_api"
+
+
+def test_app_patch_returns_http_api() -> None:
+    """@app.patch("/path") should be classified as http_api."""
+    result = classify_python_decorator(("app", "patch"), "patch")
+    assert result == "http_api"
+
+
 def test_scheduled_task_returns_scheduled() -> None:
     """A @scheduled_task decorator (standalone) should be classified as scheduled."""
     result = classify_python_decorator((), "scheduled_task")

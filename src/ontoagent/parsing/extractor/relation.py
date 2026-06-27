@@ -96,8 +96,8 @@ class RelationExtractor:
                         relation_type=rel.relation_type,
                     )
                 )
-            elif rel.relation_type == "imports":
-                # 外部 import 归入 unresolved
+            elif rel.relation_type in ("imports", "calls_service", "publishes_to", "consumed_by"):
+                # 外部关系（import / service / topic）归入 unresolved
                 unresolved.append(rel)
 
         return resolved, unresolved

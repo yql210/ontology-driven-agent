@@ -7,8 +7,15 @@ from __future__ import annotations
 PY_FRAMEWORK_HTTP_PATTERNS: set[tuple[str, str]] = {
     ("app", "post"),
     ("app", "get"),
-    ("router", "get"),
+    ("app", "put"),
+    ("app", "delete"),
+    ("app", "patch"),
     ("app", "route"),
+    ("router", "get"),
+    ("router", "post"),
+    ("router", "put"),
+    ("router", "delete"),
+    ("router", "patch"),
 }
 
 # Standalone HTTP decorator names (Phase 1 — unused).
