@@ -22,6 +22,7 @@ from ontoagent.pipeline.builder_utils import (
     extract_identifiers_from_code,
     normalize_path,
     scan_files,
+    service_entity_to_dict,
 )
 from ontoagent.pipeline.module_clustering import ModuleCluster, ModuleClustering
 from ontoagent.pipeline.semantic_linker import (
@@ -34,6 +35,8 @@ from ontoagent.pipeline.semantic_linker import (
     process_semantic_relations,
     resolve_semantic_names,
 )
+from ontoagent.pipeline.service_linker import build_service_relations
+from ontoagent.pipeline.topic_linker import build_topic_relations
 from ontoagent.store.chroma_store import ChromaStore
 from ontoagent.store.neo4j_store import Neo4jGraphStore
 
@@ -547,6 +550,15 @@ class OntoAgentBuilder:
         self._logger.info("═══ Stage 1/5: Parse ═══")
         all_entities, doc_entities, relations, files_scanned, unresolved_imports = self._stage_parse(repo_path)
 
+        # Service & Topic 聚合（在 Stage 1 解析之后，注入主流程）
+        service_entities, svc_relations = build_service_relations(unresolved_imports)
+        topic_entities, topic_relations = build_topic_relations(all_entities, unresolved_imports)
+        self._logger.info(
+            "Service/Topic linking: %d services, %d topics",
+            len(service_entities),
+            len(topic_entities),
+        )
+
         # Stage 2: 结构写入（关键路径）
         self._logger.info("═══ Stage 2/5: Structural Write ═══")
         try:
@@ -566,6 +578,96 @@ class OntoAgentBuilder:
                 elapsed_ms=elapsed,
                 errors=all_errors,
             )
+
+        # 写入 ServiceEntity 和 Topic ConceptEntity 及相关关系
+        service_entity_count = 0
+        service_rel_count = 0
+        topic_entity_count = 0
+        topic_rel_count = 0
+
+        try:
+            name_to_id = {e.name: e.id for e in all_entities}
+
+            # 写入 ServiceEntity 节点
+            if service_entities:
+                svc_dicts = [
+                    add_provenance(service_entity_to_dict(se), extracted_at=batch_time)
+                    for se in service_entities
+                ]
+                graph_store.merge_nodes_batch("ServiceEntity", svc_dicts, batch_size=200)
+                service_entity_count = len(service_entities)
+                self._logger.info("[Neo4j] Merged %d ServiceEntities", service_entity_count)
+
+            # 写入 calls_service 关系（解析源名称 → UUID）
+            if svc_relations:
+                svc_rel_data = []
+                for rel in svc_relations:
+                    source_uuid = name_to_id.get(rel.source_id)
+                    if source_uuid:
+                        svc_rel_data.append(
+                            {
+                                "source_id": source_uuid,
+                                "target_id": rel.target_id,
+                                "rel_type": rel.relation_type,
+                                "source_label": "CodeEntity",
+                                "target_label": "ServiceEntity",
+                                "properties": add_provenance(
+                                    {"weight": rel.weight},
+                                    source="service_linker",
+                                    confidence=1.0,
+                                    extracted_at=batch_time,
+                                ),
+                            }
+                        )
+                if svc_rel_data:
+                    service_rel_count = graph_store.merge_relations_batch(svc_rel_data, batch_size=200)
+                self._logger.info("[Neo4j] Wrote %d service relations", service_rel_count)
+
+            # 写入 topic ConceptEntity 节点
+            if topic_entities:
+                topic_dicts = [
+                    add_provenance(
+                        {
+                            "id": t.id,
+                            "name": t.name,
+                            "entity_type": t.entity_type,
+                            "description": t.description or "",
+                        },
+                        extracted_at=batch_time,
+                    )
+                    for t in topic_entities
+                ]
+                graph_store.merge_nodes_batch("ConceptEntity", topic_dicts, batch_size=200)
+                topic_entity_count = len(topic_entities)
+                self._logger.info("[Neo4j] Merged %d topic ConceptEntities", topic_entity_count)
+
+            # 写入 topic 关系（publishes_to 需解析源名称 → UUID；consumed_by 已使用 UUID）
+            if topic_relations:
+                topic_rel_data = []
+                for rel in topic_relations:
+                    source_uuid = name_to_id.get(rel.source_id, rel.source_id)
+                    topic_rel_data.append(
+                        {
+                            "source_id": source_uuid,
+                            "target_id": rel.target_id,
+                            "rel_type": rel.relation_type,
+                            "source_label": "CodeEntity",
+                            "target_label": "ConceptEntity",
+                            "properties": add_provenance(
+                                {"weight": rel.weight},
+                                source="topic_linker",
+                                confidence=1.0,
+                                extracted_at=batch_time,
+                            ),
+                        }
+                    )
+                if topic_rel_data:
+                    topic_rel_count = graph_store.merge_relations_batch(topic_rel_data, batch_size=200)
+                self._logger.info("[Neo4j] Wrote %d topic relations", topic_rel_count)
+
+        except Exception as e:
+            self._logger.warning("Service/Topic write failed (non-critical): %s", e)
+            all_errors.append(f"Service/Topic write error: {e}")
 
         # Stage 2.5: 文档→代码关联
         self._logger.info("═══ Stage 2.5/5: Doc-Code Link ═══")
@@ -631,8 +733,8 @@ class OntoAgentBuilder:
         elapsed = (time.monotonic() - t0) * 1000
         return BuildResult(
             files_scanned=files_scanned,
-            entities_created=len(all_entities) + len(doc_entities) + ext_entity_count,
-            relations_created=len(relations) + len(describes_rels) + ext_rel_count,
+            entities_created=len(all_entities) + len(doc_entities) + ext_entity_count + service_entity_count + topic_entity_count,
+            relations_created=len(relations) + len(describes_rels) + ext_rel_count + service_rel_count + topic_rel_count,
             concepts_created=concepts_created,
             semantic_relations_created=semantic_rels_created,
             modules_created=clusters_count,
