@@ -32,8 +32,8 @@ def builder(mock_config: OntoAgentConfig) -> OntoAgentBuilder:
 @pytest.fixture
 def temp_repo_with_business_yaml(tmp_path: Path) -> Path:
     """创建带 ontoagent.yaml 的临时测试仓库。"""
-    (tmp_path / "module1.py").write_text("def foo():\n    pass\n\nclass Bar:\n    pass\n")
-    (tmp_path / "module2.py").write_text("def baz():\n    pass\n")
+    (tmp_path / "module1.py").write_text("def customer():\n    pass\n\nclass Bar:\n    pass\n")
+    (tmp_path / "module2.py").write_text("def payment():\n    pass\n")
 
     yaml_content = """data_assets:
   - name: CustomerData

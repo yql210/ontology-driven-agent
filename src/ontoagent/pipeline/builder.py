@@ -692,6 +692,74 @@ class OntoAgentBuilder:
             )
         self._logger.info("═══ Stage 2.5/5 complete: %d DESCRIBES relations ═══", len(describes_rels))
 
+        # Stage 2.6: 业务本体（Business Ontology YAML → DataAsset + ComplianceItem）
+        self._logger.info("═══ Stage 2.6/5: Business Ontology ═══")
+        data_asset_count = 0
+        compliance_item_count = 0
+        processes_data_count = 0
+        yaml_path = repo_path / "ontoagent.yaml"
+        if yaml_path.exists():
+            try:
+                from ontoagent.pipeline.business_loader import load_business_ontology
+                from ontoagent.pipeline.data_mapper import map_code_to_data_assets
+
+                data_assets, compliance_items = load_business_ontology(yaml_path)
+
+                # Write DataAsset entities
+                if data_assets:
+                    asset_dicts = [
+                        add_provenance(data_asset_to_dict(asset), extracted_at=batch_time)
+                        for asset in data_assets
+                    ]
+                    graph_store.merge_nodes_batch("DataAsset", asset_dicts, batch_size=200)
+                    data_asset_count = len(data_assets)
+                    self._logger.info("[Neo4j] Merged %d DataAssets", data_asset_count)
+
+                # Write ComplianceItem entities
+                if compliance_items:
+                    item_dicts = [
+                        add_provenance(compliance_item_to_dict(item), extracted_at=batch_time)
+                        for item in compliance_items
+                    ]
+                    graph_store.merge_nodes_batch("ComplianceItem", item_dicts, batch_size=200)
+                    compliance_item_count = len(compliance_items)
+                    self._logger.info("[Neo4j] Merged %d ComplianceItems", compliance_item_count)
+
+                # Create processes_data relations from data mapper
+                if data_assets and all_entities:
+                    asset_pairs = map_code_to_data_assets(all_entities, data_assets)
+                    if asset_pairs:
+                        pd_rel_data = []
+                        for code_id, asset_id in asset_pairs:
+                            pd_rel_data.append({
+                                "source_id": code_id,
+                                "target_id": asset_id,
+                                "rel_type": "processes_data",
+                                "source_label": "CodeEntity",
+                                "target_label": "DataAsset",
+                                "properties": add_provenance(
+                                    {},
+                                    source="manual",
+                                    confidence=1.0,
+                                    extracted_at=batch_time,
+                                ),
+                            })
+                        processes_data_count = graph_store.merge_relations_batch(pd_rel_data, batch_size=200)
+                        self._logger.info("[Neo4j] Wrote %d processes_data relations", processes_data_count)
+                    else:
+                        self._logger.info("[Neo4j] No processes_data relations found")
+            except Exception as e:
+                self._logger.warning("Business ontology loading failed (non-critical): %s", e)
+                all_errors.append(f"Business ontology error: {e}")
+        else:
+            self._logger.info("No ontoagent.yaml found, skipping business ontology")
+        self._logger.info(
+            "═══ Stage 2.6/5 complete: %d DataAssets, %d ComplianceItems, %d processes_data relations ═══",
+            data_asset_count,
+            compliance_item_count,
+            processes_data_count,
+        )
+
         # Stage 3: 语义提取（可降级）
         self._logger.info("═══ Stage 3/5: Semantic Extraction (may take a while...) ═══")
         if skip_semantic:
