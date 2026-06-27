@@ -7,6 +7,7 @@ import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
 
 from ontoagent.domain.schema import CodeEntity
+from ontoagent.parsing.extractor.entry_point_rules import classify_python_decorator
 from ontoagent.parsing.parser.base import BaseParser, ExtractedRelation, ParseResult
 
 PY_LANG = Language(tspython.language())
@@ -240,8 +241,26 @@ class PythonParser(BaseParser):
 
         node_type = node.type
 
+        # 装饰器定义（在函数/类定义之前处理）
+        if node_type == "decorated_definition":
+            decorators = self._extract_decorators_from_node(node, source)
+            # 遍历 children 找内层的 function_definition 或 class_definition
+            for child in node.children:
+                if child.type == "function_definition":
+                    self._extract_function(
+                        child, source, file_path, entities, relations,
+                        module_name, parent_class_name, decorators=decorators
+                    )
+                elif child.type == "class_definition":
+                    self._extract_class(
+                        child, source, file_path, entities, relations,
+                        module_name, parent_class_name, decorators=decorators
+                    )
+            # 不继续递归子节点，避免重复提取
+            return
+
         # 函数定义
-        if node_type == "function_definition":
+        elif node_type == "function_definition":
             self._extract_function(node, source, file_path, entities, relations, module_name, parent_class_name)
             # 不继续递归子节点，避免重复提取
             return
@@ -277,6 +296,7 @@ class PythonParser(BaseParser):
         relations: list[ExtractedRelation],
         module_name: str,
         parent_class_name: str | None,
+        decorators: list[dict] | None = None,
     ) -> None:
         """提取函数实体。
 
@@ -288,6 +308,7 @@ class PythonParser(BaseParser):
             relations: 关系列表。
             module_name: 模块名。
             parent_class_name: 父类名。
+            decorators: 装饰器列表（来自 decorated_definition）。
         """
         # 获取函数名
         name_node = node.child_by_field_name("name")
@@ -316,6 +337,25 @@ class PythonParser(BaseParser):
             docstring=docstring,
             parameters=parameters,
         )
+
+        # 装饰器分类：一个函数只取第一个匹配的分类
+        if decorators:
+            for dec in decorators:
+                category = classify_python_decorator(dec["attr_path"], dec["name"])
+                if category is not None:
+                    entity.entry_category = category
+                    # Build entry_metadata from decorator args
+                    args = dec.get("args", [])
+                    if category == "http_api" and args:
+                        entity.entry_metadata = f'{{"route": "{args[0]}"}}'
+                    elif category == "scheduled" and args:
+                        entity.entry_metadata = f'{{"schedule": "{args[0]}"}}'
+                    elif category == "mq_consumer" and args:
+                        entity.entry_metadata = f'{{"topic": "{args[0]}"}}'
+                    elif category == "event_handler" and args:
+                        entity.entry_metadata = f'{{"event": "{args[0]}"}}'
+                    break
+
         entities.append(entity)
 
         # 创建 contains 关系
@@ -342,6 +382,7 @@ class PythonParser(BaseParser):
         relations: list[ExtractedRelation],
         module_name: str,
         parent_class_name: str | None,
+        decorators: list[dict] | None = None,
     ) -> str | None:
         """提取类实体。
 
@@ -353,6 +394,7 @@ class PythonParser(BaseParser):
             relations: 关系列表。
             module_name: 模块名。
             parent_class_name: 父类名（用于嵌套类）。
+            decorators: 装饰器列表（来自 decorated_definition，Phase 2）。
 
         Returns:
             类名，用于后续嵌套遍历。
@@ -618,6 +660,120 @@ class PythonParser(BaseParser):
             return self._extract_callee_name(func_node)
 
         return None
+
+    def _extract_decorators_from_node(self, node, source: bytes) -> list[dict]:
+        """从 decorated_definition 节点提取装饰器列表。
+
+        Args:
+            node: decorated_definition 节点。
+            source: 源码字节流。
+
+        Returns:
+            装饰器 dict 列表，每个 dict 包含 name, attr_path, args。
+        """
+        decorators: list[dict] = []
+        for child in node.children:
+            if child.type == "decorator":
+                dec_info = self._extract_single_decorator(child, source)
+                if dec_info:
+                    decorators.append(dec_info)
+        return decorators
+
+    def _extract_single_decorator(self, decorator_node, source: bytes) -> dict | None:
+        """从单个 decorator 节点提取装饰器信息。
+
+        Args:
+            decorator_node: decorator 类型节点。
+            source: 源码字节流。
+
+        Returns:
+            dict with name, attr_path, args keys, or None.
+        """
+        # decorator 结构: children[0]='@', children[1]=call/identifier/attribute
+        if len(decorator_node.children) < 2:
+            return None
+
+        target = decorator_node.children[1]
+        target_type = target.type
+
+        name = target.text.decode()
+        attr_path: list[str] = []
+        args: list[str] = []
+
+        if target_type == "identifier":
+            # @decorator_name
+            name = target.text.decode()
+            attr_path = []
+        elif target_type == "attribute":
+            # @app.route
+            name = target.text.decode()
+            # 遍历 attribute 的子节点中 type=="identifier" 的组成 attr_path
+            for gc in target.children:
+                if gc.type == "identifier":
+                    attr_path.append(gc.text.decode())
+        elif target_type == "call":
+            # @app.route("/path")
+            name = target.text.decode().split("(")[0]
+            # 从 call 的 children[0] 获取 attribute/identifier
+            if target.children:
+                func_ref = target.children[0]
+                if func_ref.type == "identifier":
+                    name = func_ref.text.decode()
+                    attr_path = []
+                elif func_ref.type == "attribute":
+                    name = func_ref.text.decode()
+                    for gc in func_ref.children:
+                        if gc.type == "identifier":
+                            attr_path.append(gc.text.decode())
+                # 提取调用参数
+                args = self._extract_decorator_args(target, source)
+        else:
+            return None
+
+        return {"name": name, "attr_path": tuple(attr_path), "args": args}
+
+    def _extract_decorator_args(self, call_node, source: bytes) -> list[str]:
+        """从 call 节点的 argument_list 中提取字符串字面量参数。
+
+        Args:
+            call_node: call 类型节点。
+            source: 源码字节流。
+
+        Returns:
+            字符串字面量参数列表。
+        """
+        args: list[str] = []
+        # 找到 argument_list 子节点
+        arg_list_node = None
+        for child in call_node.children:
+            if child.type == "argument_list":
+                arg_list_node = child
+                break
+
+        if arg_list_node is None:
+            return args
+
+        for child in arg_list_node.children:
+            if child.type == "string":
+                # 字符串字面量: "/path"
+                text = child.text.decode()
+                # 去掉引号
+                text = text.strip()
+                if len(text) >= 2 and (
+                    (text.startswith('"') and text.endswith('"'))
+                    or (text.startswith("'") and text.endswith("'"))
+                ):
+                    text = text[1:-1]
+                # 去三重引号
+                if len(text) >= 6 and (
+                    (text.startswith('"""') and text.endswith('"""'))
+                    or (text.startswith("'''") and text.endswith("'''"))
+                ):
+                    text = text[3:-3]
+                args.append(text)
+            # 也支持其他类型，如 identifier/string/... 暂时只提取 string
+
+        return args
 
     def _extract_docstring(self, node, source: bytes) -> str | None:
         """从函数或类节点提取 docstring。
