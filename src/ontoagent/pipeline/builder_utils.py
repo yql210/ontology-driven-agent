@@ -44,6 +44,18 @@ def entity_to_dict(entity: CodeEntity) -> dict:
         d["docstring"] = entity.docstring
     if entity.parameters:
         d["code_parameters"] = entity.parameters
+    if entity.entry_category:
+        d["entry_category"] = entity.entry_category
+    if entity.entry_metadata:
+        d["entry_metadata"] = entity.entry_metadata
+    if entity.business_process:
+        d["business_process"] = entity.business_process
+    if entity.business_priority:
+        d["business_priority"] = entity.business_priority
+    if entity.business_lifecycle:
+        d["business_lifecycle"] = entity.business_lifecycle
+    if entity.business_owner:
+        d["business_owner"] = entity.business_owner
     return d
 
 
