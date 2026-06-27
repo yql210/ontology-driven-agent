@@ -7,7 +7,6 @@ from ontoagent.parsing.extractor.external_calls import (
 from ontoagent.parsing.parser.java_parser import JavaParser
 from ontoagent.parsing.parser.python_parser import PythonParser
 
-
 # ---------------------------------------------------------------------------
 # Python snippets
 # ---------------------------------------------------------------------------
@@ -57,9 +56,16 @@ class PaymentProducer {
 """
 
 
+PYTHON_FSTRING_CALL = b"""\
+def check_risk():
+    requests.get(f"http://risk-service.internal/check?user={user_id}")
+"""
+
+
 # ---------------------------------------------------------------------------
 # Tests: Python
 # ---------------------------------------------------------------------------
+
 
 def test_python_requests_calls_service() -> None:
     """requests.post("http://payment-api/charge") → calls_service payment-api."""
@@ -112,9 +118,27 @@ def test_python_kafka_publishes_to() -> None:
     assert rel.file_path == "test.py"
 
 
+def test_python_fstring_requests_calls_service() -> None:
+    """requests.get(f\"http://risk-service.internal/check?user={user_id}\") → calls_service risk-service.internal."""
+    parser = PythonParser()
+    tree = parser._parser.parse(PYTHON_FSTRING_CALL)
+    root_node = tree.root_node
+
+    relations = extract_external_calls_python(root_node, PYTHON_FSTRING_CALL, "test_module", "test.py")
+    assert len(relations) == 1
+    rel = relations[0]
+    assert rel.source_name == "test_module"
+    assert rel.source_type == "module"
+    assert rel.target_name == "risk-service.internal"
+    assert rel.target_type == "ServiceEntity"
+    assert rel.relation_type == "calls_service"
+    assert rel.file_path == "test.py"
+
+
 # ---------------------------------------------------------------------------
 # Tests: Java
 # ---------------------------------------------------------------------------
+
 
 def test_java_resttemplate_calls_service() -> None:
     """restTemplate.postForObject("http://order-service/api",...) → calls_service order-service."""

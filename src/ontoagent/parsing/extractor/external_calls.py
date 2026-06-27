@@ -5,7 +5,53 @@ from urllib.parse import urlparse
 from ontoagent.parsing.parser.base import ExtractedRelation
 
 
-def extract_external_calls_python(root_node, source: bytes, module_name: str, file_path: str) -> list[ExtractedRelation]:
+def _extract_string_literal(arg_node) -> str | None:
+    """Extract text content from a tree-sitter string node, handling regular
+    strings, f-strings, and raw strings.
+
+    For f-strings (string nodes with an "f"-prefixed string_start child),
+    concatenates only the static text parts (string_content children),
+    ignoring interpolation nodes.
+    """
+    if arg_node.type == "string":
+        # Check if this is an f-string
+        is_fstring = False
+        for child in arg_node.children:
+            if child.type == "string_start":
+                start_text = child.text.decode()
+                if start_text.startswith("f"):
+                    is_fstring = True
+                break
+
+        if is_fstring:
+            parts: list[str] = []
+            for child in arg_node.children:
+                if child.type == "string_content":
+                    parts.append(child.text.decode())
+            if parts:
+                return "".join(parts)
+            return None
+        else:
+            return arg_node.text.decode().strip("\"'")
+
+    if arg_node.type == "string_literal":
+        return arg_node.text.decode().strip("\"'")
+
+    if arg_node.type == "formatted_string":
+        parts: list[str] = []
+        for child in arg_node.children:
+            if child.type == "string_content":
+                parts.append(child.text.decode())
+        if parts:
+            return "".join(parts)
+        return None
+
+    return None
+
+
+def extract_external_calls_python(
+    root_node, source: bytes, module_name: str, file_path: str
+) -> list[ExtractedRelation]:
     """扫描 Python AST，提取 HTTP 客户端调用和 MQ producer 调用。
 
     Args:
@@ -33,8 +79,8 @@ def extract_external_calls_python(root_node, source: bytes, module_name: str, fi
                         args = node.child_by_field_name("arguments")
                         if args:
                             for arg in args.children:
-                                if arg.type == "string":
-                                    url = arg.text.decode().strip("\"'")
+                                url = _extract_string_literal(arg)
+                                if url:
                                     hostname = urlparse(url).hostname or url
                                     relations.append(
                                         ExtractedRelation(
@@ -53,8 +99,8 @@ def extract_external_calls_python(root_node, source: bytes, module_name: str, fi
                         args = node.child_by_field_name("arguments")
                         if args:
                             for arg in args.children:
-                                if arg.type == "string":
-                                    topic = arg.text.decode().strip("\"'")
+                                topic = _extract_string_literal(arg)
+                                if topic:
                                     relations.append(
                                         ExtractedRelation(
                                             source_name=module_name,
@@ -76,8 +122,8 @@ def extract_external_calls_python(root_node, source: bytes, module_name: str, fi
                         args = node.child_by_field_name("arguments")
                         if args:
                             for arg in args.children:
-                                if arg.type == "string":
-                                    url = arg.text.decode().strip("\"'")
+                                url = _extract_string_literal(arg)
+                                if url:
                                     hostname = urlparse(url).hostname or url
                                     relations.append(
                                         ExtractedRelation(
