@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import tempfile
 from pathlib import Path
 
@@ -1427,3 +1428,175 @@ class TestDay5Reflection:
         assert len(inner_classes) == 1, f"Expected 1 Inner class, got {len(inner_classes)}"
         inner_methods = [e for e in result.entities if e.name == "Inner.foo()"]
         assert len(inner_methods) == 1, f"Expected 1 Inner.foo(), got {len(inner_methods)}"
+
+
+# ==================== Day 5: Annotation Extraction Tests ====================
+
+
+HTTP_ANNOTATION_CODE = b"""
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+
+public class Controller {
+    @GetMapping("/users")
+    public String listUsers() {
+        return "users";
+    }
+
+    @PostMapping("/users")
+    public String createUser() {
+        return "created";
+    }
+
+    @RequestMapping(value = "/health", method = "GET")
+    public String health() {
+        return "ok";
+    }
+}
+"""
+
+SCHEDULED_ANNOTATION_CODE = b"""
+import org.springframework.scheduling.annotation.Scheduled;
+
+public class Scheduler {
+    @Scheduled(cron = "0 0 * * * *")
+    public void hourlyJob() {
+    }
+}
+"""
+
+MQ_ANNOTATION_CODE = b"""
+import org.springframework.kafka.annotation.KafkaListener;
+
+public class Consumer {
+    @KafkaListener(topics = "my-topic")
+    public void handle(String msg) {
+    }
+
+    @RabbitListener(queues = "my-queue")
+    public void onMessage(String msg) {
+    }
+}
+"""
+
+MARKER_ANNOTATION_CODE = b"""
+public class Test {
+    @Override
+    public String toString() {
+        return "test";
+    }
+}
+"""
+
+
+class TestAnnotationExtraction:
+    """注解提取与分类测试。"""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, parser: JavaParser) -> None:
+        """设置 parser 实例。"""
+        self.parser = parser
+
+    def test_http_get_mapping_annotation(self):
+        """@GetMapping 应分类为 http_api。"""
+        result = self.parser.parse_source(HTTP_ANNOTATION_CODE, "Controller.java")
+        assert result.error is None
+
+        methods = {e.name: e for e in result.entities if e.entity_type == "function"}
+        list_users = methods["Controller.listUsers()"]
+        assert list_users.entry_category == "http_api"
+        assert list_users.entry_metadata is not None
+        import json
+        meta = json.loads(list_users.entry_metadata)
+        assert meta["route"] == "/users"
+        assert meta["method"] == "GET"
+
+    def test_http_post_mapping_annotation(self):
+        """@PostMapping 应分类为 http_api。"""
+        result = self.parser.parse_source(HTTP_ANNOTATION_CODE, "Controller.java")
+        methods = {e.name: e for e in result.entities if e.entity_type == "function"}
+        create_user = methods["Controller.createUser()"]
+        assert create_user.entry_category == "http_api"
+        import json
+        meta = json.loads(create_user.entry_metadata)
+        assert meta["route"] == "/users"
+        assert meta["method"] == "POST"
+
+    def test_http_request_mapping_with_value(self):
+        """@RequestMapping(value=...) 应分类为 http_api。"""
+        result = self.parser.parse_source(HTTP_ANNOTATION_CODE, "Controller.java")
+        methods = {e.name: e for e in result.entities if e.entity_type == "function"}
+        health = methods["Controller.health()"]
+        assert health.entry_category == "http_api"
+        import json
+        meta = json.loads(health.entry_metadata)
+        assert meta["route"] == "/health"
+        assert meta["method"] == "REQUEST"
+
+    def test_scheduled_annotation(self):
+        """@Scheduled 应分类为 scheduled，提取 cron 表达式。"""
+        result = self.parser.parse_source(SCHEDULED_ANNOTATION_CODE, "Scheduler.java")
+        methods = {e.name: e for e in result.entities if e.entity_type == "function"}
+        hourly = methods["Scheduler.hourlyJob()"]
+        assert hourly.entry_category == "scheduled"
+        import json
+        meta = json.loads(hourly.entry_metadata)
+        assert meta["cron"] == "0 0 * * * *"
+
+    def test_kafka_listener_annotation(self):
+        """@KafkaListener 应分类为 mq_consumer。"""
+        result = self.parser.parse_source(MQ_ANNOTATION_CODE, "Consumer.java")
+        methods = {e.name: e for e in result.entities if e.entity_type == "function"}
+        handle = methods["Consumer.handle(String)"]
+        assert handle.entry_category == "mq_consumer"
+        import json
+        meta = json.loads(handle.entry_metadata)
+        assert meta["topic"] == "my-topic"
+
+    def test_rabbit_listener_annotation(self):
+        """@RabbitListener 应分类为 mq_consumer。"""
+        result = self.parser.parse_source(MQ_ANNOTATION_CODE, "Consumer.java")
+        methods = {e.name: e for e in result.entities if e.entity_type == "function"}
+        on_message = methods["Consumer.onMessage(String)"]
+        assert on_message.entry_category == "mq_consumer"
+        import json
+        meta = json.loads(on_message.entry_metadata)
+        # RabbitListener 使用 queues 参数，不是 topics
+        assert meta["topic"] == "my-queue"
+
+    def test_marker_annotation_no_classification(self):
+        """@Override 等无分类的注解不设置 entry_category。"""
+        result = self.parser.parse_source(MARKER_ANNOTATION_CODE, "Test.java")
+        methods = {e.name: e for e in result.entities if e.entity_type == "function"}
+        to_string = methods["Test.toString()"]
+        assert to_string.entry_category is None
+        assert to_string.entry_metadata is None
+
+    def test_no_annotation_no_classification(self):
+        """没有注解的方法不设置 entry_category。"""
+        code = b"""
+public class Foo {
+    public void bar() {}
+}
+"""
+        result = self.parser.parse_source(code, "Foo.java")
+        methods = {e.name: e for e in result.entities if e.entity_type == "function"}
+        bar = methods["Foo.bar()"]
+        assert bar.entry_category is None
+        assert bar.entry_metadata is None
+
+    def test_class_annotation_debug_logging(self, caplog):
+        """类上的注解应触发 debug 日志（Phase 2 暂不做分类）。"""
+        code = b"""
+@org.springframework.stereotype.Service
+public class MyService {
+    public void doWork() {}
+}
+"""
+        with caplog.at_level(logging.DEBUG, logger="ontoagent.parsing.parser.java_parser"):
+            result = self.parser.parse_source(code, "MyService.java")
+        assert result.error is None
+        # 应该有 debug 日志提到类注解
+        debug_messages = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any("Service" in msg for msg in debug_messages)

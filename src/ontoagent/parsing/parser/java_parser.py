@@ -8,6 +8,7 @@ import tree_sitter_java as tsjava
 from tree_sitter import Language, Parser
 
 from ontoagent.domain.schema import CodeEntity
+from ontoagent.parsing.extractor.entry_point_rules import classify_java_annotation
 from ontoagent.parsing.parser.base import BaseParser, ExtractedRelation, ParseResult
 
 JAVA_LANG = Language(tsjava.language())
@@ -422,7 +423,93 @@ class JavaParser(BaseParser):
                                 )
                 break
 
+        # Debug: 打印类上的注解（Phase 2 再做分类）
+        class_annotations = self._extract_annotations(node)
+        if class_annotations:
+            _logger.debug("Class %s annotations: %s", class_name, [a["name"] for a in class_annotations])
+
         return class_name
+
+    def _extract_annotations(self, method_node) -> list[dict]:
+        """提取方法或类上的 Java 注解。
+
+        tree-sitter Java 0.23: marker_annotation / annotation 的 name 子节点
+        没有 field_name 标记，必须遍历 children 找 type=="identifier" 或
+        type=="scoped_identifier"。
+
+        Returns:
+            list[dict]: 每个 dict 包含 "name" 和 "args" 键。
+        """
+        annotations: list[dict] = []
+        for child in method_node.children:
+            if child.type == "modifiers":
+                for mod in child.children:
+                    if mod.type in ("marker_annotation", "annotation"):
+                        name = None
+                        for sub in mod.children:
+                            if sub.type in ("identifier", "scoped_identifier"):
+                                name = sub.text.decode("utf-8", errors="replace")
+                                break
+                        if name:
+                            args = self._extract_annotation_args(mod) if mod.type == "annotation" else {}
+                            annotations.append({"name": name, "args": args})
+                break
+        return annotations
+
+    def _extract_annotation_args(self, annotation_node) -> dict:
+        """提取注解参数。
+
+        tree-sitter Java 0.23: 注解参数节点类型是 annotation_argument_list（不是 arguments）。
+        单值参数（如 @PostMapping("/path")）被 expression_statement 包裹。
+
+        Returns:
+            dict: 键值对或 {"_value": ...}。
+        """
+        args: dict = {}
+        for child in annotation_node.children:
+            if child.type == "annotation_argument_list":
+                for arg in child.children:
+                    if arg.type in ("(", ")", ","):
+                        continue
+                    if arg.type == "element_value_pair":
+                        key_node = arg.child_by_field_name("key")
+                        val_node = arg.child_by_field_name("value")
+                        if key_node and val_node:
+                            key = key_node.text.decode("utf-8", errors="replace")
+                            val = self._extract_annotation_value(val_node)
+                            args[key] = val
+                    elif arg.type == "expression_statement":
+                        inner = arg.children[0] if arg.children else None
+                        if inner and inner.type == "string_literal":
+                            text = inner.text.decode("utf-8", errors="replace")
+                            args["_value"] = text[1:-1]
+                    elif arg.type == "string_literal":
+                        text = arg.text.decode("utf-8", errors="replace")
+                        args["_value"] = text[1:-1]
+                break
+        return args
+
+    def _extract_annotation_value(self, node) -> str | None:
+        """从注解参数值节点提取值。
+
+        处理 expression_statement 包裹、字符串/字符/整数/null 字面量。
+
+        Returns:
+            str | None: 提取的值。
+        """
+        inner = node
+        if inner.type == "expression_statement":
+            inner = inner.children[0] if inner.children else inner
+        if inner is None:
+            return None
+        if inner.type in ("string_literal", "character_literal"):
+            text = inner.text.decode("utf-8", errors="replace")
+            return text[1:-1]  # 去引号
+        if inner.type in ("decimal_integer_literal", "hex_integer_literal"):
+            return inner.text.decode("utf-8", errors="replace")
+        if inner.type == "null_literal":
+            return None
+        return inner.text.decode("utf-8", errors="replace")
 
     def _extract_interface(
         self,
@@ -775,6 +862,24 @@ class JavaParser(BaseParser):
             docstring=docstring,
             parameters=parameters,
         )
+
+        # 提取并分类注解以识别入口点
+        method_annotations = self._extract_annotations(node)
+        for anno in method_annotations:
+            category = classify_java_annotation(anno["name"])
+            if category is not None:
+                entity.entry_category = category
+                args = anno["args"]
+                if category == "http_api":
+                    val = args.get("_value") or args.get("value")
+                    method = anno["name"].replace("Mapping", "").upper()
+                    entity.entry_metadata = json.dumps({"route": val, "method": method})
+                elif category == "scheduled":
+                    entity.entry_metadata = json.dumps({"cron": args.get("cron")})
+                elif category == "mq_consumer":
+                    entity.entry_metadata = json.dumps({"topic": args.get("topics") or args.get("queues") or args.get("_value")})
+                break  # 仅第一个匹配注解决定分类
+
         entities.append(entity)
 
         # 创建 contains 关系
