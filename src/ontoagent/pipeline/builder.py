@@ -16,6 +16,8 @@ from ontoagent.parsing.parser.base import BaseParser
 from ontoagent.parsing.parser.java_parser import JavaParser
 from ontoagent.parsing.parser.python_parser import PythonParser
 from ontoagent.pipeline.builder_utils import (
+    compliance_item_to_dict,
+    data_asset_to_dict,
     doc_entity_to_dict,
     entity_to_dict,
     entity_to_text,
