@@ -2,34 +2,46 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import os
-import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import httpx
-
 from layerkg.config import LayerKGConfig
 from layerkg.domain.provenance import add_provenance, clamp_confidence
 from layerkg.domain.schema import CodeEntity, ConceptEntity, DocEntity, Relation
 from layerkg.parsing.extractor.relation import RelationExtractor
-from layerkg.parsing.extractor.semantic import SemanticExtractor, SemanticRelation
+from layerkg.parsing.extractor.semantic import SemanticExtractor
 from layerkg.parsing.parser.base import BaseParser
 from layerkg.parsing.parser.java_parser import JavaParser
 from layerkg.parsing.parser.python_parser import PythonParser
-from layerkg.pipeline.aligner import ConceptAligner
+from layerkg.pipeline.builder_utils import (
+    doc_entity_to_dict,
+    entity_to_dict,
+    entity_to_text,
+    extract_identifiers_from_code,
+    normalize_path,
+    scan_files,
+)
 from layerkg.pipeline.module_clustering import ModuleCluster, ModuleClustering
+from layerkg.pipeline.semantic_linker import (
+    build_entity_index,
+    check_llm_available,
+    fuzzy_lookup_entity,
+    link_docs_to_code,
+    make_concept_aligner,
+    make_semantic_extractor,
+    process_semantic_relations,
+    resolve_semantic_names,
+)
 from layerkg.store.chroma_store import ChromaStore
 from layerkg.store.neo4j_store import Neo4jGraphStore
 
 if TYPE_CHECKING:
+    from layerkg.parsing.extractor.semantic import SemanticRelation
     from layerkg.parsing.parser.base import ExtractedRelation
     from layerkg.parsing.parser.doc_parser import DocParser
-
-# 路径边界字符（用于防止子串误匹配）
-_BOUNDARY_CHARS = " ./\\-_"
+    from layerkg.pipeline.aligner import ConceptAligner
 
 # entity_type 到 Neo4j 标签的映射（用于 merge_relation label 优化）
 ENTITY_TYPE_TO_LABEL: dict[str, str] = {
@@ -53,31 +65,6 @@ ENTITY_TYPE_TO_LABEL: dict[str, str] = {
     "data_model": "ConceptEntity",
     "process": "ConceptEntity",
 }
-
-# 概念类型的 entity_type 集合
-_CONCEPT_ENTITY_TYPES = frozenset(
-    {
-        "business_concept",
-        "design_pattern",
-        "api_contract",
-        "data_model",
-        "process",
-    }
-)
-
-# 代码类型的 entity_type 集合（路径 B 可处理的）
-_CODE_ENTITY_TYPES = frozenset(
-    {
-        "function",
-        "class",
-        "interface",
-        "module",
-        "file",
-        "enum",
-        "record",
-        "field",
-    }
-)
 
 
 @dataclass
@@ -703,26 +690,12 @@ class LayerKGBuilder:
         Returns:
             (code_files, doc_files) 元组，均为已排序的路径列表。
         """
-        skip_dirs = self._config.build_skip_dirs
-        code_files: list[Path] = []
-        doc_files: list[Path] = []
-
-        # 扫描代码文件
-        for suffix in (".py", ".java"):
-            for p in repo_path.rglob(f"*{suffix}"):
-                if any(skip in p.parts or skip in p.name for skip in skip_dirs):
-                    continue
-                code_files.append(p)
-
-        # 扫描文档文件（仅在 build_include_docs 为 True 时）
-        if self._config.build_include_docs:
-            for ext in self._config.build_doc_extensions:
-                for p in repo_path.rglob(f"*{ext}"):
-                    if any(skip in p.parts or skip in p.name for skip in skip_dirs):
-                        continue
-                    doc_files.append(p)
-
-        return sorted(code_files), sorted(doc_files)
+        return scan_files(
+            repo_path,
+            self._config.build_skip_dirs,
+            self._config.build_include_docs,
+            self._config.build_doc_extensions,
+        )
 
     @staticmethod
     def _entity_to_dict(entity: CodeEntity) -> dict:
@@ -734,24 +707,7 @@ class LayerKGBuilder:
         Returns:
             属性字典。
         """
-        d = {
-            "id": entity.id,
-            "name": entity.name,
-            "entity_type": entity.entity_type,
-        }
-        if entity.file_path:
-            d["file_path"] = entity.file_path
-        if entity.start_line is not None:
-            d["start_line"] = entity.start_line
-        if entity.end_line is not None:
-            d["end_line"] = entity.end_line
-        if entity.language:
-            d["language"] = entity.language
-        if entity.docstring:
-            d["docstring"] = entity.docstring
-        if entity.parameters:
-            d["code_parameters"] = entity.parameters
-        return d
+        return entity_to_dict(entity)
 
     @staticmethod
     def _doc_entity_to_dict(entity: DocEntity) -> dict:
@@ -763,18 +719,7 @@ class LayerKGBuilder:
         Returns:
             属性字典。
         """
-        d: dict[str, str] = {
-            "id": entity.id,
-            "name": entity.name,
-            "entity_type": entity.entity_type,
-        }
-        if entity.file_path:
-            d["file_path"] = entity.file_path
-        if entity.content:
-            d["content"] = entity.content
-        if entity.language:
-            d["language"] = entity.language
-        return d
+        return doc_entity_to_dict(entity)
 
     def _entity_to_text(self, entity: CodeEntity) -> str | None:
         """提取实体的可嵌入文本。
@@ -783,20 +728,9 @@ class LayerKGBuilder:
             entity: 代码实体。
 
         Returns:
-            可嵌入的文本，无内容时返回 None。
+            可嵌入的文本，无内容时返回构造的最小描述。
         """
-        max_len = self._config.build_source_max_length
-        if entity.source:
-            return entity.source[:max_len]
-        # 对于没有 source 的实体，构造描述文本
-        parts = [f"{entity.entity_type} {entity.name}"]
-        if entity.file_path:
-            parts.append(f"in {entity.file_path}")
-        return " ".join(parts)
-
-    # 代码块和标识符正则
-    _CODE_BLOCK_RE = re.compile(r"```python\n(.*?)\n```", re.DOTALL)
-    _IDENTIFIER_RE = re.compile(r"\b[a-zA-Z_][a-zA-Z0-9_]{2,}\b")
+        return entity_to_text(entity, self._config.build_source_max_length)
 
     @staticmethod
     def _extract_identifiers_from_code(code: str) -> set[str]:
@@ -808,11 +742,7 @@ class LayerKGBuilder:
         Returns:
             标识符集合。
         """
-        identifiers: set[str] = set()
-        for match in LayerKGBuilder._CODE_BLOCK_RE.finditer(code):
-            for id_match in LayerKGBuilder._IDENTIFIER_RE.finditer(match.group(1)):
-                identifiers.add(id_match.group(0))
-        return identifiers
+        return extract_identifiers_from_code(code)
 
     def _link_docs_to_code(
         self,
@@ -828,75 +758,7 @@ class LayerKGBuilder:
         Returns:
             describes 关系列表。
         """
-        describes_rels: list[Relation] = []
-        max_rels_per_doc = 50
-
-        for doc in doc_entities:
-            count = 0
-            content = doc.content or ""
-
-            # 路径匹配：检查 doc.content 是否包含代码文件的 file_path
-            for (_entity_type, file_path, name), entity_ids in entity_index.items():
-                if count >= max_rels_per_doc:
-                    break
-
-                # 路径匹配（需要 file_path）
-                if file_path:
-                    # 边界检查：防止子串误匹配
-                    doc_content = doc.content or ""
-                    if file_path in doc_content:
-                        # 检查边界
-                        doc_idx = doc_content.find(file_path)
-                        left_ok = doc_idx == 0 or doc_content[doc_idx - 1] in _BOUNDARY_CHARS
-                        right_ok = (
-                            doc_idx + len(file_path) >= len(doc_content)
-                            or doc_content[doc_idx + len(file_path)] in _BOUNDARY_CHARS
-                        )
-                        if left_ok and right_ok:
-                            describes_rels.append(
-                                Relation(
-                                    source_id=doc.id,
-                                    target_id=entity_ids[0],
-                                    relation_type="describes",
-                                )
-                            )
-                            count += 1
-                            continue
-
-                    # 文件名匹配：检查 doc.content 是否包含文件 basename
-                    # 用于处理只提到文件名而非完整路径的情况
-                    filename = os.path.basename(file_path)
-                    if filename and filename != file_path and filename in doc_content:  # 避免重复匹配根目录文件
-                        # 检查边界
-                        doc_idx = doc_content.find(filename)
-                        left_ok = doc_idx == 0 or doc_content[doc_idx - 1] in _BOUNDARY_CHARS
-                        right_ok = (
-                            doc_idx + len(filename) >= len(doc_content)
-                            or doc_content[doc_idx + len(filename)] in _BOUNDARY_CHARS
-                        )
-                        if left_ok and right_ok:
-                            describes_rels.append(
-                                Relation(
-                                    source_id=doc.id,
-                                    target_id=entity_ids[0],
-                                    relation_type="describes",
-                                )
-                            )
-                            count += 1
-                            continue
-
-                # 函数名匹配：从代码块提取标识符（不依赖 file_path）
-                if name in self._extract_identifiers_from_code(content) and len(name) > 3:
-                    describes_rels.append(
-                        Relation(
-                            source_id=doc.id,
-                            target_id=entity_ids[0],
-                            relation_type="describes",
-                        )
-                    )
-                    count += 1
-
-        return describes_rels
+        return link_docs_to_code(doc_entities, entity_index)
 
     def _check_llm_available(self) -> bool:
         """检查语义提取 LLM 服务是否可用。
@@ -904,14 +766,7 @@ class LayerKGBuilder:
         Returns:
             True 表示服务可用，False 表示不可用。
         """
-        provider = self._config.semantic_llm_provider
-        if provider == "openai":
-            return bool(self._config.semantic_llm_api_key)
-        try:
-            resp = httpx.get(f"{self._config.ollama_base_url}/api/tags", timeout=5.0)
-            return resp.status_code == 200
-        except Exception:
-            return False
+        return check_llm_available(self._config)
 
     def _init_semantic_extractor(self) -> SemanticExtractor:
         """Lazy init SemanticExtractor。
@@ -920,15 +775,7 @@ class LayerKGBuilder:
             SemanticExtractor 实例。
         """
         if self._semantic_extractor is None:
-            self._semantic_extractor = SemanticExtractor(
-                ollama_url=self._config.ollama_base_url,
-                model=self._config.llm_model,
-                batch_size=self._config.semantic_batch_size,
-                num_predict=self._config.semantic_num_predict,
-                provider=self._config.semantic_llm_provider,
-                api_key=self._config.semantic_llm_api_key,
-                base_url=self._config.semantic_llm_base_url,
-            )
+            self._semantic_extractor = make_semantic_extractor(self._config)
         return self._semantic_extractor
 
     def _init_concept_aligner(self) -> ConceptAligner:
@@ -938,10 +785,7 @@ class LayerKGBuilder:
             ConceptAligner 实例。
         """
         if self._aligner is None:
-            self._aligner = ConceptAligner(
-                chroma_store=self._get_chroma_store(),
-                concepts=[],
-            )
+            self._aligner = make_concept_aligner(self._get_chroma_store())
         return self._aligner
 
     def _init_clustering(self) -> ModuleClustering:
@@ -1042,11 +886,7 @@ class LayerKGBuilder:
         Returns:
             匹配到的 ID 列表。
         """
-        candidates: list[str] = []
-        for key, ids in entity_index.items():
-            if key[0] == entity_type and key[2] == name:
-                candidates.extend(ids)
-        return candidates
+        return fuzzy_lookup_entity(entity_index, entity_type, name)
 
     def _process_semantic_relations(
         self,
@@ -1066,99 +906,7 @@ class LayerKGBuilder:
             类型映射: {(source_id, target_id): (source_type, target_type)}
         """
         aligner = self._init_concept_aligner()
-        new_concepts: list[ConceptEntity] = []
-        resolved: list[Relation] = []
-        skipped = 0
-        type_mapping: dict[
-            tuple[str, str], tuple[str, str]
-        ] = {}  # (source_id, target_id) -> (source_type, target_type)
-
-        # 路径 A：收集所有概念目标的 unique target_name
-        concept_targets: dict[str, tuple[str, str]] = {}  # target_name → (target_type, reasoning)
-        concept_relations: list[SemanticRelation] = []
-        code_relations: list[SemanticRelation] = []
-
-        for rel in relations:
-            if rel.target_type in _CONCEPT_ENTITY_TYPES:
-                concept_targets.setdefault(rel.target_name, (rel.target_type, rel.reasoning or ""))
-                concept_relations.append(rel)
-            elif rel.target_type in _CODE_ENTITY_TYPES:
-                code_relations.append(rel)
-            else:
-                # ResourceEntity, DocEntity 等 → 跳过
-                skipped += 1
-
-        # 路径 A：批量对齐概念
-        if concept_targets:
-            align_results = aligner.align_batch(list(concept_targets.keys()))
-            concept_id_map: dict[str, str] = {}  # target_name → concept_id
-
-            for target_name, align_result in zip(concept_targets.keys(), align_results, strict=True):
-                if align_result.match_type == "none":
-                    # 创建新 ConceptEntity
-                    _target_type, _description = concept_targets[target_name]
-                    concept = ConceptEntity(
-                        name=target_name,
-                        entity_type=_target_type,
-                        description=_description,
-                    )
-                    new_concepts.append(concept)
-                    concept_id_map[target_name] = concept.id
-                    aligner.add_concept(concept)
-                else:
-                    concept_id_map[target_name] = align_result.concept_id
-
-            # 构建路径 A 的 Relation
-            for rel in concept_relations:
-                source_key = (
-                    rel.source_type,
-                    self._normalize_path(rel.source_file_path, repo_root),
-                    rel.source_name,
-                )
-                source_ids = entity_index.get(source_key, [])
-                if not source_ids:
-                    skipped += 1
-                    continue
-                target_id = concept_id_map.get(rel.target_name)
-                if not target_id:
-                    skipped += 1
-                    continue
-                source_id = source_ids[0]
-                resolved.append(
-                    Relation(
-                        source_id=source_id,
-                        target_id=target_id,
-                        relation_type=rel.relation_type,
-                    )
-                )
-                type_mapping[(source_id, target_id)] = (rel.source_type, concept_targets[rel.target_name][0])
-
-        # 路径 B：代码目标，用 entity_index 解析
-        for rel in code_relations:
-            source_key = (
-                rel.source_type,
-                self._normalize_path(rel.source_file_path, repo_root),
-                rel.source_name,
-            )
-            source_ids = entity_index.get(source_key, [])
-            if not source_ids:
-                source_ids = self._fuzzy_lookup_entity(entity_index, rel.source_type, rel.source_name)
-            target_ids = self._fuzzy_lookup_entity(entity_index, rel.target_type, rel.target_name)
-            if not source_ids or not target_ids:
-                skipped += 1
-                continue
-            source_id = source_ids[0]
-            target_id = target_ids[0]
-            resolved.append(
-                Relation(
-                    source_id=source_id,
-                    target_id=target_id,
-                    relation_type=rel.relation_type,
-                )
-            )
-            type_mapping[(source_id, target_id)] = (rel.source_type, rel.target_type)
-
-        return new_concepts, resolved, skipped, type_mapping
+        return process_semantic_relations(relations, entity_index, repo_root, aligner)
 
     def _normalize_path(self, file_path: str | None, repo_root: Path) -> str:
         """规范化文件路径为相对于仓库根目录的路径。
@@ -1170,12 +918,7 @@ class LayerKGBuilder:
         Returns:
             规范化后的相对路径，空字符串表示无路径。
         """
-        if not file_path:
-            return ""
-        try:
-            return str(Path(file_path).relative_to(repo_root))
-        except ValueError:
-            return file_path
+        return normalize_path(file_path, repo_root)
 
     def _build_entity_index(
         self,
@@ -1191,15 +934,7 @@ class LayerKGBuilder:
         Returns:
             索引字典，键为 (entity_type, file_path, name) 三元组，值为 ID 列表。
         """
-        index: dict[tuple[str, str, str], list[str]] = {}
-        for e in entities:
-            file_path = getattr(e, "file_path", None)  # ConceptEntity 没有 file_path
-            entity_type = e.entity_type
-            key = (entity_type, self._normalize_path(file_path, repo_root), e.name)
-            if key not in index:
-                index[key] = []
-            index[key].append(e.id)
-        return index
+        return build_entity_index(entities, repo_root)
 
     def _resolve_semantic_names(
         self,
@@ -1214,39 +949,13 @@ class LayerKGBuilder:
 
         Returns:
             (解析后的 Relation 列表, 跳过数量) 元组。
-
-        Note:
-            如果 source_file_path 为空或多个同名实体存在于不同文件中，
-            source 可能匹配到错误的实体。这是已知的近似匹配限制，
-            后续可用 source_context 或 qualified_name 增强。
         """
-        resolved: list[Relation] = []
-        skipped = 0
-        for rel in relations:
-            source_key = (
-                rel.source_type,
-                self._normalize_path(rel.source_file_path, self._repo_root or Path(".")),
-                rel.source_name,
-            )
-            target_key = (rel.target_type, "", rel.target_name)
-            source_ids = index.get(source_key, [])
-            target_ids = index.get(target_key, [])
-            if not source_ids or not target_ids:
-                self._logger.warning(
-                    "Cannot resolve semantic relation: %s -> %s",
-                    rel.source_name,
-                    rel.target_name,
-                )
-                skipped += 1
-                continue
-            resolved.append(
-                Relation(
-                    source_id=source_ids[0],
-                    target_id=target_ids[0],
-                    relation_type=rel.relation_type,
-                )
-            )
-        return resolved, skipped
+        return resolve_semantic_names(
+            relations,
+            index,
+            self._repo_root or Path("."),
+            self._logger,
+        )
 
     def close(self) -> None:
         """关闭所有存储连接。"""
