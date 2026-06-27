@@ -31,7 +31,7 @@ uv run ruff check --fix src/ tests/  # 自动修复
 uv run ruff format src/ tests/       # 自动格式化
 uv run pyright src/                  # 类型检查
 
-# CLI（入口 layerkg = layerkg.cli:main；配置从 .env / 环境变量读取）
+# CLI（入口 layerkg = layerkg.api.cli:main；配置从 .env / 环境变量读取）
 uv run layerkg build ./repo [--skip-semantic] [--skip-clustering] [--clear] [--verbose-build]
 uv run layerkg query "text" [-t function|class|...] [-n 10]
 uv run layerkg update ./repo [--since HEAD~1] [--dry-run] [--full-scan]   # 增量更新
@@ -58,44 +58,56 @@ Semantic（语义层）  Schema（6 实体 11 关系）· GraphStore（Neo4j + C
 **关键约束：每层只依赖下一层，不跨层不反向。** Action 只引用 Function 名；Function 通过 `graph_store` 操作语义层、通过 `Connector` 访问外部系统；Connector 只搬运数据不含业务逻辑。
 
 ### 意图 → 执行 的完整链路
-1. Agent 收到自然语言 → prompt 中的 `trigger_hint` 列表匹配 `intent_type`（prompt 由 `intent_router.build_intent_prompt()` 从 `src/layerkg/ontology_actions.yaml` 自动生成）。
+1. Agent 收到自然语言 → prompt 中的 `trigger_hint` 列表匹配 `intent_type`（prompt 由 `intent_router.build_intent_prompt()` 从 `pipeline/ontology_actions.yaml` 自动生成）。
 2. Agent 调用工具 `express_intent(intent_type, target, params)`（`agent/tools.py`）。
-3. `ActionExecutor.execute()`（`action_executor.py`）：查 `intent_map` → `_resolve_entity` → `_check_criteria`（Submission Criteria）→ 通过 `FunctionRunner` 同步执行对应 Function。
+3. `ActionExecutor.execute()`（`execution/action_executor.py`）：查 `intent_map` → `_resolve_entity` → `_check_criteria`（Submission Criteria）→ 通过 `FunctionRunner` 同步执行对应 Function。
 4. Function 经 `ActionContext` 注入 `graph_store` + `function_runner`，可链式调用其他 Function；写操作走 `TransactionManager` / SAGA 保证原子性与补偿。
 
-### 各层落地位置
-| 层 | 文件 |
-|----|------|
-| Intent | `agent/`（`graph.py` 建 LangGraph agent，`tools.py` 的 `ALL_TOOLS`，`prompt.py`），`intent_router.py`，`ontology_actions.yaml` |
-| Control | `action_executor.py`，`action_types.py`，`saga.py`，`transaction_manager.py`，`execution_policy.py`，`circuit_breaker.py` |
-| Capability | `functions/`（`registry.py` 装饰器注册、`builtin.py`、`general.py`），`function_runner.py`，`connectors/`（`base.py` + 实现），`mcp_server.py` |
-| Semantic | `schema.py`，`graph_store.py`（抽象），`neo4j_store.py`，`chroma_store.py`，`provenance.py`，`schema_version.py` |
+### 各层落地位置（重构后目录结构）
+| 层 | 目录 | 关键文件 |
+|----|------|---------|
+| Domain | `domain/` | `schema.py`、`exceptions.py`、`provenance.py` |
+| Store | `store/` | `graph_store.py`（抽象）、`neo4j_store.py`、`chroma_store.py`、`schema_version.py`、`migrations/` |
+| Parsing | `parsing/` | `parser/`（python/java/doc）、`extractor/`（relation、semantic） |
+| Pipeline | `pipeline/` | `builder.py`、`builder_utils.py`、`semantic_linker.py`、`incremental_updater.py`、`change_detector.py`、`impact_propagator.py`、`aligner.py`、`module_clustering.py`、`ontology_actions.yaml` |
+| Execution | `execution/` | `action_executor.py`、`action_types.py`、`intent_router.py`、`function_runner.py`、`circuit_breaker.py`、`execution_policy.py`、`saga.py`、`transaction_manager.py`、`functions/`、`connectors/` |
+| Agent | `agent/` | `graph.py`、`tools.py`、`prompt.py`、`_helpers.py` |
+| Butler | `butler/` | `engine.py`、`event_bus.py`、`scheduler.py`、`handlers/` |
+| API | `api/` | `cli.py`、`mcp_server.py`、`web/` |
 
-## 知识图谱构建流水线（`builder.py::LayerKGBuilder.build`）
+> 架构约束详见 `.claude/rules/architecture.md`（根目录文件上限 5 个、单文件行数上限 800、分层单向依赖）。
+
+## 知识图谱构建流水线（`pipeline/builder.py::LayerKGBuilder.build`）
 
 多阶段管线，**只有前两阶段是关键路径**（失败立即 `aborted=True`），后续阶段（语义/聚类/向量）可降级跳过：
 
 | 阶段 | 作用 | 失败行为 |
 |------|------|---------|
-| Stage 1 Parse | tree-sitter 扫描解析（`parser/`：Python+Java+doc）+ 结构关系提取 | 关键 |
+| Stage 1 Parse | tree-sitter 扫描解析（`parsing/parser/`：Python+Java+doc）+ 结构关系提取 | 关键 |
 | Stage 2 Structural Write | 结构实体/关系 MERGE 写入 Neo4j | 关键（`RuntimeError`） |
 | Stage 2.5 Doc-Code Link | 文档→代码 `DESCRIBES` 关联 | 关键 |
-| Stage 3 Semantic | LLM 语义提取（`extractor/semantic.py`）+ 概念对齐（`aligner.py` 四步：精确→别名→向量→图结构）→ 写 ConceptEntity | 可降级 |
-| Stage 4 Clustering | 模块聚类（`module_clustering.py`）→ ModuleEntity | 可降级 |
-| Stage 5 Vector Index | 实体向量写入 ChromaDB（`chroma_store.py`，Ollama embedding） | 可降级 |
+| Stage 3 Semantic | LLM 语义提取（`parsing/extractor/semantic.py`）+ 概念对齐（`pipeline/aligner.py` 四步：精确→别名→向量→图结构）→ 写 ConceptEntity | 可降级 |
+| Stage 4 Clustering | 模块聚类（`pipeline/module_clustering.py`）→ ModuleEntity | 可降级 |
+| Stage 5 Vector Index | 实体向量写入 ChromaDB（`store/chroma_store.py`，Ollama embedding） | 可降级 |
 
-增量更新走 `incremental_updater.py`（基于 `change_detector.py` git diff + `impact_propagator.py` 双向 BFS 影响传播）。Butler 引擎（`butler/`：EventBus + Handler + GitWatcher）把上述能力包装成事件驱动的常驻服务。
+增量更新走 `pipeline/incremental_updater.py`（基于 `pipeline/change_detector.py` git diff + `pipeline/impact_propagator.py` 双向 BFS 影响传播）。Butler 引擎（`butler/`：EventBus + Handler + GitWatcher）把上述能力包装成事件驱动的常驻服务。
 
 ## 测试结构
 ```
 tests/
 ├── conftest.py             # autouse fixture 在每个测试后重置 agent LLM 全局单例（_reset_llm）
 ├── unit/                   # 无外部依赖（默认开发跑这一层）
+│   ├── agent/              # agent/ 的测试
+│   ├── butler/             # butler/ 的测试
+│   ├── execution/          # execution/ 的测试
+│   ├── pipeline/           # pipeline/ 的测试
+│   ├── web/                # api/web/ 的测试
+│   └── *.py                # domain/store/parsing 等小模块测试
 ├── integration/            # 需要真实 Neo4j（@pytest.mark.integration）
 └── evaluation/             # 评测集 + run_eval.py
 ```
 - 优先测真实行为，只对 LLM/外部服务 mock；mock 放测试函数内，不放 conftest。
-- 根目录的 `test_search.py` / `test_verify*.py` 是**手动验证脚本**，不在 pytest 套件内。
+- 测试子目录与 `src/layerkg/` 子包对应，详见 `.claude/rules/architecture.md`。
 - 详细 TDD / 命名 / AAA / 覆盖率规范见 `.claude/rules/testing.md`。
 
 ## LayerKG Schema 速查
@@ -125,5 +137,5 @@ Vue 3 + Vite + TypeScript。可视化图谱（cytoscape）、对话（SSE 经 `@
 - 提交前：`ruff check` + `ruff format` + `pyright` 全部通过。
 
 ## 设计文档 & 历史计划
-- `DESIGN_V34.md` — **当前架构**（四层）。`DESIGN_V3.md` / `DESIGN_V33.md` 为历史演进。
+- `docs/design/DESIGN_V34.md` — **当前架构**（四层）。`DESIGN_V3.md` / `DESIGN_V33.md` 为历史演进。
 - `docs/plans/`（75 份按天规划）、`.hermes/plans/`（Hermes day0-day4）— 历史实施计划，仅供回溯。
