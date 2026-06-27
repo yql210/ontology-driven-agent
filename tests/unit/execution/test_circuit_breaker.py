@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from layerkg.execution.circuit_breaker import CircuitBreaker
+from ontoagent.execution.circuit_breaker import CircuitBreaker
 
 
 def test_initial_state_closed():

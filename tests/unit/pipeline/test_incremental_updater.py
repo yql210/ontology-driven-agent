@@ -5,12 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from layerkg.config import LayerKGConfig
-from layerkg.domain.schema import CodeEntity, Relation
-from layerkg.parsing.parser.base import ParseResult
-from layerkg.pipeline.change_detector import ChangedFile, ChangeType, GitStatus
-from layerkg.pipeline.impact_propagator import ImpactedNode, ImpactReport, ImpactSeverity, PropagationDirection
-from layerkg.pipeline.incremental_updater import IncrementalUpdater, UpdateReport
+from ontoagent.config import OntoAgentConfig
+from ontoagent.domain.schema import CodeEntity, Relation
+from ontoagent.parsing.parser.base import ParseResult
+from ontoagent.pipeline.change_detector import ChangedFile, ChangeType, GitStatus
+from ontoagent.pipeline.impact_propagator import ImpactedNode, ImpactReport, ImpactSeverity, PropagationDirection
+from ontoagent.pipeline.incremental_updater import IncrementalUpdater, UpdateReport
 
 
 class TestUpdateReport:
@@ -145,7 +145,7 @@ class TestIncrementalUpdaterConstructor:
 
     def test_create_instance_attributes(self):
         """Should create instance with correct config and repo_path attributes."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         repo_path = Path("/tmp/repo")
         updater = IncrementalUpdater(config, repo_path)
         assert updater._config is config
@@ -153,7 +153,7 @@ class TestIncrementalUpdaterConstructor:
 
     def test_lazy_init_graph_store(self):
         """graph_store should be None initially (lazy init)."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
         assert updater._graph_store is None
         assert updater._chroma_store is None
@@ -162,7 +162,7 @@ class TestIncrementalUpdaterConstructor:
 
     def test_context_manager(self):
         """__enter__ should return self, __exit__ should call close."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock close method
@@ -179,7 +179,7 @@ class TestDetectChanges:
 
     def test_mock_detector_returns_three_changes(self):
         """mock GitChangeDetector.detect_changes → return 3 ChangedFile."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock change detector
@@ -199,7 +199,7 @@ class TestDetectChanges:
 
     def test_full_scan_calls_full_scan(self):
         """full_scan=True → call detector.full_scan()."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         mock_detector = MagicMock()
@@ -216,7 +216,7 @@ class TestDetectChanges:
 
     def test_no_changes_returns_empty_list(self):
         """No changes → return empty list."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         mock_detector = MagicMock()
@@ -233,7 +233,7 @@ class TestPropagateImpact:
 
     def test_mock_propagator_returns_impact_report(self):
         """mock ImpactPropagator.propagate → return report with 5 impacted_nodes."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock impact propagator
@@ -270,7 +270,7 @@ class TestPropagateImpact:
 
     def test_empty_changes_returns_empty_report(self):
         """Empty changes list → return empty ImpactReport (don't call propagator)."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         mock_propagator = MagicMock()
@@ -287,7 +287,7 @@ class TestPropagateImpact:
 
     def test_impacted_nodes_count_correct(self):
         """impacted_nodes_count should match len(impacted_nodes)."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         mock_propagator = MagicMock()
@@ -334,7 +334,7 @@ class TestApplyAdded:
             temp_path = f.name
 
         try:
-            config = LayerKGConfig()
+            config = OntoAgentConfig()
             updater = IncrementalUpdater(config)
 
             # Mock parser
@@ -378,7 +378,7 @@ class TestApplyAdded:
 
     def test_file_not_exists_returns_zeros(self):
         """File not exists → return all zeros."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         change = ChangedFile(path="/nonexistent/file.py", change_type=ChangeType.ADDED, git_status=GitStatus.ADDED)
@@ -399,7 +399,7 @@ class TestApplyAdded:
             temp_path = f.name
 
         try:
-            config = LayerKGConfig()
+            config = OntoAgentConfig()
             updater = IncrementalUpdater(config)
 
             # Mock parser with error
@@ -432,7 +432,7 @@ class TestApplyAdded:
             temp_path = f.name
 
         try:
-            config = LayerKGConfig()
+            config = OntoAgentConfig()
             updater = IncrementalUpdater(config)
 
             # Mock parser returns no entities
@@ -473,7 +473,7 @@ class TestApplyDeleted:
 
     def test_mock_query_returns_nodes_deleted(self):
         """mock query returns 2 nodes → nodes_deleted=2, verify delete_node called twice."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store
@@ -502,7 +502,7 @@ class TestApplyDeleted:
 
     def test_delete_node_called_with_detach_delete(self):
         """verify delete_node is called (DETACH DELETE semantic — no need to manually delete relations)."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store
@@ -523,7 +523,7 @@ class TestApplyDeleted:
 
     def test_no_nodes_in_graph_returns_zeros(self):
         """mock query returns empty list → return all zeros."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store
@@ -546,7 +546,7 @@ class TestApplyDeleted:
 
     def test_delete_entities_by_metadata_called(self):
         """verify chroma_store.delete_entities_by_metadata is called with file_path."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store
@@ -579,7 +579,7 @@ class TestApplyModifiedSignature:
             temp_path = f.name
 
         try:
-            config = LayerKGConfig()
+            config = OntoAgentConfig()
             updater = IncrementalUpdater(config)
 
             # Mock parser returns entities
@@ -639,7 +639,7 @@ class TestApplyModifiedSignature:
             temp_path = f.name
 
         try:
-            config = LayerKGConfig()
+            config = OntoAgentConfig()
             updater = IncrementalUpdater(config)
 
             # Mock parser
@@ -683,7 +683,7 @@ class TestApplyModifiedSignature:
 
     def test_file_not_exists_returns_zeros(self):
         """File not exists → return all zeros for SIGNATURE change."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         change = ChangedFile(
@@ -708,7 +708,7 @@ class TestApplyModifiedSignature:
             temp_path = f.name
 
         try:
-            config = LayerKGConfig()
+            config = OntoAgentConfig()
             updater = IncrementalUpdater(config)
 
             # Mock parser with error
@@ -757,7 +757,7 @@ class TestApplyModifiedBody:
             temp_path = f.name
 
         try:
-            config = LayerKGConfig()
+            config = OntoAgentConfig()
             updater = IncrementalUpdater(config)
 
             # Mock parser
@@ -809,7 +809,7 @@ class TestApplyModifiedBody:
             temp_path = f.name
 
         try:
-            config = LayerKGConfig()
+            config = OntoAgentConfig()
             updater = IncrementalUpdater(config)
 
             # Mock parser
@@ -861,7 +861,7 @@ class TestApplyModifiedBody:
             temp_path = f.name
 
         try:
-            config = LayerKGConfig()
+            config = OntoAgentConfig()
             updater = IncrementalUpdater(config)
 
             # Mock parser
@@ -923,7 +923,7 @@ class TestApplyModifiedDocOnly:
             temp_path = f.name
 
         try:
-            config = LayerKGConfig()
+            config = OntoAgentConfig()
             updater = IncrementalUpdater(config)
 
             # Mock parser
@@ -966,7 +966,7 @@ class TestApplyModifiedDocOnly:
             temp_path = f.name
 
         try:
-            config = LayerKGConfig()
+            config = OntoAgentConfig()
             updater = IncrementalUpdater(config)
 
             # Mock parser
@@ -1012,7 +1012,7 @@ class TestApplyModifiedDocOnly:
             temp_path = f.name
 
         try:
-            config = LayerKGConfig()
+            config = OntoAgentConfig()
             updater = IncrementalUpdater(config)
 
             # Mock parser
@@ -1051,7 +1051,7 @@ class TestRecordChangeset:
         """changeset_id format should be 'cs-{12hex}'."""
         import re
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store
@@ -1077,7 +1077,7 @@ class TestRecordChangeset:
 
     def test_merge_node_called_with_changeset_label(self):
         """verify merge_node is called with ChangeSetEntity label."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store
@@ -1105,7 +1105,7 @@ class TestRecordChangeset:
 
     def test_files_changed_list_correct(self):
         """files_changed in changeset should match input changes."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store
@@ -1138,7 +1138,7 @@ class TestUpdateFlow:
 
     def test_full_update_flow(self):
         """Full four-stage flow → UpdateReport all fields correct."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock change detector
@@ -1209,7 +1209,7 @@ class TestUpdateFlow:
 
     def test_dry_run(self):
         """dry_run=True → only changes_detected+impacted_nodes_count, Stage3/4 not executed."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock change detector
@@ -1245,7 +1245,7 @@ class TestUpdateFlow:
 
     def test_empty_changes(self):
         """No changes → all counters should be 0."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock change detector returning no changes
@@ -1266,7 +1266,7 @@ class TestUpdateFlow:
 
     def test_elapsed_ms_positive(self):
         """elapsed_ms should be positive (measures actual time)."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock change detector
@@ -1288,7 +1288,7 @@ class TestCLIUpdate:
 
         from click.testing import CliRunner
 
-        from layerkg.api.cli import main
+        from ontoagent.api.cli import main
 
         runner = CliRunner()
 
@@ -1297,8 +1297,8 @@ class TestCLIUpdate:
         repo_dir.mkdir()
 
         with (
-            patch("layerkg.api.cli.IncrementalUpdater") as mock_updater_class,
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_class,
+            patch("ontoagent.api.cli.IncrementalUpdater") as mock_updater_class,
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_class,
         ):
             # Setup mocks
             mock_config = MagicMock()
@@ -1323,7 +1323,7 @@ class TestCLIUpdate:
 
         from click.testing import CliRunner
 
-        from layerkg.api.cli import main
+        from ontoagent.api.cli import main
 
         runner = CliRunner()
 
@@ -1331,8 +1331,8 @@ class TestCLIUpdate:
         repo_dir.mkdir()
 
         with (
-            patch("layerkg.api.cli.IncrementalUpdater") as mock_updater_class,
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_class,
+            patch("ontoagent.api.cli.IncrementalUpdater") as mock_updater_class,
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_class,
         ):
             mock_config = MagicMock()
             mock_config_class.from_env.return_value = mock_config
@@ -1356,7 +1356,7 @@ class TestCLIUpdate:
 
         from click.testing import CliRunner
 
-        from layerkg.api.cli import main
+        from ontoagent.api.cli import main
 
         runner = CliRunner()
 
@@ -1364,8 +1364,8 @@ class TestCLIUpdate:
         repo_dir.mkdir()
 
         with (
-            patch("layerkg.api.cli.IncrementalUpdater") as mock_updater_class,
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_class,
+            patch("ontoagent.api.cli.IncrementalUpdater") as mock_updater_class,
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_class,
         ):
             mock_config = MagicMock()
             mock_config_class.from_env.return_value = mock_config
@@ -1389,7 +1389,7 @@ class TestCLIUpdate:
 
         from click.testing import CliRunner
 
-        from layerkg.api.cli import main
+        from ontoagent.api.cli import main
 
         runner = CliRunner()
 
@@ -1397,8 +1397,8 @@ class TestCLIUpdate:
         repo_dir.mkdir()
 
         with (
-            patch("layerkg.api.cli.IncrementalUpdater") as mock_updater_class,
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_class,
+            patch("ontoagent.api.cli.IncrementalUpdater") as mock_updater_class,
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_class,
         ):
             mock_config = MagicMock()
             mock_config_class.from_env.return_value = mock_config
@@ -1423,7 +1423,7 @@ class TestMixedScenarios:
 
     def test_mixed_changes(self):
         """Mixed ADDED+DELETED+SIGNATURE+DOC_ONLY changes → counters correct."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock change detector
@@ -1493,7 +1493,7 @@ class TestMixedScenarios:
 
     def test_cache_persisted(self):
         """update_cache is called after stage3."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock change detector
@@ -1560,7 +1560,7 @@ class TestMixedScenarios:
 
     def test_parse_errors_count(self):
         """parse_errors > 0, failed_files non-empty when parsing fails."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock change detector
@@ -1620,7 +1620,7 @@ class TestMixedScenarios:
 
     def test_no_crash_with_no_repo_path(self):
         """Should not crash when repo_path is None (uses Path.cwd())."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config, repo_path=None)
 
         # Verify repo_path defaults to Path.cwd()
@@ -1636,7 +1636,7 @@ class TestIncrementalUpdateE2E:
         import tempfile
 
         # Arrange
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # 创建临时文件
@@ -1700,7 +1700,7 @@ class TestIncrementalUpdateE2E:
         import tempfile
 
         # Arrange
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # 创建临时文件
@@ -1768,7 +1768,7 @@ class TestIncrementalUpdateE2E:
         import tempfile
 
         # Arrange
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # 创建临时文件
@@ -1829,7 +1829,7 @@ class TestConceptEntityHandling:
 
     def test_concept_reextraction_flagged_when_concept_impacted(self):
         """mock impact_report 包含 2 个 ConceptEntity 的 ImpactedNode，验证 concepts_flagged=2。"""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock change detector
@@ -1930,7 +1930,7 @@ class TestConceptEntityHandling:
 
     def test_concept_reextraction_not_called_for_code_only_impacts(self):
         """mock impact_report 只包含 CodeEntity 的 ImpactedNode，验证 concepts_flagged=0。"""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock change detector
@@ -2018,7 +2018,7 @@ class TestConceptEntityHandling:
 
     def test_flag_concept_reextraction_direct(self):
         """直接调用 _flag_concept_reextraction，验证返回值和 Cypher 正确。"""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store
@@ -2045,7 +2045,7 @@ class TestConceptEntityHandling:
 
     def test_flag_concept_reextraction_empty_list(self):
         """空列表调用 _flag_concept_reextraction，返回 0 且不调用 query。"""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store
@@ -2065,7 +2065,7 @@ class TestDocEntityHandling:
 
     def test_doc_regeneration_flagged_when_doc_impacted(self):
         """mock impact_report 包含 1 个 DocEntity 的 ImpactedNode，验证 docs_flagged=1。"""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock change detector
@@ -2155,7 +2155,7 @@ class TestDocEntityHandling:
 
     def test_doc_regeneration_not_called_for_code_only_impacts(self):
         """mock impact_report 只包含 CodeEntity 的 ImpactedNode，验证 docs_flagged=0。"""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock change detector
@@ -2243,7 +2243,7 @@ class TestDocEntityHandling:
 
     def test_flag_doc_regeneration_direct(self):
         """直接调用 _flag_doc_regeneration，验证返回值和 Cypher 正确。"""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store
@@ -2270,7 +2270,7 @@ class TestDocEntityHandling:
 
     def test_flag_doc_regeneration_empty_list(self):
         """空列表调用 _flag_doc_regeneration，返回 0 且不调用 query。"""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store
@@ -2290,7 +2290,7 @@ class TestGraphIntegrityValidation:
 
     def test_validate_returns_warnings_for_orphan_nodes(self):
         """mock graph_store.query 返回 2 个孤立 CodeEntity，验证 warnings=2。"""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store 返回孤立节点
@@ -2320,7 +2320,7 @@ class TestGraphIntegrityValidation:
 
     def test_validate_returns_zero_for_healthy_graph(self):
         """mock graph_store.query 返回空列表，验证 warnings=0。"""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store 返回健康图谱（无孤立节点）
@@ -2337,7 +2337,7 @@ class TestGraphIntegrityValidation:
 
     def test_validate_handles_query_error_gracefully(self):
         """mock graph_store.query 抛异常，验证返回空结果而不抛异常。"""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store 抛异常
@@ -2357,7 +2357,7 @@ class TestGraphIntegrityValidation:
         import os
         import tempfile
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # 创建临时文件

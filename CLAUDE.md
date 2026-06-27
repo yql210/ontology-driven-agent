@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目简介
 
-LayerKG — 基于本体驱动的可更新知识图谱引擎。从源代码 + 文档自动构建知识图谱（Neo4j + ChromaDB），支持自然语言查询、变更影响分析、增量更新。上层 LangGraph ReAct Agent 编排查询与操作。
+OntoAgent — 基于本体驱动的可更新知识图谱引擎。从源代码 + 文档自动构建知识图谱（Neo4j + ChromaDB），支持自然语言查询、变更影响分析、增量更新。上层 LangGraph ReAct Agent 编排查询与操作。
 
 技术栈：Python 3.13+ · uv · tree-sitter（Python+Java）· Neo4j 5.x · ChromaDB · LangGraph · Click · ruff · pyright。
 
@@ -23,7 +23,7 @@ uv run pytest tests/ -v                              # 全量
 uv run pytest tests/unit/ -v                         # 仅单元测试
 uv run pytest -m "not integration" -v                # 跳过集成测试（无需 Neo4j）
 uv run pytest tests/unit/test_schema.py::test_x -v   # 单个测试
-uv run pytest tests/ --cov=layerkg --cov-report=term-missing  # 覆盖率
+uv run pytest tests/ --cov=ontoagent --cov-report=term-missing  # 覆盖率
 
 # 静态检查 / 格式化 / 类型检查（提交前必须通过）
 uv run ruff check src/ tests/        # 静态检查
@@ -31,16 +31,16 @@ uv run ruff check --fix src/ tests/  # 自动修复
 uv run ruff format src/ tests/       # 自动格式化
 uv run pyright src/                  # 类型检查
 
-# CLI（入口 layerkg = layerkg.api.cli:main；配置从 .env / 环境变量读取）
-uv run layerkg build ./repo [--skip-semantic] [--skip-clustering] [--clear] [--verbose-build]
-uv run layerkg query "text" [-t function|class|...] [-n 10]
-uv run layerkg update ./repo [--since HEAD~1] [--dry-run] [--full-scan]   # 增量更新
-uv run layerkg migrate [--target <ver>]                                    # schema 迁移 / 回滚
-uv run layerkg ask "merge_node 被谁调用" | ask -i                          # LangGraph Agent 问答
-uv run layerkg serve [--transport stdio|http] [--port 8000]                # MCP Server
-uv run layerkg web [--host 0.0.0.0] [--port 8000] [--reload]               # FastAPI Web API
-uv run layerkg info | version
-uv run layerkg butler {serve|update|build|status}                          # 事件驱动知识管理引擎
+# CLI（入口 ontoagent = ontoagent.api.cli:main；配置从 .env / 环境变量读取）
+uv run ontoagent build ./repo [--skip-semantic] [--skip-clustering] [--clear] [--verbose-build]
+uv run ontoagent query "text" [-t function|class|...] [-n 10]
+uv run ontoagent update ./repo [--since HEAD~1] [--dry-run] [--full-scan]   # 增量更新
+uv run ontoagent migrate [--target <ver>]                                    # schema 迁移 / 回滚
+uv run ontoagent ask "merge_node 被谁调用" | ask -i                          # LangGraph Agent 问答
+uv run ontoagent serve [--transport stdio|http] [--port 8000]                # MCP Server
+uv run ontoagent web [--host 0.0.0.0] [--port 8000] [--reload]               # FastAPI Web API
+uv run ontoagent info | version
+uv run ontoagent butler {serve|update|build|status}                          # 事件驱动知识管理引擎
 
 # Git
 git add -A && git commit -m "type: description"
@@ -77,7 +77,7 @@ Semantic（语义层）  Schema（6 实体 11 关系）· GraphStore（Neo4j + C
 
 > 架构约束详见 `.claude/rules/architecture.md`（根目录文件上限 5 个、单文件行数上限 800、分层单向依赖）。
 
-## 知识图谱构建流水线（`pipeline/builder.py::LayerKGBuilder.build`）
+## 知识图谱构建流水线（`pipeline/builder.py::OntoAgentBuilder.build`）
 
 多阶段管线，**只有前两阶段是关键路径**（失败立即 `aborted=True`），后续阶段（语义/聚类/向量）可降级跳过：
 
@@ -107,10 +107,10 @@ tests/
 └── evaluation/             # 评测集 + run_eval.py
 ```
 - 优先测真实行为，只对 LLM/外部服务 mock；mock 放测试函数内，不放 conftest。
-- 测试子目录与 `src/layerkg/` 子包对应，详见 `.claude/rules/architecture.md`。
+- 测试子目录与 `src/ontoagent/` 子包对应，详见 `.claude/rules/architecture.md`。
 - 详细 TDD / 命名 / AAA / 覆盖率规范见 `.claude/rules/testing.md`。
 
-## LayerKG Schema 速查
+## OntoAgent Schema 速查
 **6 实体**（Neo4j Label = dataclass 名）：`CodeEntity`（function/class/interface/module/file/enum/record/field）、`ConceptEntity`（business_concept/design_pattern/api_contract/data_model/process）、`DocEntity`、`ResourceEntity`、`ModuleEntity`、`ChangeSetEntity`。
 
 **11 关系**（Neo4j Type = UPPER_SNAKE）：
@@ -121,19 +121,19 @@ tests/
 属性名 camelCase（`entityType`、`filePath`）；Cypher 必须**参数化**，禁止字符串拼接。约束规范见 `.claude/rules/neo4j.md`。
 
 ## 配置 & 外部服务（`.env`，参考 `.env.example`）
-- **Neo4j**：`LAYERKG_NEO4J_URI` / `_USER` / `_PASSWORD`
-- **Ollama**：`LAYERKG_OLLAMA_URL`、`LAYERKG_EMBEDDING_MODEL`（默认 qwen2.5-coder:0.5b）、`LAYERKG_LLM_MODEL`
-- **语义提取 LLM**：`LAYERKG_SEMANTIC_LLM_PROVIDER`（ollama|openai）、`LAYERKG_SEMANTIC_API_KEY`、`LAYERKG_SEMANTIC_BASE_URL`
-- **Agent LLM**：`LAYERKG_AGENT_LLM_PROVIDER`（默认 zhipu）、`LAYERKG_AGENT_LLM_MODEL`、`LAYERKG_AGENT_API_KEY`、`LAYERKG_AGENT_BASE_URL`
-- **ChromaDB**：`LAYERKG_CHROMA_DIR`（默认 `.chroma`）
-- **构建**：`LAYERKG_BUILD_INCLUDE_DOCS`、`LAYERKG_BUILD_DOC_EXTENSIONS`、`LAYERKG_BUILD_SKIP_DIRS` 等
-- Docker：`docker compose up -d` 起 Neo4j + ChromaDB + LayerKG
+- **Neo4j**：`ONTOAGENT_NEO4J_URI` / `_USER` / `_PASSWORD`
+- **Ollama**：`ONTOAGENT_OLLAMA_URL`、`ONTOAGENT_EMBEDDING_MODEL`（默认 qwen2.5-coder:0.5b）、`ONTOAGENT_LLM_MODEL`
+- **语义提取 LLM**：`ONTOAGENT_SEMANTIC_LLM_PROVIDER`（ollama|openai）、`ONTOAGENT_SEMANTIC_API_KEY`、`ONTOAGENT_SEMANTIC_BASE_URL`
+- **Agent LLM**：`ONTOAGENT_AGENT_LLM_PROVIDER`（默认 zhipu）、`ONTOAGENT_AGENT_LLM_MODEL`、`ONTOAGENT_AGENT_API_KEY`、`ONTOAGENT_AGENT_BASE_URL`
+- **ChromaDB**：`ONTOAGENT_CHROMA_DIR`（默认 `.chroma`）
+- **构建**：`ONTOAGENT_BUILD_INCLUDE_DOCS`、`ONTOAGENT_BUILD_DOC_EXTENSIONS`、`ONTOAGENT_BUILD_SKIP_DIRS` 等
+- Docker：`docker compose up -d` 起 Neo4j + ChromaDB + OntoAgent
 
 ## 前端（`frontend/`，独立工程）
 Vue 3 + Vite + TypeScript。可视化图谱（cytoscape）、对话（SSE 经 `@microsoft/fetch-event-source` 连 Web API `/chat/stream`）、流程图（mermaid）、Markdown（marked）。`npm run dev` / `npm run build`。
 
 ## 编码规范（详见 `.claude/rules/`，此处仅列高频项）
-- Python：`from __future__ import annotations` 头部；类型注解必须（`X | None`、`list[X]`、`Path`）；f-string；行宽 120；`@dataclass` + `__post_init__` 校验；自定义异常继承 `LayerKGError`；用 `logging` 不用 `print`。
+- Python：`from __future__ import annotations` 头部；类型注解必须（`X | None`、`list[X]`、`Path`）；f-string；行宽 120；`@dataclass` + `__post_init__` 校验；自定义异常继承 `OntoAgentError`；用 `logging` 不用 `print`。
 - 提交前：`ruff check` + `ruff format` + `pyright` 全部通过。
 
 ## 设计文档 & 历史计划

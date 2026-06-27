@@ -4,8 +4,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from layerkg.pipeline.change_detector import ChangeType
-from layerkg.pipeline.impact_propagator import (
+from ontoagent.pipeline.change_detector import ChangeType
+from ontoagent.pipeline.impact_propagator import (
     DEFAULT_DECAY_SCHEDULE,
     DEFAULT_WEIGHT_MATRIX,
     ImpactedNode,
@@ -552,7 +552,7 @@ class TestMapFilesToNodes:
 
     def test_single_file_mapping_success(self) -> None:
         """Single file mapping success (mock query returns nodes)."""
-        from layerkg.pipeline.change_detector import ChangedFile, GitStatus
+        from ontoagent.pipeline.change_detector import ChangedFile, GitStatus
 
         mock_store = Mock()
         mock_store.query.return_value = [
@@ -578,7 +578,7 @@ class TestMapFilesToNodes:
 
     def test_multiple_nodes_per_file(self) -> None:
         """Multiple nodes mapping (one file has multiple functions/classes)."""
-        from layerkg.pipeline.change_detector import ChangedFile, GitStatus
+        from ontoagent.pipeline.change_detector import ChangedFile, GitStatus
 
         mock_store = Mock()
         mock_store.query.return_value = [
@@ -602,7 +602,7 @@ class TestMapFilesToNodes:
 
     def test_file_not_in_graph_returns_empty_dict(self) -> None:
         """File not in graph → returns empty dict (no error)."""
-        from layerkg.pipeline.change_detector import ChangedFile, GitStatus
+        from ontoagent.pipeline.change_detector import ChangedFile, GitStatus
 
         mock_store = Mock()
         mock_store.query.return_value = []
@@ -622,7 +622,7 @@ class TestMapFilesToNodes:
 
     def test_multiple_files_batch_mapping(self) -> None:
         """Multiple files batch mapping."""
-        from layerkg.pipeline.change_detector import ChangedFile, GitStatus
+        from ontoagent.pipeline.change_detector import ChangedFile, GitStatus
 
         mock_store = Mock()
 
@@ -1317,7 +1317,7 @@ class TestPropagate:
 
     def test_full_flow_changed_file_to_impact_report(self) -> None:
         """Full flow: ChangedFile → map → BFS → ImpactReport."""
-        from layerkg.pipeline.change_detector import ChangedFile, GitStatus
+        from ontoagent.pipeline.change_detector import ChangedFile, GitStatus
 
         mock_store = Mock()
 
@@ -1356,7 +1356,7 @@ class TestPropagate:
 
     def test_propagation_time_ms_positive(self) -> None:
         """propagation_time_ms > 0."""
-        from layerkg.pipeline.change_detector import ChangedFile, GitStatus
+        from ontoagent.pipeline.change_detector import ChangedFile, GitStatus
 
         mock_store = Mock()
         mock_store.query.return_value = [{"id": "node-1", "name": "f", "labels": ["CodeEntity"]}]
@@ -1372,7 +1372,7 @@ class TestPropagate:
 
     def test_total_analyzed_count(self) -> None:
         """total_analyzed counts correctly."""
-        from layerkg.pipeline.change_detector import ChangedFile, GitStatus
+        from ontoagent.pipeline.change_detector import ChangedFile, GitStatus
 
         mock_store = Mock()
 
@@ -1405,7 +1405,7 @@ class TestPropagate:
 
     def test_empty_graph_returns_empty_impacted_nodes(self) -> None:
         """Empty graph: GraphStore returns empty → impacted_nodes empty."""
-        from layerkg.pipeline.change_detector import ChangedFile, GitStatus
+        from ontoagent.pipeline.change_detector import ChangedFile, GitStatus
 
         mock_store = Mock()
         mock_store.query.return_value = []  # No nodes found
@@ -1441,7 +1441,7 @@ class TestPropagationAlgorithmE2E:
 
     def test_linear_chain_propagation_e2e(self) -> None:
         """A→B→C→D 链式传播，验证影响范围和深度衰减。"""
-        from layerkg.pipeline.change_detector import ChangedFile, GitStatus
+        from ontoagent.pipeline.change_detector import ChangedFile, GitStatus
 
         # Arrange: 构建链式图 A -> B -> C -> D
         mock_store = Mock()
@@ -1496,7 +1496,7 @@ class TestPropagationAlgorithmE2E:
 
     def test_diamond_propagation_e2e(self) -> None:
         """菱形依赖 A→B, A→C, B→D, C→D，验证 D 不被重复计算。"""
-        from layerkg.pipeline.change_detector import ChangedFile, GitStatus
+        from ontoagent.pipeline.change_detector import ChangedFile, GitStatus
 
         # Arrange: 构建菱形图
         #     A
@@ -1552,7 +1552,7 @@ class TestPropagationAlgorithmE2E:
 
     def test_max_depth_cutoff_e2e(self) -> None:
         """构建深度 > max_depth 的链，验证传播在 max_depth 处停止。"""
-        from layerkg.pipeline.change_detector import ChangedFile, GitStatus
+        from ontoagent.pipeline.change_detector import ChangedFile, GitStatus
 
         # Arrange: 构建超长链 A -> B -> C -> D -> E (depth 4 超过 max_depth=3)
         mock_store = Mock()

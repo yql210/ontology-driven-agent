@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from layerkg.domain.schema import DocEntity
-from layerkg.parsing.parser.doc_parser import DocParser, DocParseResult
-from layerkg.pipeline.builder import LayerKGBuilder
+from ontoagent.domain.schema import DocEntity
+from ontoagent.parsing.parser.doc_parser import DocParser, DocParseResult
+from ontoagent.pipeline.builder import OntoAgentBuilder
 
 
 class TestDocParseResult:
@@ -115,28 +115,28 @@ class TestDocParserRST:
 class TestScanFiles:
     def test_scan_files_returns_both(self, tmp_path: Path):
         """同时返回 .py 和 .md/.rst 文件。"""
-        from layerkg.config import LayerKGConfig
+        from ontoagent.config import OntoAgentConfig
 
         (tmp_path / "a.py").write_text("x = 1")
         (tmp_path / "b.md").write_text("# Hello")
         (tmp_path / "c.rst").write_text("Title\n=====\n")
-        config = LayerKGConfig(build_include_docs=True)
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig(build_include_docs=True)
+        builder = OntoAgentBuilder(config)
         _py, doc = builder._scan_files(tmp_path)
         assert len(_py) == 1
         assert len(doc) == 2
 
     def test_scan_files_skips_site(self, tmp_path: Path):
         """跳过 site/ 目录（MkDocs/Sphinx 产物）。"""
-        from layerkg.config import LayerKGConfig
+        from ontoagent.config import OntoAgentConfig
 
         site = tmp_path / "site"
         site.mkdir()
         (site / "index.html").write_text("<html>")
         (site / "page.md").write_text("# Built")
         (tmp_path / "guide.md").write_text("# Guide")
-        config = LayerKGConfig(build_include_docs=True)
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig(build_include_docs=True)
+        builder = OntoAgentBuilder(config)
         _py, doc = builder._scan_files(tmp_path)
         assert len(doc) == 1  # 只有 guide.md，site/page.md 跳过
 
@@ -145,7 +145,7 @@ class TestDocEntityToDict:
     def test_doc_entity_to_dict(self):
         """_doc_entity_to_dict 正确序列化 DocEntity。"""
         doc = DocEntity(name="Guide", entity_type="readme", content="Hello", file_path="README.md")
-        d = LayerKGBuilder._doc_entity_to_dict(doc)
+        d = OntoAgentBuilder._doc_entity_to_dict(doc)
         assert d["id"] == doc.id
         assert d["name"] == "Guide"
         assert d["entity_type"] == "readme"
@@ -157,14 +157,14 @@ class TestExtractIdentifiersFromCode:
     def test_extract_identifiers_from_code_basic(self):
         """从 Python 代码块提取标识符。"""
         code = "```python\ndef hello_world():\n    pass\n```"
-        ids = LayerKGBuilder._extract_identifiers_from_code(code)
+        ids = OntoAgentBuilder._extract_identifiers_from_code(code)
         assert "hello_world" in ids
         # 注意：当前实现不区分关键字和标识符，"def" 也会被匹配
 
     def test_extract_identifiers_from_code_min_length(self):
         """只提取长度 >=3 的标识符。"""
         code = "```python\ndef ab():\n    xyz = 1\n```"
-        ids = LayerKGBuilder._extract_identifiers_from_code(code)
+        ids = OntoAgentBuilder._extract_identifiers_from_code(code)
         assert "xyz" in ids
         assert "ab" not in ids  # 长度 < 3
 
@@ -183,7 +183,7 @@ class TestLinkDocsToCode:
         entity_index = {
             ("function", "module1.py", "foo"): ["code-id-1"],
         }
-        builder = LayerKGBuilder.__new__(LayerKGBuilder)
+        builder = OntoAgentBuilder.__new__(OntoAgentBuilder)
         rels = builder._link_docs_to_code([doc], entity_index)
         assert len(rels) == 1
         assert rels[0].source_id == doc.id
@@ -201,7 +201,7 @@ class TestLinkDocsToCode:
         entity_index = {
             ("function", "", "process_data"): ["code-id-2"],
         }
-        builder = LayerKGBuilder.__new__(LayerKGBuilder)
+        builder = OntoAgentBuilder.__new__(OntoAgentBuilder)
         rels = builder._link_docs_to_code([doc], entity_index)
         assert len(rels) == 1
         assert rels[0].target_id == "code-id-2"
@@ -219,7 +219,7 @@ class TestLinkDocsToCode:
             ("function", "foo.py", "bar"): ["code-id-3"],
             ("function", "foo_guide.py", "baz"): ["code-id-4"],
         }
-        builder = LayerKGBuilder.__new__(LayerKGBuilder)
+        builder = OntoAgentBuilder.__new__(OntoAgentBuilder)
         rels = builder._link_docs_to_code([doc], entity_index)
         # 由于有边界检查，不应该匹配到 foo.py
         # 只应该匹配到 foo_guide.py（如果存在）
@@ -235,6 +235,6 @@ class TestLinkDocsToCode:
         )
         # 创建超过 50 个实体
         entity_index = {("function", f"file{i}.py", f"func{i}"): [f"code-id-{i}"] for i in range(100)}
-        builder = LayerKGBuilder.__new__(LayerKGBuilder)
+        builder = OntoAgentBuilder.__new__(OntoAgentBuilder)
         rels = builder._link_docs_to_code([doc], entity_index)
         assert len(rels) <= 50

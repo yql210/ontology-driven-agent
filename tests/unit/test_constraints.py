@@ -4,8 +4,8 @@ import dataclasses
 
 import pytest
 
-from layerkg.domain.exceptions import ConstraintViolationError
-from layerkg.domain.schema import (
+from ontoagent.domain.exceptions import ConstraintViolationError
+from ontoagent.domain.schema import (
     RELATION_CONSTRAINTS,
     VALID_RELATION_TYPES,
     RelationConstraint,

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from layerkg.agent.trace import TraceCollector
+from ontoagent.agent.trace import TraceCollector
 
 
 @pytest.fixture
@@ -20,8 +20,8 @@ def trace_collector(tmp_path: Path) -> TraceCollector:
 @pytest.fixture
 def app_with_trace_collector(trace_collector: TraceCollector):
     """Create an app with the test trace collector injected."""
-    from layerkg.api.web import app as app_module
-    from layerkg.api.web.router import trace as trace_router
+    from ontoagent.api.web import app as app_module
+    from ontoagent.api.web.router import trace as trace_router
 
     # Patch the _trace_collector at the module level
     original_collector = app_module._trace_collector
@@ -157,8 +157,8 @@ def test_get_mermaid(test_client: TestClient):
 @pytest.mark.unit
 def test_no_collector_returns_empty_list(tmp_path: Path):
     """Test API returns empty list when collector is None."""
-    from layerkg.api.web import app as app_module
-    from layerkg.api.web.router import trace as trace_router
+    from ontoagent.api.web import app as app_module
+    from ontoagent.api.web.router import trace as trace_router
 
     # Save original
     original_app_collector = app_module._trace_collector
@@ -183,8 +183,8 @@ def test_no_collector_returns_empty_list(tmp_path: Path):
 @pytest.mark.unit
 def test_no_collector_returns_404_for_get(tmp_path: Path):
     """Test API returns 404 when collector is None for get trace."""
-    from layerkg.api.web import app as app_module
-    from layerkg.api.web.router import trace as trace_router
+    from ontoagent.api.web import app as app_module
+    from ontoagent.api.web.router import trace as trace_router
 
     # Save original
     original_app_collector = app_module._trace_collector

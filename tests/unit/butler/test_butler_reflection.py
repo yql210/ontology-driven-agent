@@ -6,10 +6,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from layerkg.butler.event_bus import ButlerEvent
-from layerkg.butler.handlers.base import HandlerContext
-from layerkg.butler.skills.store import SkillEntity, SkillLayer
-from layerkg.config import LayerKGConfig
+from ontoagent.butler.event_bus import ButlerEvent
+from ontoagent.butler.handlers.base import HandlerContext
+from ontoagent.butler.skills.store import SkillEntity, SkillLayer
+from ontoagent.config import OntoAgentConfig
 
 
 class TestReflectionHandler:
@@ -17,7 +17,7 @@ class TestReflectionHandler:
 
     def test_handler_properties(self) -> None:
         """Test ReflectionHandler properties."""
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
         handler = ReflectionHandler()
         assert handler.handler_id == "butler.reflection"
@@ -26,7 +26,7 @@ class TestReflectionHandler:
     @pytest.mark.asyncio
     async def test_handle_new_pattern_creates_candidate_skill(self) -> None:
         """Test ReflectionHandler creates candidate skill for new pattern."""
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
         handler = ReflectionHandler()
 
@@ -42,7 +42,7 @@ class TestReflectionHandler:
             },
         )
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         mock_skill_store = MagicMock()
         mock_skill_store.search_by_pattern = AsyncMock(return_value=[])
         mock_skill_store.create = AsyncMock(return_value="skill-123")
@@ -64,7 +64,7 @@ class TestReflectionHandler:
     @pytest.mark.asyncio
     async def test_handle_existing_pattern_increments_hit_count(self) -> None:
         """Test ReflectionHandler increments hit_count for existing pattern."""
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
         handler = ReflectionHandler()
 
@@ -78,7 +78,7 @@ class TestReflectionHandler:
             },
         )
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         mock_skill_store = MagicMock()
         existing_skill = SkillEntity(
             skill_id="skill-123",
@@ -106,7 +106,7 @@ class TestReflectionHandler:
     @pytest.mark.asyncio
     async def test_handle_promotes_to_active_when_confidence_high(self) -> None:
         """Test ReflectionHandler promotes skill to active when confidence >= 0.8."""
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
         handler = ReflectionHandler()
 
@@ -120,7 +120,7 @@ class TestReflectionHandler:
             },
         )
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         mock_skill_store = MagicMock()
         existing_skill = SkillEntity(
             skill_id="skill-123",
@@ -147,7 +147,7 @@ class TestReflectionHandler:
     @pytest.mark.asyncio
     async def test_handle_caps_confidence_at_1_0(self) -> None:
         """Test ReflectionHandler caps confidence at 1.0."""
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
         handler = ReflectionHandler()
 
@@ -161,7 +161,7 @@ class TestReflectionHandler:
             },
         )
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         mock_skill_store = MagicMock()
         existing_skill = SkillEntity(
             skill_id="skill-123",
@@ -189,7 +189,7 @@ class TestReflectionHandler:
     @pytest.mark.asyncio
     async def test_handle_unknown_file_extension(self) -> None:
         """Test ReflectionHandler with unknown file extension."""
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
         handler = ReflectionHandler()
 
@@ -203,7 +203,7 @@ class TestReflectionHandler:
             },
         )
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         mock_skill_store = MagicMock()
         mock_skill_store.search_by_pattern = AsyncMock(return_value=[])
         mock_skill_store.create = AsyncMock(return_value="skill-456")
@@ -218,7 +218,7 @@ class TestReflectionHandler:
     @pytest.mark.asyncio
     async def test_handle_no_skill_store_returns_error(self) -> None:
         """Test ReflectionHandler returns error when skill_store is None."""
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
         handler = ReflectionHandler()
 
@@ -232,7 +232,7 @@ class TestReflectionHandler:
             },
         )
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         ctx = HandlerContext(config=config, skill_store=None)
 
         result = await handler.handle(event, ctx)
@@ -243,7 +243,7 @@ class TestReflectionHandler:
     @pytest.mark.asyncio
     async def test_generate_signature(self) -> None:
         """Test signature generation logic."""
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
         handler = ReflectionHandler()
 
@@ -255,7 +255,7 @@ class TestReflectionHandler:
     @pytest.mark.asyncio
     async def test_calculate_confidence(self) -> None:
         """Test confidence calculation."""
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
         handler = ReflectionHandler()
 
@@ -270,7 +270,7 @@ class TestReflectionHandler:
     @pytest.mark.asyncio
     async def test_should_promote_to_active(self) -> None:
         """Test promotion logic."""
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
         handler = ReflectionHandler()
 

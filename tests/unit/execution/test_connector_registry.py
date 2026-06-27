@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from layerkg.execution.connectors.base import Connector, ConnectorRegistry
+from ontoagent.execution.connectors.base import Connector, ConnectorRegistry
 
 
 class _StubConnector(Connector):

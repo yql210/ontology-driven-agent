@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
-from layerkg.butler import ButlerEvent
-from layerkg.butler.scheduler import HandlerResult, HandlerSpec, Scheduler
+from ontoagent.butler import ButlerEvent
+from ontoagent.butler.scheduler import HandlerResult, HandlerSpec, Scheduler
 
 
 async def test_scheduler_dispatch():

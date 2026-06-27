@@ -6,24 +6,24 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from layerkg.config import LayerKGConfig
-from layerkg.parsing.extractor.semantic import SemanticExtractor, SemanticRelation
-from layerkg.pipeline.aligner import NO_MATCH, AlignResult, ConceptAligner
-from layerkg.pipeline.builder import LayerKGBuilder
-from layerkg.store.schema_version import SchemaStatus
+from ontoagent.config import OntoAgentConfig
+from ontoagent.parsing.extractor.semantic import SemanticExtractor, SemanticRelation
+from ontoagent.pipeline.aligner import NO_MATCH, AlignResult, ConceptAligner
+from ontoagent.pipeline.builder import OntoAgentBuilder
+from ontoagent.store.schema_version import SchemaStatus
 
 
 @pytest.fixture
-def config() -> LayerKGConfig:
+def config() -> OntoAgentConfig:
     """默认配置测试 fixture。"""
-    return LayerKGConfig()
+    return OntoAgentConfig()
 
 
 @pytest.fixture
-def builder(config: LayerKGConfig) -> LayerKGBuilder:
+def builder(config: OntoAgentConfig) -> OntoAgentBuilder:
     """Builder 测试 fixture（mock 掉 Neo4j/ChromaDB）。"""
-    with patch("layerkg.pipeline.builder.Neo4jGraphStore"), patch("layerkg.pipeline.builder.ChromaStore"):
-        return LayerKGBuilder(config)
+    with patch("ontoagent.pipeline.builder.Neo4jGraphStore"), patch("ontoagent.pipeline.builder.ChromaStore"):
+        return OntoAgentBuilder(config)
 
 
 @pytest.fixture
@@ -46,45 +46,45 @@ def mock_entity_index() -> dict[tuple[str, str, str], list[str]]:
 class TestCheckOllama:
     """_check_llm_available 健康检查测试。"""
 
-    def test_check_llm_available_available(self, builder: LayerKGBuilder) -> None:
+    def test_check_llm_available_available(self, builder: OntoAgentBuilder) -> None:
         """Ollama 返回 200 → True。"""
         with patch("httpx.get", return_value=MagicMock(status_code=200)):
             assert builder._check_llm_available() is True
 
-    def test_check_llm_available_unavailable(self, builder: LayerKGBuilder) -> None:
+    def test_check_llm_available_unavailable(self, builder: OntoAgentBuilder) -> None:
         """Ollama 连接失败 → False。"""
         with patch("httpx.get", side_effect=httpx.ConnectError("refused")):
             assert builder._check_llm_available() is False
 
-    def test_check_llm_available_timeout(self, builder: LayerKGBuilder) -> None:
+    def test_check_llm_available_timeout(self, builder: OntoAgentBuilder) -> None:
         """Ollama 超时 → False。"""
         with patch("httpx.get", side_effect=httpx.TimeoutException("timeout")):
             assert builder._check_llm_available() is False
 
     def test_check_llm_available_openai_with_key(self) -> None:
         """OpenAI 模式有 API key → True。"""
-        config = LayerKGConfig(semantic_llm_provider="openai", semantic_llm_api_key="sk-test")
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig(semantic_llm_provider="openai", semantic_llm_api_key="sk-test")
+        builder = OntoAgentBuilder(config)
         assert builder._check_llm_available() is True
 
     def test_check_llm_available_openai_without_key(self) -> None:
         """OpenAI 模式无 API key → False。"""
-        config = LayerKGConfig(semantic_llm_provider="openai", semantic_llm_api_key="")
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig(semantic_llm_provider="openai", semantic_llm_api_key="")
+        builder = OntoAgentBuilder(config)
         assert builder._check_llm_available() is False
 
 
 class TestInitSemanticExtractor:
     """_init_semantic_extractor lazy init 测试。"""
 
-    def test_init_semantic_extractor_lazy(self, builder: LayerKGBuilder) -> None:
+    def test_init_semantic_extractor_lazy(self, builder: OntoAgentBuilder) -> None:
         """首次调用创建实例，再次调用返回同一实例。"""
         ext1 = builder._init_semantic_extractor()
         ext2 = builder._init_semantic_extractor()
         assert ext1 is ext2
         assert isinstance(ext1, SemanticExtractor)
 
-    def test_init_semantic_extractor_uses_config(self, builder: LayerKGBuilder) -> None:
+    def test_init_semantic_extractor_uses_config(self, builder: OntoAgentBuilder) -> None:
         """使用 config 中的 ollama_base_url 和 llm_model。"""
         ext = builder._init_semantic_extractor()
         assert ext._ollama_url == builder._config.ollama_base_url
@@ -94,14 +94,14 @@ class TestInitSemanticExtractor:
 class TestInitConceptAligner:
     """_init_concept_aligner lazy init 测试。"""
 
-    def test_init_concept_aligner_lazy(self, builder: LayerKGBuilder) -> None:
+    def test_init_concept_aligner_lazy(self, builder: OntoAgentBuilder) -> None:
         """首次调用创建实例，再次调用返回同一实例。"""
         aligner1 = builder._init_concept_aligner()
         aligner2 = builder._init_concept_aligner()
         assert aligner1 is aligner2
         assert isinstance(aligner1, ConceptAligner)
 
-    def test_init_concept_aligner_uses_chroma(self, builder: LayerKGBuilder) -> None:
+    def test_init_concept_aligner_uses_chroma(self, builder: OntoAgentBuilder) -> None:
         """ConceptAligner 使用 builder 的 ChromaStore。"""
         aligner = builder._init_concept_aligner()
         assert aligner._chroma_store is builder._get_chroma_store()
@@ -111,7 +111,7 @@ class TestProcessSemanticRelations:
     """_process_semantic_relations 核心方法测试。"""
 
     def test_process_semantic_new_concept(
-        self, builder: LayerKGBuilder, repo_root: Path, mock_entity_index: dict
+        self, builder: OntoAgentBuilder, repo_root: Path, mock_entity_index: dict
     ) -> None:
         """路径 A：NO_MATCH → 创建新 ConceptEntity。"""
         relations = [
@@ -138,7 +138,7 @@ class TestProcessSemanticRelations:
         assert skipped == 0
 
     def test_process_semantic_existing_concept(
-        self, builder: LayerKGBuilder, repo_root: Path, mock_entity_index: dict
+        self, builder: OntoAgentBuilder, repo_root: Path, mock_entity_index: dict
     ) -> None:
         """路径 A：exact match → 复用已有 concept_id，不创建新概念。"""
         existing_id = "existing-concept-123"
@@ -171,7 +171,7 @@ class TestProcessSemanticRelations:
         assert skipped == 0
 
     def test_process_semantic_concept_dedup(
-        self, builder: LayerKGBuilder, repo_root: Path, mock_entity_index: dict
+        self, builder: OntoAgentBuilder, repo_root: Path, mock_entity_index: dict
     ) -> None:
         """路径 A：多个 SemanticRelation 指向同一 target_name → 只创建一个 ConceptEntity。"""
         relations = [
@@ -213,7 +213,7 @@ class TestProcessSemanticRelations:
         assert len(target_ids) == 1
 
     def test_process_semantic_no_direct_chroma_write(
-        self, builder: LayerKGBuilder, repo_root: Path, mock_entity_index: dict
+        self, builder: OntoAgentBuilder, repo_root: Path, mock_entity_index: dict
     ) -> None:
         """_process_semantic_relations 不再直接写入 ChromaDB（由 Stage 5 _write_all_vectors 统一处理）。"""
         relations = [
@@ -238,7 +238,7 @@ class TestProcessSemanticRelations:
         mock_put.assert_not_called()
 
     def test_process_semantic_code_target(
-        self, builder: LayerKGBuilder, repo_root: Path, mock_entity_index: dict
+        self, builder: OntoAgentBuilder, repo_root: Path, mock_entity_index: dict
     ) -> None:
         """路径 B：CodeEntity → CodeEntity 的 semantic_impact。"""
         relations = [
@@ -263,7 +263,7 @@ class TestProcessSemanticRelations:
         assert skipped == 0
 
     def test_process_semantic_code_target_missing(
-        self, builder: LayerKGBuilder, repo_root: Path, mock_entity_index: dict
+        self, builder: OntoAgentBuilder, repo_root: Path, mock_entity_index: dict
     ) -> None:
         """路径 B：target_id 解析失败 → 跳过。"""
         relations = [
@@ -285,7 +285,7 @@ class TestProcessSemanticRelations:
         assert skipped == 1
 
     def test_process_semantic_resource_target_skipped(
-        self, builder: LayerKGBuilder, repo_root: Path, mock_entity_index: dict
+        self, builder: OntoAgentBuilder, repo_root: Path, mock_entity_index: dict
     ) -> None:
         """target_type 为非代码/概念类型 → 跳过（如 wiki）。"""
         relations = [
@@ -308,7 +308,7 @@ class TestProcessSemanticRelations:
         assert skipped == 1
 
     def test_process_semantic_mixed_paths(
-        self, builder: LayerKGBuilder, repo_root: Path, mock_entity_index: dict
+        self, builder: OntoAgentBuilder, repo_root: Path, mock_entity_index: dict
     ) -> None:
         """混合路径：同时有概念目标和代码目标。"""
         relations = [
@@ -367,7 +367,7 @@ class TestProcessSemanticRelations:
 class TestClose:
     """close() 资源清理测试。"""
 
-    def test_close_closes_semantic_extractor(self, builder: LayerKGBuilder) -> None:
+    def test_close_closes_semantic_extractor(self, builder: OntoAgentBuilder) -> None:
         """close() 应关闭 SemanticExtractor 及其 httpx.Client。"""
         # 初始化 semantic_extractor
         extractor = builder._init_semantic_extractor()
@@ -380,7 +380,7 @@ class TestClose:
         # 验证 extractor.close() 被调用
         mock_close.assert_called_once()
 
-    def test_close_without_semantic_extractor(self, builder: LayerKGBuilder) -> None:
+    def test_close_without_semantic_extractor(self, builder: OntoAgentBuilder) -> None:
         """close() 在未初始化 semantic_extractor 时不报错。"""
         # 不初始化 semantic_extractor
         assert builder._semantic_extractor is None
@@ -392,7 +392,7 @@ class TestClose:
 class TestBuildSemanticPipeline:
     """build() 方法中 Stage 3a 集成测试。"""
 
-    def test_build_semantic_pipeline(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_build_semantic_pipeline(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         """Ollama 可用 → 完整语义流水线。"""
         # 创建测试 .py 文件
         test_file = tmp_path / "test.py"
@@ -417,7 +417,7 @@ class TestBuildSemanticPipeline:
         mock_chroma = MagicMock()
 
         with (
-            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_check_llm_available", return_value=True),
             patch.object(builder, "_init_semantic_extractor") as mock_init_ext,
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
@@ -438,7 +438,7 @@ class TestBuildSemanticPipeline:
         assert result.skipped_semantic is False
         assert result.entities_created > 0
 
-    def test_build_semantic_skipped(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_build_semantic_skipped(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         """Ollama 不可用 → skipped_semantic=True。"""
         test_file = tmp_path / "test.py"
         test_file.write_text("def foo(): pass")
@@ -457,7 +457,7 @@ class TestBuildSemanticPipeline:
         assert result.concepts_created == 0
         assert result.semantic_relations_created == 0
 
-    def test_build_semantic_error(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_build_semantic_error(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         """SemanticExtractor 异常 → error 记录 + 不中断。"""
         test_file = tmp_path / "test.py"
         test_file.write_text("def foo(): pass")
@@ -483,7 +483,7 @@ class TestBuildSemanticPipeline:
         # 验证结构流水线仍完成
         assert result.entities_created > 0
 
-    def test_build_semantic_neo4j_write_failure(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_build_semantic_neo4j_write_failure(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         """Neo4j 写入语义关系失败 → error 记录。"""
         test_file = tmp_path / "test.py"
         test_file.write_text("def foo(): pass")
@@ -507,7 +507,7 @@ class TestBuildSemanticPipeline:
         mock_graph.merge_relation.side_effect = Exception("Neo4j write failed")
 
         with (
-            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_check_llm_available", return_value=True),
             patch.object(builder, "_init_semantic_extractor") as mock_init_ext,
             patch.object(builder, "_get_graph_store", return_value=mock_graph),

@@ -6,7 +6,7 @@ import pytest
 @pytest.fixture(autouse=True)
 def reset_mcp_components():
     """每个测试后重置组件缓存。"""
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     yield
     mcp_server._reset_components()
@@ -14,15 +14,15 @@ def reset_mcp_components():
 
 def test_mcp_instance_exists():
     """测试 FastMCP 实例创建成功。"""
-    from layerkg.api.mcp_server import mcp
+    from ontoagent.api.mcp_server import mcp
 
     assert mcp is not None
-    assert mcp.name == "LayerKG"
+    assert mcp.name == "OntoAgent"
 
 
 def test_reset_components():
     """测试 _reset_components 清空组件缓存。"""
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     # 添加 mock 组件
     mcp_server._components["test"] = {"key": "value"}
@@ -34,12 +34,12 @@ def test_reset_components():
 
 
 def test_get_config():
-    """测试 _get_config 返回 LayerKGConfig 实例。"""
-    from layerkg.api import mcp_server
-    from layerkg.config import LayerKGConfig
+    """测试 _get_config 返回 OntoAgentConfig 实例。"""
+    from ontoagent.api import mcp_server
+    from ontoagent.config import OntoAgentConfig
 
     # mock from_env 避免真实环境变量依赖
-    config = LayerKGConfig(
+    config = OntoAgentConfig(
         neo4j_uri="bolt://test:7687",
         neo4j_user="test",
         neo4j_password="test",
@@ -56,11 +56,11 @@ def test_get_config():
 
 def test_get_neo4j_lazy():
     """测试 _get_neo4j 首次创建并缓存。"""
-    from layerkg.api import mcp_server
-    from layerkg.config import LayerKGConfig
+    from ontoagent.api import mcp_server
+    from ontoagent.config import OntoAgentConfig
 
     # 注入测试配置
-    config = LayerKGConfig(
+    config = OntoAgentConfig(
         neo4j_uri="bolt://test:7687",
         neo4j_user="test",
         neo4j_password="test",
@@ -70,7 +70,7 @@ def test_get_neo4j_lazy():
     # mock Neo4jGraphStore 避免真实连接
     import unittest.mock
 
-    with unittest.mock.patch("layerkg.api.mcp_server.Neo4jGraphStore") as mock_neo4j:
+    with unittest.mock.patch("ontoagent.api.mcp_server.Neo4jGraphStore") as mock_neo4j:
         mock_instance = unittest.mock.MagicMock()
         mock_neo4j.return_value = mock_instance
 
@@ -87,10 +87,10 @@ def test_get_neo4j_lazy():
 
 def test_reset_recreates():
     """测试 _reset_components 后重新创建组件。"""
-    from layerkg.api import mcp_server
-    from layerkg.config import LayerKGConfig
+    from ontoagent.api import mcp_server
+    from ontoagent.config import OntoAgentConfig
 
-    config = LayerKGConfig(
+    config = OntoAgentConfig(
         neo4j_uri="bolt://test:7687",
         neo4j_user="test",
         neo4j_password="test",
@@ -99,7 +99,7 @@ def test_reset_recreates():
 
     import unittest.mock
 
-    with unittest.mock.patch("layerkg.api.mcp_server.Neo4jGraphStore") as mock_neo4j:
+    with unittest.mock.patch("ontoagent.api.mcp_server.Neo4jGraphStore") as mock_neo4j:
         # 首次创建
         mcp_server._get_neo4j()
         assert mock_neo4j.call_count == 1
@@ -120,12 +120,12 @@ def test_semantic_search_default():
     # mock builder.query
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_builder = unittest.mock.MagicMock()
     mock_builder.query.return_value = [{"id": "1", "text": "foo", "metadata": {}, "distance": 0.1}]
 
-    with unittest.mock.patch("layerkg.api.mcp_server._get_builder", return_value=mock_builder):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_builder", return_value=mock_builder):
         result = mcp_server.semantic_search("test query")
 
         # 验证参数传递：text 参数名是 text 不是 query
@@ -137,12 +137,12 @@ def test_semantic_search_custom_k():
     """测试 semantic_search 自定义 k 参数。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_builder = unittest.mock.MagicMock()
     mock_builder.query.return_value = []
 
-    with unittest.mock.patch("layerkg.api.mcp_server._get_builder", return_value=mock_builder):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_builder", return_value=mock_builder):
         result = mcp_server.semantic_search("test", k=5)
 
         mock_builder.query.assert_called_once_with("test", n_results=5, entity_type=None)
@@ -153,12 +153,12 @@ def test_semantic_search_with_entity_type():
     """测试 semantic_search 带实体类型过滤。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_builder = unittest.mock.MagicMock()
     mock_builder.query.return_value = [{"id": "2", "text": "bar", "metadata": {}, "distance": 0.2}]
 
-    with unittest.mock.patch("layerkg.api.mcp_server._get_builder", return_value=mock_builder):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_builder", return_value=mock_builder):
         result = mcp_server.semantic_search("test", entity_type="function")
 
         mock_builder.query.assert_called_once_with("test", n_results=10, entity_type="function")
@@ -169,12 +169,12 @@ def test_graph_query_basic():
     """测试 graph_query 基本查询。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_neo4j = unittest.mock.MagicMock()
     mock_neo4j.query.return_value = [{"id": "1", "name": "foo"}]
 
-    with unittest.mock.patch("layerkg.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
         result = mcp_server.graph_query("MATCH (n) RETURN n")
 
         mock_neo4j.query.assert_called_once_with("MATCH (n) RETURN n")
@@ -185,12 +185,12 @@ def test_graph_query_empty():
     """测试 graph_query 空结果。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_neo4j = unittest.mock.MagicMock()
     mock_neo4j.query.return_value = []
 
-    with unittest.mock.patch("layerkg.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
         result = mcp_server.graph_query("MATCH (n) RETURN n")
 
         assert result == []
@@ -200,7 +200,7 @@ def test_impact_analysis_basic():
     """测试 impact_analysis 基本功能。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_neo4j = unittest.mock.MagicMock()
     # 模拟 Neo4j 返回影响路径
@@ -219,7 +219,7 @@ def test_impact_analysis_basic():
         },
     ]
 
-    with unittest.mock.patch("layerkg.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
         result = mcp_server.impact_analysis(entity_id="func1")
 
         # 验证返回格式
@@ -239,12 +239,12 @@ def test_impact_analysis_with_depth():
     """测试 impact_analysis 自定义深度。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_neo4j = unittest.mock.MagicMock()
     mock_neo4j.query.return_value = []
 
-    with unittest.mock.patch("layerkg.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
         result = mcp_server.impact_analysis(entity_id="func1", depth=2)
 
         # 验证 depth 参数传递到 Cypher
@@ -259,12 +259,12 @@ def test_impact_analysis_not_found():
     """测试 impact_analysis 实体不存在。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_neo4j = unittest.mock.MagicMock()
     mock_neo4j.query.return_value = []
 
-    with unittest.mock.patch("layerkg.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
         result = mcp_server.impact_analysis(entity_id="nonexistent")
 
         assert result["entity"] == "nonexistent"
@@ -276,7 +276,7 @@ def test_get_context_basic():
     """测试 get_context 基本功能。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_neo4j = unittest.mock.MagicMock()
     mock_neo4j.get_node.return_value = {
@@ -305,8 +305,8 @@ def test_get_context_basic():
     mock_chroma.search.return_value = [{"id": "func2", "text": "similar code", "metadata": {}, "distance": 0.3}]
 
     with (
-        unittest.mock.patch("layerkg.api.mcp_server._get_neo4j", return_value=mock_neo4j),
-        unittest.mock.patch("layerkg.api.mcp_server._get_chroma", return_value=mock_chroma),
+        unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j),
+        unittest.mock.patch("ontoagent.api.mcp_server._get_chroma", return_value=mock_chroma),
     ):
         result = mcp_server.get_context(entity_id="func1")
 
@@ -323,7 +323,7 @@ def test_get_context_not_found():
     """测试 get_context 实体不存在。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_neo4j = unittest.mock.MagicMock()
     mock_neo4j.get_node.return_value = None
@@ -333,8 +333,8 @@ def test_get_context_not_found():
     mock_chroma.search.return_value = []
 
     with (
-        unittest.mock.patch("layerkg.api.mcp_server._get_neo4j", return_value=mock_neo4j),
-        unittest.mock.patch("layerkg.api.mcp_server._get_chroma", return_value=mock_chroma),
+        unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j),
+        unittest.mock.patch("ontoagent.api.mcp_server._get_chroma", return_value=mock_chroma),
     ):
         result = mcp_server.get_context(entity_id="nonexistent")
 
@@ -347,7 +347,7 @@ def test_list_concepts():
     """测试 list_concepts 基本功能。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_aligner = unittest.mock.MagicMock()
     mock_aligner.list_concepts.return_value = [
@@ -365,7 +365,7 @@ def test_list_concepts():
         },
     ]
 
-    with unittest.mock.patch("layerkg.api.mcp_server._get_aligner", return_value=mock_aligner):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_aligner", return_value=mock_aligner):
         result = mcp_server.list_concepts()
 
         mock_aligner.list_concepts.assert_called_once()
@@ -378,7 +378,7 @@ def test_get_module_tree():
     """测试 get_module_tree 基本功能。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_clustering = unittest.mock.MagicMock()
     mock_clustering.get_module_tree.return_value = {
@@ -394,7 +394,7 @@ def test_get_module_tree():
         },
     }
 
-    with unittest.mock.patch("layerkg.api.mcp_server._get_clustering", return_value=mock_clustering):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_clustering", return_value=mock_clustering):
         result = mcp_server.get_module_tree()
 
         mock_clustering.get_module_tree.assert_called_once()
@@ -407,27 +407,27 @@ def test_detect_changes_basic():
     """测试 detect_changes 基本功能。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     # 模拟 git diff 输出
     mock_result = unittest.mock.MagicMock()
-    mock_result.stdout = b"M\tsrc/layerkg/foo.py\nA\tsrc/layerkg/bar.py\nD\tsrc/layerkg/old.py\n"
+    mock_result.stdout = b"M\tsrc/ontoagent/foo.py\nA\tsrc/ontoagent/bar.py\nD\tsrc/ontoagent/old.py\n"
     mock_result.returncode = 0
 
     with unittest.mock.patch("subprocess.run", return_value=mock_result):
         result = mcp_server.detect_changes(since="HEAD~1", repo_path=".")
 
         assert result["changed_files"] == 3
-        assert result["modified"] == ["src/layerkg/foo.py"]
-        assert result["added"] == ["src/layerkg/bar.py"]
-        assert result["deleted"] == ["src/layerkg/old.py"]
+        assert result["modified"] == ["src/ontoagent/foo.py"]
+        assert result["added"] == ["src/ontoagent/bar.py"]
+        assert result["deleted"] == ["src/ontoagent/old.py"]
 
 
 def test_detect_changes_error():
     """测试 detect_changes git 命令失败。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     # 模拟 git 命令失败
     mock_result = unittest.mock.MagicMock()
@@ -445,7 +445,7 @@ def test_export_graph_json():
     """测试 export_graph JSON 格式。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_neo4j = unittest.mock.MagicMock()
 
@@ -481,7 +481,7 @@ def test_export_graph_json():
 
     mock_neo4j.query.side_effect = mock_query
 
-    with unittest.mock.patch("layerkg.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
         result = mcp_server.export_graph(format="json")
 
         assert "nodes" in result
@@ -497,12 +497,12 @@ def test_export_graph_empty():
     """测试 export_graph 空图。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_neo4j = unittest.mock.MagicMock()
     mock_neo4j.query.return_value = []
 
-    with unittest.mock.patch("layerkg.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
         result = mcp_server.export_graph(format="json")
 
         assert result["nodes"] == []
@@ -513,7 +513,7 @@ def test_serve_command_registered():
     """测试 serve 命令已注册到 CLI。"""
     from click.testing import CliRunner
 
-    from layerkg.api.cli import main
+    from ontoagent.api.cli import main
 
     runner = CliRunner()
     result = runner.invoke(main, ["--help"])
@@ -525,7 +525,7 @@ def test_serve_options():
     """测试 serve 命令的选项。"""
     from click.testing import CliRunner
 
-    from layerkg.api.cli import main
+    from ontoagent.api.cli import main
 
     runner = CliRunner()
     result = runner.invoke(main, ["serve", "--help"])
@@ -540,7 +540,7 @@ class TestToolRegistration:
     @pytest.fixture(autouse=True)
     def setup(self):
         """每个测试前重置组件。"""
-        from layerkg.api import mcp_server
+        from ontoagent.api import mcp_server
 
         mcp_server._reset_components()
         yield
@@ -550,7 +550,7 @@ class TestToolRegistration:
         """验证 8 个工具都注册在 mcp 实例中。"""
         import asyncio
 
-        from layerkg.api.mcp_server import mcp
+        from ontoagent.api.mcp_server import mcp
 
         expected_tools = {
             "semantic_search",
@@ -572,7 +572,7 @@ class TestToolRegistration:
         """验证每个工具函数都有 docstring。"""
         import asyncio
 
-        from layerkg.api.mcp_server import mcp
+        from ontoagent.api.mcp_server import mcp
 
         tools = asyncio.run(mcp._local_provider.list_tools())
 
@@ -584,7 +584,7 @@ class TestToolRegistration:
         """验证工具函数有 FastMCP tool 标记。"""
         import asyncio
 
-        from layerkg.api.mcp_server import mcp
+        from ontoagent.api.mcp_server import mcp
 
         tools = asyncio.run(mcp._local_provider.list_tools())
 

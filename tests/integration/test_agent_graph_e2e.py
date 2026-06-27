@@ -10,20 +10,20 @@ class TestAgentGraphStructure:
 
     def test_create_agent_has_checkpointer(self):
         """create_agent 返回带 checkpointer 的编译图"""
-        with patch("layerkg.agent._helpers.get_config") as mock_cfg:
+        with patch("ontoagent.agent._helpers.get_config") as mock_cfg:
             mock_cfg.return_value = MagicMock(
                 agent_llm_model="test",
                 agent_base_url="http://test",
                 agent_api_key="k",
             )
-            from layerkg.agent.graph import create_agent
+            from ontoagent.agent.graph import create_agent
 
             agent = create_agent()
             assert agent.checkpointer is not None
 
     def test_make_config_includes_thread_id(self):
         """_make_config 包含 thread_id 和 recursion_limit"""
-        from layerkg.agent.graph import _make_config
+        from ontoagent.agent.graph import _make_config
 
         config = _make_config("test-thread")
         assert config["configurable"]["thread_id"] == "test-thread"
@@ -31,13 +31,13 @@ class TestAgentGraphStructure:
 
     def test_all_tools_registered_in_graph(self):
         """图节点包含 agent 和 tools"""
-        with patch("layerkg.agent._helpers.get_config") as mock_cfg:
+        with patch("ontoagent.agent._helpers.get_config") as mock_cfg:
             mock_cfg.return_value = MagicMock(
                 agent_llm_model="test",
                 agent_base_url="http://test",
                 agent_api_key="k",
             )
-            from layerkg.agent.graph import create_agent
+            from ontoagent.agent.graph import create_agent
 
             agent = create_agent()
             assert "agent" in agent.nodes
@@ -45,7 +45,7 @@ class TestAgentGraphStructure:
 
     def test_global_checkpointer_is_singleton(self):
         """全局 checkpointer 是单例"""
-        from layerkg.agent.graph import _get_checkpointer
+        from ontoagent.agent.graph import _get_checkpointer
 
         cp1 = _get_checkpointer()
         cp2 = _get_checkpointer()

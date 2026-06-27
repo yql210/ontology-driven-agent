@@ -4,7 +4,7 @@
 <template>
   <div class="app-container">
     <nav class="nav-bar">
-      <span class="logo">LayerKG</span>
+      <span class="logo">OntoAgent</span>
       <div class="nav-links">
         <router-link to="/">对话</router-link>
         <router-link to="/graph">图谱</router-link>

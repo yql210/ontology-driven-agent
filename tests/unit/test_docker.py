@@ -24,10 +24,10 @@ def test_dockerfile_contains_uv():
 
 
 def test_dockerfile_contains_entrypoint():
-    """Dockerfile 设置 ENTRYPOINT 为 layerkg。"""
+    """Dockerfile 设置 ENTRYPOINT 为 ontoagent。"""
     dockerfile = Path(__file__).parent.parent.parent / "Dockerfile"
     content = dockerfile.read_text()
-    assert 'ENTRYPOINT ["layerkg"]' in content
+    assert 'ENTRYPOINT ["ontoagent"]' in content
 
 
 def test_docker_compose_exists():
@@ -47,16 +47,16 @@ def test_docker_compose_yaml_valid():
 
 
 def test_docker_compose_neo4j_internal_uri():
-    """docker-compose.yml 中 layerkg 服务的 NEO4J_URI 使用内部服务名 neo4j。"""
+    """docker-compose.yml 中 ontoagent 服务的 NEO4J_URI 使用内部服务名 neo4j。"""
     import yaml
 
     compose_file = Path(__file__).parent.parent.parent / "docker-compose.yml"
     content = compose_file.read_text()
     config = yaml.safe_load(content)
 
-    layerkg_env = config["services"]["layerkg"]["environment"]
-    assert layerkg_env["NEO4J_URI"] == "bolt://neo4j:7687"
-    assert "localhost" not in layerkg_env["NEO4J_URI"]
+    ontoagent_env = config["services"]["ontoagent"]["environment"]
+    assert ontoagent_env["NEO4J_URI"] == "bolt://neo4j:7687"
+    assert "localhost" not in ontoagent_env["NEO4J_URI"]
 
 
 def test_docker_compose_has_volumes():

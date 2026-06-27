@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-from layerkg.pipeline.change_detector import ChangeType
+from ontoagent.pipeline.change_detector import ChangeType
 
 
 class TestImpactAnalysisIntegration:
@@ -14,8 +14,8 @@ class TestImpactAnalysisIntegration:
     def test_exact_match_to_propagator(self):
         """精确名称匹配 → ImpactPropagator.compute_impact"""
         with (
-            patch("layerkg.agent.tools.get_neo4j") as mock_neo4j_fn,
-            patch("layerkg.agent.tools.get_impact_propagator") as mock_prop_fn,
+            patch("ontoagent.agent.tools.get_neo4j") as mock_neo4j_fn,
+            patch("ontoagent.agent.tools.get_impact_propagator") as mock_prop_fn,
         ):
             mock_neo4j = MagicMock()
             mock_neo4j.query.return_value = [{"id": "abc-123"}]
@@ -32,7 +32,7 @@ class TestImpactAnalysisIntegration:
             mock_prop.compute_impact.return_value = [mock_impact]
             mock_prop_fn.return_value = mock_prop
 
-            from layerkg.agent.tools import impact_analysis
+            from ontoagent.agent.tools import impact_analysis
 
             result = json.loads(impact_analysis.invoke({"entity_name": "Test"}))
 
@@ -42,7 +42,7 @@ class TestImpactAnalysisIntegration:
 
     def test_fuzzy_match_suggestions(self):
         """模糊匹配返回建议列表"""
-        with patch("layerkg.agent.tools.get_neo4j") as mock_fn:
+        with patch("ontoagent.agent.tools.get_neo4j") as mock_fn:
             mock_neo4j = MagicMock()
             mock_neo4j.query.side_effect = [
                 [],  # 精确匹配无结果
@@ -53,7 +53,7 @@ class TestImpactAnalysisIntegration:
             ]
             mock_fn.return_value = mock_neo4j
 
-            from layerkg.agent.tools import impact_analysis
+            from ontoagent.agent.tools import impact_analysis
 
             result = json.loads(impact_analysis.invoke({"entity_name": "Test"}))
 
@@ -67,8 +67,8 @@ class TestGetContextIntegration:
     def test_bidirectional_relations(self):
         """get_relations 被调用两次（outgoing + incoming）"""
         with (
-            patch("layerkg.agent.tools.get_neo4j") as mock_neo4j_fn,
-            patch("layerkg.agent.tools.get_chroma") as mock_chroma_fn,
+            patch("ontoagent.agent.tools.get_neo4j") as mock_neo4j_fn,
+            patch("ontoagent.agent.tools.get_chroma") as mock_chroma_fn,
         ):
             mock_neo4j = MagicMock()
             mock_neo4j.query.return_value = [{"id": "n1"}]
@@ -77,7 +77,7 @@ class TestGetContextIntegration:
             mock_neo4j_fn.return_value = mock_neo4j
             mock_chroma_fn.return_value = MagicMock(search=MagicMock(return_value=[]))
 
-            from layerkg.agent.tools import get_context
+            from ontoagent.agent.tools import get_context
 
             json.loads(get_context.invoke({"entity_name": "F"}))
 
@@ -93,7 +93,7 @@ class TestExportGraphIntegration:
 
     def test_two_queries_separate(self):
         """节点查询和边查询分别调用"""
-        with patch("layerkg.agent.tools.get_neo4j") as mock_fn:
+        with patch("ontoagent.agent.tools.get_neo4j") as mock_fn:
             mock_neo4j = MagicMock()
             mock_neo4j.query.side_effect = [
                 [{"id": "1", "name": "A", "labels": ["CodeEntity"]}],
@@ -108,7 +108,7 @@ class TestExportGraphIntegration:
             ]
             mock_fn.return_value = mock_neo4j
 
-            from layerkg.agent.tools import export_graph
+            from ontoagent.agent.tools import export_graph
 
             result = json.loads(export_graph.invoke({"limit": 5}))
 

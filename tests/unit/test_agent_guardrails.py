@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from layerkg.agent.prompt import AGENT_SYSTEM_PROMPT
+from ontoagent.agent.prompt import AGENT_SYSTEM_PROMPT
 
 
 class TestPromptGuardrails:
@@ -46,12 +46,12 @@ class TestPromptGuardrails:
 class TestGetContextChromaHandling:
     """测试 get_context 工具对 ChromaDB 返回值的健壮处理."""
 
-    @patch("layerkg.agent.tools.get_neo4j")
-    @patch("layerkg.agent.tools.get_chroma")
+    @patch("ontoagent.agent.tools.get_neo4j")
+    @patch("ontoagent.agent.tools.get_chroma")
     def test_get_context_chroma_list_result(self, mock_get_chroma: MagicMock, mock_get_neo4j: MagicMock) -> None:
         """mock chroma.search 返回 list 时，similar_entities 正确."""
         # Arrange
-        from layerkg.agent.tools import get_context
+        from ontoagent.agent.tools import get_context
 
         mock_neo4j = MagicMock()
         mock_neo4j.query.return_value = [{"id": "test-id"}]
@@ -76,12 +76,12 @@ class TestGetContextChromaHandling:
         # list 格式应直接赋值
         mock_chroma.search.assert_called_once()
 
-    @patch("layerkg.agent.tools.get_neo4j")
-    @patch("layerkg.agent.tools.get_chroma")
+    @patch("ontoagent.agent.tools.get_neo4j")
+    @patch("ontoagent.agent.tools.get_chroma")
     def test_get_context_chroma_dict_result(self, mock_get_chroma: MagicMock, mock_get_neo4j: MagicMock) -> None:
         """mock chroma.search 返回 dict 时，similar_entities 正确."""
         # Arrange
-        from layerkg.agent.tools import get_context
+        from ontoagent.agent.tools import get_context
 
         mock_neo4j = MagicMock()
         mock_neo4j.query.return_value = [{"id": "test-id"}]
@@ -106,14 +106,14 @@ class TestGetContextChromaHandling:
         # dict 格式应提取 matches
         mock_chroma.search.assert_called_once()
 
-    @patch("layerkg.agent.tools.get_neo4j")
-    @patch("layerkg.agent.tools.get_chroma")
+    @patch("ontoagent.agent.tools.get_neo4j")
+    @patch("ontoagent.agent.tools.get_chroma")
     def test_get_context_chroma_error_returns_empty(
         self, mock_get_chroma: MagicMock, mock_get_neo4j: MagicMock
     ) -> None:
         """mock chroma.search 抛异常时，similar_entities 为空."""
         # Arrange
-        from layerkg.agent.tools import get_context
+        from ontoagent.agent.tools import get_context
 
         mock_neo4j = MagicMock()
         mock_neo4j.query.return_value = [{"id": "test-id"}]
@@ -145,7 +145,7 @@ class TestDetectChangesSignature:
         # @tool 装饰器会将函数转为 StructuredTool，直接读取源文件
         from pathlib import Path
 
-        tools_file = Path(__file__).parent.parent.parent / "src" / "layerkg" / "agent" / "tools.py"
+        tools_file = Path(__file__).parent.parent.parent / "src" / "ontoagent" / "agent" / "tools.py"
         source = tools_file.read_text()
 
         # 验证源码中包含 keyword-only 参数定义

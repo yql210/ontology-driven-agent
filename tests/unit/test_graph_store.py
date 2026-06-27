@@ -4,7 +4,7 @@ from abc import ABC
 
 import pytest
 
-from layerkg.store.graph_store import GraphStore
+from ontoagent.store.graph_store import GraphStore
 
 
 class _DummyStore(GraphStore):

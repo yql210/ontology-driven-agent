@@ -6,8 +6,8 @@ import textwrap
 
 import pytest
 
-from layerkg.execution.action_types import ActionConfig
-from layerkg.execution.intent_router import build_intent_map, build_intent_prompt
+from ontoagent.execution.action_types import ActionConfig
+from ontoagent.execution.intent_router import build_intent_map, build_intent_prompt
 
 
 class TestBuildIntentMap:

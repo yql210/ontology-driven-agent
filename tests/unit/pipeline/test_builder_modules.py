@@ -7,22 +7,22 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from layerkg.config import LayerKGConfig
-from layerkg.domain.schema import CodeEntity, ModuleEntity
-from layerkg.pipeline.builder import LayerKGBuilder
-from layerkg.pipeline.module_clustering import ModuleCluster
-from layerkg.store.schema_version import SchemaStatus
+from ontoagent.config import OntoAgentConfig
+from ontoagent.domain.schema import CodeEntity, ModuleEntity
+from ontoagent.pipeline.builder import OntoAgentBuilder
+from ontoagent.pipeline.module_clustering import ModuleCluster
+from ontoagent.store.schema_version import SchemaStatus
 
 
 @pytest.fixture
-def builder() -> LayerKGBuilder:
+def builder() -> OntoAgentBuilder:
     """创建 mock 依赖的 builder。"""
-    config = LayerKGConfig(
+    config = OntoAgentConfig(
         neo4j_uri="bolt://localhost:7687",
         neo4j_user="neo4j",
         neo4j_password="test",
     )
-    return LayerKGBuilder(config)
+    return OntoAgentBuilder(config)
 
 
 def _make_cluster(name: str = "test_module", count: int = 3) -> ModuleCluster:
@@ -37,7 +37,7 @@ def _make_cluster(name: str = "test_module", count: int = 3) -> ModuleCluster:
 
 
 class TestInitClustering:
-    def test_init_clustering_lazy_init(self, builder: LayerKGBuilder) -> None:
+    def test_init_clustering_lazy_init(self, builder: OntoAgentBuilder) -> None:
         """验证 lazy init：首次创建，二次复用。"""
         with patch.object(builder, "_get_graph_store") as mock_gs:
             mock_gs.return_value = MagicMock()
@@ -48,7 +48,7 @@ class TestInitClustering:
 
 
 class TestDetectAndWriteModules:
-    def test_detect_and_write_modules_success(self, builder: LayerKGBuilder) -> None:
+    def test_detect_and_write_modules_success(self, builder: OntoAgentBuilder) -> None:
         """3 clusters → (3, clusters)。"""
         clusters = [_make_cluster("m1"), _make_cluster("m2"), _make_cluster("m3")]
         mock_clustering = MagicMock()
@@ -67,7 +67,7 @@ class TestDetectAndWriteModules:
         assert result == clusters
         mock_clustering.save_modules.assert_called_once_with(clusters, all_entities)
 
-    def test_detect_and_write_modules_empty_graph(self, builder: LayerKGBuilder) -> None:
+    def test_detect_and_write_modules_empty_graph(self, builder: OntoAgentBuilder) -> None:
         """空图 → detect_modules 返回 [] → (0, [])。"""
         mock_clustering = MagicMock()
         mock_clustering.detect_modules.return_value = []
@@ -79,7 +79,7 @@ class TestDetectAndWriteModules:
         assert result == []
         mock_clustering.save_modules.assert_not_called()
 
-    def test_detect_and_write_modules_exception(self, builder: LayerKGBuilder) -> None:
+    def test_detect_and_write_modules_exception(self, builder: OntoAgentBuilder) -> None:
         """异常 → 抛出 RuntimeError。"""
         mock_clustering = MagicMock()
         mock_clustering.detect_modules.side_effect = RuntimeError("graph error")
@@ -92,9 +92,9 @@ class TestDetectAndWriteModules:
 
 
 class TestWriteAllVectors:
-    def test_write_all_vectors_code_entities_only(self, builder: LayerKGBuilder) -> None:
+    def test_write_all_vectors_code_entities_only(self, builder: OntoAgentBuilder) -> None:
         """CodeEntity 向量写入。"""
-        from layerkg.domain.schema import CodeEntity
+        from ontoagent.domain.schema import CodeEntity
 
         entity = CodeEntity(
             name="my_func",
@@ -113,9 +113,9 @@ class TestWriteAllVectors:
         assert items[0][0] == entity.id
         assert "my_func" in items[0][1]
 
-    def test_write_all_vectors_concept_entities_only(self, builder: LayerKGBuilder) -> None:
+    def test_write_all_vectors_concept_entities_only(self, builder: OntoAgentBuilder) -> None:
         """ConceptEntity 向量写入。"""
-        from layerkg.domain.schema import ConceptEntity
+        from ontoagent.domain.schema import ConceptEntity
 
         concept = ConceptEntity(
             name="retry_pattern", entity_type="design_pattern", description="Retry failed operations"
@@ -130,7 +130,7 @@ class TestWriteAllVectors:
         assert len(items) == 1
         assert items[0][1] == "Retry failed operations"
 
-    def test_write_all_vectors_module_clusters(self, builder: LayerKGBuilder) -> None:
+    def test_write_all_vectors_module_clusters(self, builder: OntoAgentBuilder) -> None:
         """ModuleCluster 向量写入。"""
         cluster = _make_cluster("auth_module")
         mock_chroma = MagicMock()
@@ -143,9 +143,9 @@ class TestWriteAllVectors:
         assert len(items) == 1
         assert items[0][2]["entity_type"] == "module"
 
-    def test_write_all_vectors_mixed_types(self, builder: LayerKGBuilder) -> None:
+    def test_write_all_vectors_mixed_types(self, builder: OntoAgentBuilder) -> None:
         """混合三种实体类型。"""
-        from layerkg.domain.schema import CodeEntity, ConceptEntity
+        from ontoagent.domain.schema import CodeEntity, ConceptEntity
 
         entity = CodeEntity(name="fn", entity_type="function", file_path="/a.py", source="def fn(): pass")
         concept = ConceptEntity(name="c1", entity_type="business_concept", description="desc")
@@ -158,7 +158,7 @@ class TestWriteAllVectors:
         items = mock_chroma.put_entities_batch.call_args[0][0]
         assert len(items) == 3
 
-    def test_write_all_vectors_empty_lists(self, builder: LayerKGBuilder) -> None:
+    def test_write_all_vectors_empty_lists(self, builder: OntoAgentBuilder) -> None:
         """空列表 → 不调用 ChromaDB。"""
         mock_chroma = MagicMock()
         with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
@@ -168,14 +168,14 @@ class TestWriteAllVectors:
 
 
 class TestBuildIntegration:
-    def test_build_full_pipeline_with_modules(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_build_full_pipeline_with_modules(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         """完整流水线包含 Stage 4+5。"""
         test_file = tmp_path / "test.py"
         test_file.write_text("def hello(): pass\n")
 
         clusters = [_make_cluster("m1"), _make_cluster("m2")]
         with (
-            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store") as mock_gs,
             patch.object(builder, "_get_chroma_store") as mock_chroma,
             patch.object(builder, "_check_llm_available", return_value=False),
@@ -196,13 +196,13 @@ class TestBuildIntegration:
         # 验证第二个参数是 all_entities (list[CodeEntity])
         assert isinstance(mock_dm.call_args.args[1], list)
 
-    def test_build_chroma_failure_records_error(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_build_chroma_failure_records_error(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         """ChromaDB 写入失败 → error 记录但不中断。"""
         test_file = tmp_path / "test.py"
         test_file.write_text("def hello(): pass\n")
 
         with (
-            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store") as mock_gs,
             patch.object(builder, "_check_llm_available", return_value=False),
             patch.object(builder, "_detect_and_write_modules", return_value=(0, [])),

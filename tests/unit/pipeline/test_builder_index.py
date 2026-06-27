@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from layerkg.config import LayerKGConfig
-from layerkg.domain.schema import CodeEntity, ConceptEntity, DocEntity
-from layerkg.parsing.extractor.semantic import SemanticRelation
-from layerkg.pipeline.builder import LayerKGBuilder
+from ontoagent.config import OntoAgentConfig
+from ontoagent.domain.schema import CodeEntity, ConceptEntity, DocEntity
+from ontoagent.parsing.extractor.semantic import SemanticRelation
+from ontoagent.pipeline.builder import OntoAgentBuilder
 
 
 class TestNormalizePath:
@@ -16,23 +16,23 @@ class TestNormalizePath:
 
     def test_relative_path_unchanged(self, tmp_path: Path) -> None:
         """相对路径保持原样。"""
-        config = LayerKGConfig()
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig()
+        builder = OntoAgentBuilder(config)
         result = builder._normalize_path("src/foo.py", tmp_path)
         assert result == "src/foo.py"
 
     def test_absolute_path_to_relative(self, tmp_path: Path) -> None:
         """绝对路径转为相对路径。"""
-        config = LayerKGConfig()
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig()
+        builder = OntoAgentBuilder(config)
         file_path = str(tmp_path / "src" / "foo.py")
         result = builder._normalize_path(file_path, tmp_path)
         assert result == "src/foo.py"
 
     def test_none_returns_empty(self, tmp_path: Path) -> None:
         """None 返回空字符串。"""
-        config = LayerKGConfig()
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig()
+        builder = OntoAgentBuilder(config)
         result = builder._normalize_path(None, tmp_path)
         assert result == ""
 
@@ -42,8 +42,8 @@ class TestBuildEntityIndex:
 
     def test_basic_three_entities(self, tmp_path: Path) -> None:
         """3 个不同实体 → 3 个索引键。"""
-        config = LayerKGConfig()
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig()
+        builder = OntoAgentBuilder(config)
 
         entities = [
             CodeEntity(name="foo", entity_type="function"),
@@ -57,8 +57,8 @@ class TestBuildEntityIndex:
 
     def test_same_name_different_file(self, tmp_path: Path) -> None:
         """同名不同文件 → 2 个不同的三元组键（因为 file_path 不同）。"""
-        config = LayerKGConfig()
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig()
+        builder = OntoAgentBuilder(config)
 
         entities = [
             CodeEntity(name="foo", entity_type="function", file_path="src/a.py"),
@@ -71,8 +71,8 @@ class TestBuildEntityIndex:
 
     def test_same_name_same_file(self, tmp_path: Path) -> None:
         """同文件同名函数 → 同一个三元组键，值列表长度 2。"""
-        config = LayerKGConfig()
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig()
+        builder = OntoAgentBuilder(config)
 
         entities = [
             CodeEntity(name="foo", entity_type="function", file_path="src/a.py"),
@@ -91,8 +91,8 @@ class TestResolveSemanticNames:
     def test_success(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """name 匹配 → 正确创建 Relation。"""
         caplog.set_level(logging.WARNING)
-        config = LayerKGConfig()
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig()
+        builder = OntoAgentBuilder(config)
         builder._repo_root = tmp_path
 
         entities = [
@@ -123,8 +123,8 @@ class TestResolveSemanticNames:
     def test_missing_target_skipped(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """target name 找不到 → 跳过，skipped=1。"""
         caplog.set_level(logging.WARNING)
-        config = LayerKGConfig()
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig()
+        builder = OntoAgentBuilder(config)
         builder._repo_root = tmp_path
 
         entities = [
@@ -151,8 +151,8 @@ class TestResolveSemanticNames:
 
     def test_concept_entity_no_file_path(self, tmp_path: Path) -> None:
         """ConceptEntity 无 file_path → 索引键 file_path 部分为空。"""
-        config = LayerKGConfig()
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig()
+        builder = OntoAgentBuilder(config)
 
         entities = [
             ConceptEntity(name="Singleton", entity_type="design_pattern"),
@@ -165,8 +165,8 @@ class TestResolveSemanticNames:
 
     def test_doc_entity_with_file_path(self, tmp_path: Path) -> None:
         """DocEntity 有 file_path → 正确构建索引。"""
-        config = LayerKGConfig()
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig()
+        builder = OntoAgentBuilder(config)
 
         entities = [
             DocEntity(name="README", entity_type="readme", file_path="README.md"),
@@ -179,8 +179,8 @@ class TestResolveSemanticNames:
     def test_missing_source_skipped(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """source name 找不到 → 跳过，skipped=1。"""
         caplog.set_level(logging.WARNING)
-        config = LayerKGConfig()
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig()
+        builder = OntoAgentBuilder(config)
         builder._repo_root = tmp_path
 
         entities = [
@@ -206,8 +206,8 @@ class TestResolveSemanticNames:
     def test_source_path_mismatch_skipped(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """source name 存在但 file_path 不匹配 → 跳过。"""
         caplog.set_level(logging.WARNING)
-        config = LayerKGConfig()
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig()
+        builder = OntoAgentBuilder(config)
         builder._repo_root = tmp_path
 
         entities = [
@@ -232,8 +232,8 @@ class TestResolveSemanticNames:
 
     def test_empty_relations_returns_empty(self, tmp_path: Path) -> None:
         """空 relations 列表 → ([], 0)。"""
-        config = LayerKGConfig()
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig()
+        builder = OntoAgentBuilder(config)
         builder._repo_root = tmp_path
 
         index = builder._build_entity_index([], tmp_path)
@@ -245,8 +245,8 @@ class TestResolveSemanticNames:
     def test_empty_index_all_skipped(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """空 index → 所有关系都 skipped。"""
         caplog.set_level(logging.WARNING)
-        config = LayerKGConfig()
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig()
+        builder = OntoAgentBuilder(config)
         builder._repo_root = tmp_path
 
         relations = [
@@ -272,7 +272,7 @@ class TestBuildResult:
 
     def test_to_dict(self) -> None:
         """to_dict 返回所有字段。"""
-        from layerkg.pipeline.builder import BuildResult
+        from ontoagent.pipeline.builder import BuildResult
 
         result = BuildResult(
             files_scanned=10,
@@ -301,7 +301,7 @@ class TestBuildResult:
 
     def test_defaults(self) -> None:
         """测试新字段的默认值。"""
-        from layerkg.pipeline.builder import BuildResult
+        from ontoagent.pipeline.builder import BuildResult
 
         result = BuildResult(
             files_scanned=1,

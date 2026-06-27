@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from layerkg.butler.event_bus import ButlerEvent
-from layerkg.butler.handlers.base import HandlerResult
-from layerkg.config import LayerKGConfig
+from ontoagent.butler.event_bus import ButlerEvent
+from ontoagent.butler.handlers.base import HandlerResult
+from ontoagent.config import OntoAgentConfig
 
 
 class TestButlerEngine:
@@ -16,9 +16,9 @@ class TestButlerEngine:
 
     def test_init(self) -> None:
         """Test ButlerEngine initialization."""
-        from layerkg.butler.engine import ButlerEngine
+        from ontoagent.butler.engine import ButlerEngine
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         engine = ButlerEngine(config)
 
         assert engine._config is config
@@ -32,10 +32,10 @@ class TestButlerEngine:
 
     def test_register_handler(self) -> None:
         """Test register_handler adds handler to dict."""
-        from layerkg.butler.engine import ButlerEngine
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.engine import ButlerEngine
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         engine = ButlerEngine(config)
         handler = ReflectionHandler()
 
@@ -47,17 +47,17 @@ class TestButlerEngine:
     @pytest.mark.asyncio
     async def test_start_initializes_components(self) -> None:
         """Test start() initializes guard and skill_store."""
-        from layerkg.butler.engine import ButlerEngine
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.engine import ButlerEngine
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         engine = ButlerEngine(config)
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
         with (
-            patch("layerkg.butler.engine.ConsistencyGuard") as mock_guard_cls,
-            patch("layerkg.butler.engine.SkillStore") as mock_store_cls,
+            patch("ontoagent.butler.engine.ConsistencyGuard") as mock_guard_cls,
+            patch("ontoagent.butler.engine.SkillStore") as mock_store_cls,
         ):
             mock_guard = MagicMock()
             mock_store = MagicMock()
@@ -80,15 +80,15 @@ class TestButlerEngine:
     @pytest.mark.asyncio
     async def test_start_registers_handlers_with_scheduler(self) -> None:
         """Test start() registers handlers with scheduler."""
-        from layerkg.butler.engine import ButlerEngine
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.engine import ButlerEngine
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         engine = ButlerEngine(config)
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
-        with patch("layerkg.butler.engine.ConsistencyGuard"), patch("layerkg.butler.engine.SkillStore"):
+        with patch("ontoagent.butler.engine.ConsistencyGuard"), patch("ontoagent.butler.engine.SkillStore"):
             await engine.start()
 
             # Handler should be registered with scheduler
@@ -100,15 +100,15 @@ class TestButlerEngine:
     @pytest.mark.asyncio
     async def test_start_subscribes_to_event_types(self) -> None:
         """Test start() subscribes to handler event types."""
-        from layerkg.butler.engine import ButlerEngine
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.engine import ButlerEngine
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         engine = ButlerEngine(config)
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
-        with patch("layerkg.butler.engine.ConsistencyGuard"), patch("layerkg.butler.engine.SkillStore"):
+        with patch("ontoagent.butler.engine.ConsistencyGuard"), patch("ontoagent.butler.engine.SkillStore"):
             await engine.start()
 
             # EventBus should have subscriptions for handler.event_types
@@ -120,15 +120,15 @@ class TestButlerEngine:
     @pytest.mark.asyncio
     async def test_stop_cleansup_resources(self) -> None:
         """Test stop() cleans up resources."""
-        from layerkg.butler.engine import ButlerEngine
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.engine import ButlerEngine
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         engine = ButlerEngine(config)
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
-        with patch("layerkg.butler.engine.ConsistencyGuard"), patch("layerkg.butler.engine.SkillStore"):
+        with patch("ontoagent.butler.engine.ConsistencyGuard"), patch("ontoagent.butler.engine.SkillStore"):
             await engine.start()
             assert engine._running is True
 
@@ -139,9 +139,9 @@ class TestButlerEngine:
     @pytest.mark.asyncio
     async def test_submit_event_returns_empty_when_not_running(self) -> None:
         """Test submit_event returns empty list when not running."""
-        from layerkg.butler.engine import ButlerEngine
+        from ontoagent.butler.engine import ButlerEngine
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         engine = ButlerEngine(config)
 
         event = ButlerEvent(event_type="test.event", payload={})
@@ -152,15 +152,15 @@ class TestButlerEngine:
     @pytest.mark.asyncio
     async def test_submit_event_dispatches_to_scheduler(self) -> None:
         """Test submit_event dispatches event to scheduler."""
-        from layerkg.butler.engine import ButlerEngine
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.engine import ButlerEngine
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         engine = ButlerEngine(config)
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
-        with patch("layerkg.butler.engine.ConsistencyGuard"), patch("layerkg.butler.engine.SkillStore"):
+        with patch("ontoagent.butler.engine.ConsistencyGuard"), patch("ontoagent.butler.engine.SkillStore"):
             await engine.start()
 
             event = ButlerEvent(
@@ -183,10 +183,10 @@ class TestButlerEngine:
     @pytest.mark.asyncio
     async def test_make_handler_fn_wrapper(self) -> None:
         """Test _make_handler_fn wraps handler.handle correctly."""
-        from layerkg.butler.engine import ButlerEngine
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.engine import ButlerEngine
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         engine = ButlerEngine(config)
         handler = ReflectionHandler()
 
@@ -195,8 +195,8 @@ class TestButlerEngine:
         mock_skill_store.create = AsyncMock(return_value="skill-123")
 
         with (
-            patch("layerkg.butler.engine.ConsistencyGuard"),
-            patch("layerkg.butler.engine.SkillStore", return_value=mock_skill_store),
+            patch("ontoagent.butler.engine.ConsistencyGuard"),
+            patch("ontoagent.butler.engine.SkillStore", return_value=mock_skill_store),
         ):
             await engine.start()
             engine.register_handler(handler)
@@ -224,9 +224,9 @@ class TestButlerEngine:
     @pytest.mark.asyncio
     async def test_extract_file_extension(self) -> None:
         """Test _extract_file_extension helper."""
-        from layerkg.butler.engine import ButlerEngine
+        from ontoagent.butler.engine import ButlerEngine
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         engine = ButlerEngine(config)
 
         # Test with file_path in payload
@@ -260,17 +260,17 @@ class TestButlerEngine:
     @pytest.mark.asyncio
     async def test_status_returns_engine_state(self) -> None:
         """Test status() returns engine state dict."""
-        from layerkg.butler.engine import ButlerEngine
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.engine import ButlerEngine
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         engine = ButlerEngine(config)
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
         with (
-            patch("layerkg.butler.engine.ConsistencyGuard"),
-            patch("layerkg.butler.engine.SkillStore") as mock_store_cls,
+            patch("ontoagent.butler.engine.ConsistencyGuard"),
+            patch("ontoagent.butler.engine.SkillStore") as mock_store_cls,
         ):
             mock_store_instance = MagicMock()
             mock_store_instance.count_by_layer = AsyncMock(return_value={})
@@ -292,15 +292,15 @@ class TestButlerEngine:
     @pytest.mark.asyncio
     async def test_start_is_idempotent(self) -> None:
         """Test start() can be called multiple times safely."""
-        from layerkg.butler.engine import ButlerEngine
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.engine import ButlerEngine
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         engine = ButlerEngine(config)
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
-        with patch("layerkg.butler.engine.ConsistencyGuard"), patch("layerkg.butler.engine.SkillStore"):
+        with patch("ontoagent.butler.engine.ConsistencyGuard"), patch("ontoagent.butler.engine.SkillStore"):
             await engine.start()
             first_running = engine._running
 
@@ -315,15 +315,15 @@ class TestButlerEngine:
     @pytest.mark.asyncio
     async def test_dispatch_event_publishes_completion_events(self) -> None:
         """Test _dispatch_event publishes handler.completed events."""
-        from layerkg.butler.engine import ButlerEngine
-        from layerkg.butler.handlers.reflection import ReflectionHandler
+        from ontoagent.butler.engine import ButlerEngine
+        from ontoagent.butler.handlers.reflection import ReflectionHandler
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         engine = ButlerEngine(config)
         handler = ReflectionHandler()
         engine.register_handler(handler)
 
-        with patch("layerkg.butler.engine.ConsistencyGuard"), patch("layerkg.butler.engine.SkillStore"):
+        with patch("ontoagent.butler.engine.ConsistencyGuard"), patch("ontoagent.butler.engine.SkillStore"):
             await engine.start()
 
             # Create a mock handler that succeeds

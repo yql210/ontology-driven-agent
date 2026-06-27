@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from layerkg.api.cli import main
+from ontoagent.api.cli import main
 
 
 @pytest.fixture
@@ -17,17 +17,17 @@ def isolated_config(tmp_path: Path) -> None:
     import os
 
     # Set temporary data dir
-    os.environ["LAYERKG_DATA_DIR"] = str(tmp_path)
+    os.environ["ONTOAGENT_DATA_DIR"] = str(tmp_path)
 
 
 def test_butler_update_with_mocked_engine(isolated_config):
     """Test butler update command with mocked engine."""
     # Mock handler result
-    from layerkg.butler.handlers.base import HandlerResult
+    from ontoagent.butler.handlers.base import HandlerResult
 
     mock_result = HandlerResult(success=True, data={"changes_detected": 5})
 
-    with patch("layerkg.butler.engine.ButlerEngine") as mock_cls:
+    with patch("ontoagent.butler.engine.ButlerEngine") as mock_cls:
         engine_instance = MagicMock()
         engine_instance._running = False
         engine_instance.register_handler = MagicMock()
@@ -56,7 +56,7 @@ def test_butler_update_with_mocked_engine(isolated_config):
 def test_butler_build_with_mocked_engine(isolated_config):
     """Test butler build command with mocked engine."""
     # Mock handler result
-    from layerkg.butler.handlers.base import HandlerResult
+    from ontoagent.butler.handlers.base import HandlerResult
 
     mock_result = HandlerResult(
         success=True,
@@ -67,7 +67,7 @@ def test_butler_build_with_mocked_engine(isolated_config):
         },
     )
 
-    with patch("layerkg.butler.engine.ButlerEngine") as mock_cls:
+    with patch("ontoagent.butler.engine.ButlerEngine") as mock_cls:
         engine_instance = MagicMock()
         engine_instance._running = False
         engine_instance.register_handler = MagicMock()
@@ -95,7 +95,7 @@ def test_butler_build_with_mocked_engine(isolated_config):
 
 def test_butler_status_command(isolated_config):
     """Test butler status command."""
-    with patch("layerkg.butler.engine.ButlerEngine") as mock_cls:
+    with patch("ontoagent.butler.engine.ButlerEngine") as mock_cls:
         engine_instance = MagicMock()
         engine_instance._running = False
         engine_instance.status = AsyncMock(
@@ -174,11 +174,11 @@ def test_butler_group_help():
 def test_butler_update_with_error(isolated_config):
     """Test butler update command with handler error."""
     # Mock handler error
-    from layerkg.butler.handlers.base import HandlerResult
+    from ontoagent.butler.handlers.base import HandlerResult
 
     mock_result = HandlerResult(success=False, error="Test error message")
 
-    with patch("layerkg.butler.engine.ButlerEngine") as mock_cls:
+    with patch("ontoagent.butler.engine.ButlerEngine") as mock_cls:
         engine_instance = MagicMock()
         engine_instance._running = False
         engine_instance.register_handler = MagicMock()
@@ -205,11 +205,11 @@ def test_butler_update_with_error(isolated_config):
 def test_butler_build_with_error(isolated_config):
     """Test butler build command with handler error."""
     # Mock handler error
-    from layerkg.butler.handlers.base import HandlerResult
+    from ontoagent.butler.handlers.base import HandlerResult
 
     mock_result = HandlerResult(success=False, error="Build failed")
 
-    with patch("layerkg.butler.engine.ButlerEngine") as mock_cls:
+    with patch("ontoagent.butler.engine.ButlerEngine") as mock_cls:
         engine_instance = MagicMock()
         engine_instance._running = False
         engine_instance.register_handler = MagicMock()
@@ -237,11 +237,11 @@ def test_engine_async_context_manager(isolated_config):
     """Test ButlerEngine async context manager support."""
     import asyncio
 
-    from layerkg.butler.engine import ButlerEngine
-    from layerkg.config import LayerKGConfig
+    from ontoagent.butler.engine import ButlerEngine
+    from ontoagent.config import OntoAgentConfig
 
     async def test_ctx():
-        config = LayerKGConfig.from_env()
+        config = OntoAgentConfig.from_env()
         engine = ButlerEngine(config)
 
         # Test context manager
@@ -259,11 +259,11 @@ def test_engine_start_stop_lifecycle(isolated_config):
     """Test ButlerEngine start/stop lifecycle."""
     import asyncio
 
-    from layerkg.butler.engine import ButlerEngine
-    from layerkg.config import LayerKGConfig
+    from ontoagent.butler.engine import ButlerEngine
+    from ontoagent.config import OntoAgentConfig
 
     async def test_lifecycle():
-        config = LayerKGConfig.from_env()
+        config = OntoAgentConfig.from_env()
         engine = ButlerEngine(config)
 
         # Initial state

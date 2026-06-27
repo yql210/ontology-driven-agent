@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-from layerkg.agent.tools import ALL_TOOLS, graph_query, semantic_search
+from ontoagent.agent.tools import ALL_TOOLS, graph_query, semantic_search
 
 
 def test_all_tools_defined() -> None:
@@ -35,7 +35,7 @@ def test_semantic_search_returns_json() -> None:
     ]
     mock_chroma.search.return_value = mock_results
 
-    with patch("layerkg.agent.tools.get_chroma", return_value=mock_chroma):
+    with patch("ontoagent.agent.tools.get_chroma", return_value=mock_chroma):
         result = semantic_search.invoke({"query": "test query", "top_k": 5})
 
         # 验证 chroma.search 被正确调用
@@ -53,7 +53,7 @@ def test_graph_query_returns_json() -> None:
     mock_results = [{"a.name": "foo", "b.name": "bar"}]
     mock_neo4j.query.return_value = mock_results
 
-    with patch("layerkg.agent.tools.get_neo4j", return_value=mock_neo4j):
+    with patch("ontoagent.agent.tools.get_neo4j", return_value=mock_neo4j):
         result = graph_query.invoke({"cypher": "MATCH (n) RETURN n"})
 
         # 验证 neo4j.query 被正确调用
@@ -70,7 +70,7 @@ def test_graph_query_handles_error() -> None:
     mock_neo4j = MagicMock()
     mock_neo4j.query.side_effect = Exception("Syntax error")
 
-    with patch("layerkg.agent.tools.get_neo4j", return_value=mock_neo4j):
+    with patch("ontoagent.agent.tools.get_neo4j", return_value=mock_neo4j):
         result = graph_query.invoke({"cypher": "INVALID"})
 
         # 验证返回的错误信息
@@ -84,7 +84,7 @@ def test_semantic_search_default_top_k() -> None:
     mock_chroma = MagicMock()
     mock_chroma.search.return_value = []
 
-    with patch("layerkg.agent.tools.get_chroma", return_value=mock_chroma):
+    with patch("ontoagent.agent.tools.get_chroma", return_value=mock_chroma):
         semantic_search.invoke({"query": "test"})
 
         # 验证使用默认值 5

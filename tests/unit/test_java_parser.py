@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from layerkg.parsing.parser.java_parser import JavaParser
+from ontoagent.parsing.parser.java_parser import JavaParser
 
 # Test code snippets
 SIMPLE_CLASS = b"""

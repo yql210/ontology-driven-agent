@@ -5,10 +5,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from layerkg.config import LayerKGConfig
-from layerkg.domain.schema import CodeEntity
-from layerkg.pipeline.builder import BuildResult, LayerKGBuilder
-from layerkg.store.schema_version import SchemaStatus
+from ontoagent.config import OntoAgentConfig
+from ontoagent.domain.schema import CodeEntity
+from ontoagent.pipeline.builder import BuildResult, OntoAgentBuilder
+from ontoagent.store.schema_version import SchemaStatus
 
 
 @pytest.fixture
@@ -35,9 +35,9 @@ def temp_repo(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def mock_config() -> LayerKGConfig:
+def mock_config() -> OntoAgentConfig:
     """创建测试配置。"""
-    return LayerKGConfig(
+    return OntoAgentConfig(
         neo4j_uri="bolt://localhost:7687",
         neo4j_user="neo4j",
         neo4j_password="test",
@@ -48,15 +48,15 @@ def mock_config() -> LayerKGConfig:
 
 
 @pytest.fixture
-def builder(mock_config: LayerKGConfig) -> LayerKGBuilder:
+def builder(mock_config: OntoAgentConfig) -> OntoAgentBuilder:
     """创建 Builder 实例。"""
-    return LayerKGBuilder(mock_config)
+    return OntoAgentBuilder(mock_config)
 
 
 class TestScanFiles:
     """测试 _scan_files 方法。"""
 
-    def test_scan_files_finds_py_files(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+    def test_scan_files_finds_py_files(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
         # Arrange
         expected_files = 3  # module1.py, module2.py, module3.py
 
@@ -67,7 +67,7 @@ class TestScanFiles:
         assert len(code_files) == expected_files
         assert all(f.suffix == ".py" for f in code_files)
 
-    def test_scan_skips_hidden_dirs(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+    def test_scan_skips_hidden_dirs(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
         # Arrange
         hidden_dir = temp_repo / ".venv"
         cache_dir = temp_repo / "__pycache__"
@@ -80,7 +80,7 @@ class TestScanFiles:
         assert not any(str(hidden_dir) in f for f in file_strs)
         assert not any(str(cache_dir) in f for f in file_strs)
 
-    def test_scan_empty_dir_returns_empty(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_scan_empty_dir_returns_empty(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         # Arrange & Act
         code_files, doc_files = builder._scan_files(tmp_path)
 
@@ -88,7 +88,7 @@ class TestScanFiles:
         assert code_files == []
         assert doc_files == []
 
-    def test_scan_returns_sorted_files(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+    def test_scan_returns_sorted_files(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
         # Act
         code_files, doc_files = builder._scan_files(temp_repo)
 
@@ -104,10 +104,10 @@ class TestScanFiles:
         custom_dir.mkdir()
         (custom_dir / "skipped.py").write_text("pass")
 
-        config = LayerKGConfig(
+        config = OntoAgentConfig(
             build_skip_dirs={"custom_skip"},
         )
-        builder = LayerKGBuilder(config)
+        builder = OntoAgentBuilder(config)
 
         # Act
         code_files, _doc_files = builder._scan_files(tmp_path)
@@ -120,8 +120,8 @@ class TestScanFiles:
         """验证 build_include_docs=False 时 doc_files 为空。"""
         # Arrange
         (tmp_path / "README.md").write_text("# Test")
-        config = LayerKGConfig(build_include_docs=False)
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig(build_include_docs=False)
+        builder = OntoAgentBuilder(config)
 
         # Act
         _code_files, doc_files = builder._scan_files(tmp_path)
@@ -133,8 +133,8 @@ class TestScanFiles:
         """验证 build_include_docs=True 时能扫描到文档文件。"""
         # Arrange
         (tmp_path / "README.md").write_text("# Test")
-        config = LayerKGConfig(build_include_docs=True)
-        builder = LayerKGBuilder(config)
+        config = OntoAgentConfig(build_include_docs=True)
+        builder = OntoAgentBuilder(config)
 
         # Act
         _code_files, doc_files = builder._scan_files(tmp_path)
@@ -143,14 +143,14 @@ class TestScanFiles:
         assert len(doc_files) == 1
         assert doc_files[0].name == "README.md"
 
-    def test_scan_files_finds_java_files(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_scan_files_finds_java_files(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         """验证 _scan_files 能扫描到 .java 文件。"""
         (tmp_path / "App.java").write_text("public class App {}")
         code_files, _doc_files = builder._scan_files(tmp_path)
         assert len(code_files) == 1
         assert code_files[0].suffix == ".java"
 
-    def test_scan_files_mixed_py_and_java(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_scan_files_mixed_py_and_java(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         """验证 _scan_files 同时扫描 .py 和 .java。"""
         (tmp_path / "main.py").write_text("print('hello')")
         (tmp_path / "App.java").write_text("public class App {}")
@@ -162,10 +162,10 @@ class TestScanFiles:
 class TestDocTruncation:
     """测试文档截断配置化。"""
 
-    def test_doc_entity_truncation_respects_config(self, builder: LayerKGBuilder) -> None:
+    def test_doc_entity_truncation_respects_config(self, builder: OntoAgentBuilder) -> None:
         """验证 build_doc_max_length 配置生效。"""
         # Arrange
-        from layerkg.domain.schema import DocEntity
+        from ontoagent.domain.schema import DocEntity
 
         long_content = "x" * 5000
         doc = DocEntity(
@@ -187,7 +187,7 @@ class TestDocTruncation:
 class TestEntityToDict:
     """测试 _entity_to_dict 方法。"""
 
-    def test_entity_to_dict_contains_required_fields(self, builder: LayerKGBuilder) -> None:
+    def test_entity_to_dict_contains_required_fields(self, builder: OntoAgentBuilder) -> None:
         # Arrange
         entity = CodeEntity(name="foo", entity_type="function")
 
@@ -199,7 +199,7 @@ class TestEntityToDict:
         assert result["name"] == "foo"
         assert result["entity_type"] == "function"
 
-    def test_entity_to_dict_with_optional_fields(self, builder: LayerKGBuilder) -> None:
+    def test_entity_to_dict_with_optional_fields(self, builder: OntoAgentBuilder) -> None:
         # Arrange
         entity = CodeEntity(
             name="Bar",
@@ -219,7 +219,7 @@ class TestEntityToDict:
         assert result["end_line"] == 20
         assert result["language"] == "python"
 
-    def test_entity_to_dict_without_optional_fields(self, builder: LayerKGBuilder) -> None:
+    def test_entity_to_dict_without_optional_fields(self, builder: OntoAgentBuilder) -> None:
         # Arrange
         entity = CodeEntity(name="baz", entity_type="function")
 
@@ -236,7 +236,7 @@ class TestEntityToDict:
 class TestEntityToText:
     """测试 _entity_to_text 方法。"""
 
-    def test_entity_to_text_with_source(self, builder: LayerKGBuilder) -> None:
+    def test_entity_to_text_with_source(self, builder: OntoAgentBuilder) -> None:
         # Arrange
         entity = CodeEntity(
             name="foo",
@@ -250,7 +250,7 @@ class TestEntityToText:
         # Assert
         assert result == "def foo():\n    pass"
 
-    def test_entity_to_text_without_source(self, builder: LayerKGBuilder) -> None:
+    def test_entity_to_text_without_source(self, builder: OntoAgentBuilder) -> None:
         # Arrange
         entity = CodeEntity(
             name="Bar",
@@ -264,7 +264,7 @@ class TestEntityToText:
         # Assert
         assert result == "class Bar in /path/to/file.py"
 
-    def test_entity_to_text_minimal(self, builder: LayerKGBuilder) -> None:
+    def test_entity_to_text_minimal(self, builder: OntoAgentBuilder) -> None:
         # Arrange
         entity = CodeEntity(name="baz", entity_type="function")
 
@@ -295,13 +295,13 @@ class TestBuildResult:
 class TestBuilderBuild:
     """测试 build 方法。"""
 
-    def test_build_parses_all_files(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+    def test_build_parses_all_files(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
         # Arrange
         mock_graph = MagicMock()
         mock_chroma = MagicMock()
 
         with (
-            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -313,13 +313,13 @@ class TestBuilderBuild:
             assert result.entities_created > 0
             mock_graph.ensure_constraints.assert_called_once()
 
-    def test_build_writes_to_graph_store(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+    def test_build_writes_to_graph_store(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
         # Arrange
         mock_graph = MagicMock()
         mock_chroma = MagicMock()
 
         with (
-            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -329,13 +329,13 @@ class TestBuilderBuild:
             # Assert - 至少调用了 merge_nodes_batch（每个实体至少一个 module）
             assert mock_graph.merge_nodes_batch.call_count > 0
 
-    def test_build_writes_to_chroma_store(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+    def test_build_writes_to_chroma_store(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
         # Arrange
         mock_graph = MagicMock()
         mock_chroma = MagicMock()
 
         with (
-            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -345,13 +345,13 @@ class TestBuilderBuild:
             # Assert - 至少有一些实体被写入 ChromaDB
             assert mock_chroma.put_entities_batch.call_count >= 1
 
-    def test_build_returns_correct_counts(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+    def test_build_returns_correct_counts(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
         # Arrange
         mock_graph = MagicMock()
         mock_chroma = MagicMock()
 
         with (
-            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -363,13 +363,13 @@ class TestBuilderBuild:
             assert isinstance(result.entities_created, int)
             assert isinstance(result.relations_created, int)
 
-    def test_build_empty_repository(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_build_empty_repository(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         # Arrange
         mock_graph = MagicMock()
         mock_chroma = MagicMock()
 
         with (
-            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -385,7 +385,7 @@ class TestBuilderBuild:
 class TestBuilderQuery:
     """测试 query 方法。"""
 
-    def test_query_searches_chroma(self, builder: LayerKGBuilder) -> None:
+    def test_query_searches_chroma(self, builder: OntoAgentBuilder) -> None:
         # Arrange
         mock_chroma = MagicMock()
         mock_chroma.search.return_value = [
@@ -405,7 +405,7 @@ class TestBuilderQuery:
             mock_chroma.search.assert_called_once_with("foo", n_results=10, where=None)
             assert len(results) == 1
 
-    def test_query_with_type_filter(self, builder: LayerKGBuilder) -> None:
+    def test_query_with_type_filter(self, builder: OntoAgentBuilder) -> None:
         # Arrange
         mock_chroma = MagicMock()
         mock_chroma.search.return_value = []
@@ -421,7 +421,7 @@ class TestBuilderQuery:
 class TestBuilderInfo:
     """测试 info 方法。"""
 
-    def test_info_returns_config(self, builder: LayerKGBuilder) -> None:
+    def test_info_returns_config(self, builder: OntoAgentBuilder) -> None:
         # Arrange
         mock_chroma = MagicMock()
         mock_chroma.count.return_value = 42
@@ -436,7 +436,7 @@ class TestBuilderInfo:
             assert info["config"]["ollama_url"] == "http://localhost:11434"
             assert info["config"]["model"] == "test-model"
 
-    def test_info_returns_chroma_count(self, builder: LayerKGBuilder) -> None:
+    def test_info_returns_chroma_count(self, builder: OntoAgentBuilder) -> None:
         # Arrange
         mock_chroma = MagicMock()
         mock_chroma.count.return_value = 99
@@ -452,18 +452,18 @@ class TestBuilderInfo:
 class TestContextManager:
     """测试 context manager。"""
 
-    def test_context_manager_closes_stores(self, mock_config: LayerKGConfig) -> None:
+    def test_context_manager_closes_stores(self, mock_config: OntoAgentConfig) -> None:
         # Arrange
         with (
-            patch("layerkg.pipeline.builder.Neo4jGraphStore") as mock_graph_cls,
-            patch("layerkg.pipeline.builder.ChromaStore") as mock_chroma_cls,
+            patch("ontoagent.pipeline.builder.Neo4jGraphStore") as mock_graph_cls,
+            patch("ontoagent.pipeline.builder.ChromaStore") as mock_chroma_cls,
         ):
             mock_graph = MagicMock()
             mock_chroma = MagicMock()
             mock_graph_cls.return_value = mock_graph
             mock_chroma_cls.return_value = mock_chroma
 
-            builder = LayerKGBuilder(mock_config)
+            builder = OntoAgentBuilder(mock_config)
 
             # Act
             with builder:
@@ -475,9 +475,9 @@ class TestContextManager:
             mock_graph.close.assert_called_once()
             mock_chroma.close.assert_called_once()
 
-    def test_context_manager_returns_self(self, mock_config: LayerKGConfig) -> None:
+    def test_context_manager_returns_self(self, mock_config: OntoAgentConfig) -> None:
         # Arrange
-        builder = LayerKGBuilder(mock_config)
+        builder = OntoAgentBuilder(mock_config)
 
         # Act
         with builder as b:
@@ -488,7 +488,7 @@ class TestContextManager:
 class TestBuilderEndToEnd:
     """Task 6: Builder 端到端测试（使用真实 PythonParser + RelationExtractor）。"""
 
-    def test_parse_and_extract_sample_file(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_parse_and_extract_sample_file(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         """解析简单 Python 文件，验证实体和关系正确。"""
         # Arrange
         sample_code = """def foo():
@@ -523,7 +523,7 @@ def bar():
         contains_rels = [r for r in relations if r.relation_type == "contains"]
         assert len(contains_rels) == 2
 
-    def test_parse_class_with_methods(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_parse_class_with_methods(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         """解析含类+方法的文件，验证 contains 关系被正确提取。"""
         # Arrange
         sample_code = """class MyClass:
@@ -562,7 +562,7 @@ def bar():
         contains_rels = [r for r in relations if r.relation_type == "contains"]
         assert len(contains_rels) == 3  # module->MyClass, MyClass->method1, MyClass->method2
 
-    def test_parse_imports(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_parse_imports(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         """解析含 import 语句的文件，验证 imports 关系被正确提取。"""
         # Arrange
         sample_code = """import os
@@ -605,30 +605,30 @@ def my_func():
 class TestMultiLanguageParsers:
     """测试 Builder 多语言解析器注册和路由。"""
 
-    def test_get_parser_python(self, builder: LayerKGBuilder) -> None:
+    def test_get_parser_python(self, builder: OntoAgentBuilder) -> None:
         """验证 .py 文件路由到 PythonParser。"""
-        from layerkg.parsing.parser.python_parser import PythonParser
+        from ontoagent.parsing.parser.python_parser import PythonParser
 
         parser = builder._get_parser(Path("foo.py"))
         assert parser is not None
         assert isinstance(parser, PythonParser)
         assert parser.language == "python"
 
-    def test_get_parser_java(self, builder: LayerKGBuilder) -> None:
+    def test_get_parser_java(self, builder: OntoAgentBuilder) -> None:
         """验证 .java 文件路由到 JavaParser。"""
-        from layerkg.parsing.parser.java_parser import JavaParser
+        from ontoagent.parsing.parser.java_parser import JavaParser
 
         parser = builder._get_parser(Path("Foo.java"))
         assert parser is not None
         assert isinstance(parser, JavaParser)
         assert parser.language == "java"
 
-    def test_get_parser_unknown_suffix(self, builder: LayerKGBuilder) -> None:
+    def test_get_parser_unknown_suffix(self, builder: OntoAgentBuilder) -> None:
         """验证未知扩展名返回 None。"""
         parser = builder._get_parser(Path("main.rs"))
         assert parser is None
 
-    def test_stage_parse_uses_java_parser(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_stage_parse_uses_java_parser(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         """验证 _stage_parse 能用 JavaParser 解析 .java 文件。"""
         java_code = """
 package com.example;
@@ -646,7 +646,7 @@ public class Hello {
         assert "class" in entity_types
         assert "function" in entity_types
 
-    def test_external_import_language_is_unknown(self, builder: LayerKGBuilder) -> None:
+    def test_external_import_language_is_unknown(self, builder: OntoAgentBuilder) -> None:
         """验证外部 import 的 language 不是硬编码 python。"""
         # 检查 _stage_write_structural 中的外部模块 language
         # 间接验证：读取源码中第 327 行附近的 language="unknown"

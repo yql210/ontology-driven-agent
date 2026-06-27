@@ -16,7 +16,7 @@ services:
     volumes:
       - chroma_data:/chroma/chroma
 
-  layerkg:
+  ontoagent:
     build: .
     environment:
       NEO4J_URI: bolt://neo4j:7687

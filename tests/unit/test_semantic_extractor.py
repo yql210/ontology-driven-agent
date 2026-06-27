@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from layerkg.parsing.extractor.semantic import (
+from ontoagent.parsing.extractor.semantic import (
     ExtractionResult,
     SemanticExtractor,
     SemanticRelation,
@@ -234,7 +234,7 @@ class TestBuildPrompt:
 
     def test_single_entity_with_source(self):
         """1 个 entity（有 source）→ prompt 包含实体名和源码预览。"""
-        from layerkg.domain.schema import CodeEntity
+        from ontoagent.domain.schema import CodeEntity
 
         entity = CodeEntity(
             name="UserService",
@@ -247,7 +247,7 @@ class TestBuildPrompt:
 
     def test_single_entity_without_source(self):
         """1 个 entity（无 source）→ prompt 只包含实体名。"""
-        from layerkg.domain.schema import CodeEntity
+        from ontoagent.domain.schema import CodeEntity
 
         entity = CodeEntity(name="UserService", entity_type="class")
         prompt = SemanticExtractor._build_prompt([entity])
@@ -259,7 +259,7 @@ class TestBuildPrompt:
 
     def test_multiple_entities(self):
         """多个 entities → prompt 包含所有实体。"""
-        from layerkg.domain.schema import CodeEntity
+        from ontoagent.domain.schema import CodeEntity
 
         entities = [
             CodeEntity(name="UserService", entity_type="class"),
@@ -271,7 +271,7 @@ class TestBuildPrompt:
 
     def test_long_source_truncated(self):
         """长 source（>200 chars）→ prompt 中被截断为 200 + '...'。"""
-        from layerkg.domain.schema import CodeEntity
+        from ontoagent.domain.schema import CodeEntity
 
         long_source = "x" * 250
         entity = CodeEntity(name="LongFunction", entity_type="function", source=long_source)
@@ -353,14 +353,14 @@ class TestParseResponseErrors:
 
     def test_non_json_raises(self):
         """非 JSON 文本 → raise ExtractionError。"""
-        from layerkg.domain.exceptions import ExtractionError
+        from ontoagent.domain.exceptions import ExtractionError
 
         with pytest.raises(ExtractionError, match="not valid JSON"):
             SemanticExtractor._parse_response("not json at all")
 
     def test_missing_relations_key_raises(self):
         """JSON 缺少 "relations" key → raise ExtractionError。"""
-        from layerkg.domain.exceptions import ExtractionError
+        from ontoagent.domain.exceptions import ExtractionError
 
         with pytest.raises(ExtractionError, match="missing 'relations' key"):
             SemanticExtractor._parse_response('{"foo": "bar"}')
@@ -448,7 +448,7 @@ class TestCallLlm:
 
     def test_call_llm_returns_content_and_tokens(self, mocker):
         """成功调用 → 返回 (content, tokens) 元组。"""
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(
             ollama_url="http://test:11434",
@@ -481,8 +481,8 @@ class TestCallLlm:
         """HTTP 错误 → raise ExtractionError。"""
         import httpx
 
-        from layerkg.domain.exceptions import ExtractionError
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.exceptions import ExtractionError
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(ollama_url="http://test:11434")
 
@@ -499,8 +499,8 @@ class TestCallLlm:
         """超时 → raise ExtractionError。"""
         import httpx
 
-        from layerkg.domain.exceptions import ExtractionError
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.exceptions import ExtractionError
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(timeout=1.0)
 
@@ -511,7 +511,7 @@ class TestCallLlm:
 
     def test_call_llm_token_count_zero_when_missing(self, mocker):
         """响应无 token 字段 → tokens = 0。"""
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor()
 
@@ -532,8 +532,8 @@ class TestCreateBatches:
 
     def test_create_batches_with_batch_size_3(self):
         """5 entities, batch_size=3 → [[0:3], [3:5]]。"""
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=3)
         entities = [CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(5)]
@@ -548,7 +548,7 @@ class TestCreateBatches:
 
     def test_create_batches_empty_entities(self):
         """空 entities → []。"""
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=3)
         batches = extractor._create_batches([])
@@ -557,8 +557,8 @@ class TestCreateBatches:
 
     def test_create_batches_single_batch(self):
         """batch_size >= entities 数量 → 单批。"""
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=10)
         entities = [CodeEntity(name=f"Entity{i}", entity_type="function") for i in range(3)]
@@ -574,8 +574,8 @@ class TestExtractBatch:
 
     def test_extract_batch_returns_relations(self, mocker):
         """mock _call_llm → 返回 2 个 relations。"""
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=5)
 
@@ -620,7 +620,7 @@ class TestExtractBatch:
 
     def test_extract_batch_empty_entities(self, mocker):
         """空 entities → 返回空列表（不调用 _call_llm）。"""
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor()
         mock_llm = mocker.patch.object(extractor, "_call_llm")
@@ -633,8 +633,8 @@ class TestExtractBatch:
 
     def test_extract_batch_fills_file_path(self, mocker):
         """file_path 自动填充。"""
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor()
 
@@ -666,9 +666,9 @@ class TestExtractBatch:
 
     def test_extract_batch_retries_on_failure(self, mocker):
         """_call_llm 失败重试 3 次后 raise ExtractionError。"""
-        from layerkg.domain.exceptions import ExtractionError
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.exceptions import ExtractionError
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(max_retries=3)
 
@@ -696,9 +696,9 @@ class TestExtractBatch:
 
     def test_extract_batch_exhausts_retries(self, mocker):
         """重试耗尽后 raise ExtractionError。"""
-        from layerkg.domain.exceptions import ExtractionError
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.exceptions import ExtractionError
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(max_retries=2)
 
@@ -722,8 +722,8 @@ class TestExtractMultiBatch:
 
     def test_extract_7_entities_batch_size_3(self, mocker):
         """7 个 entities（batch_size=3）→ 3 次 LLM 调用。"""
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=3)
 
@@ -741,8 +741,8 @@ class TestExtractMultiBatch:
 
     def test_extract_entities_processed_count(self, mocker):
         """ExtractionResult.entities_processed = 7。"""
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=5)
 
@@ -758,8 +758,8 @@ class TestExtractMultiBatch:
 
     def test_extract_llm_calls_count(self, mocker):
         """ExtractionResult.llm_calls = 2。"""
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=5)
 
@@ -775,9 +775,9 @@ class TestExtractMultiBatch:
 
     def test_extract_partial_batch_failure(self, mocker):
         """部分批次失败 → errors 非空但其他批次结果保留。"""
-        from layerkg.domain.exceptions import ExtractionError
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.exceptions import ExtractionError
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=3)
 
@@ -819,8 +819,8 @@ class TestExtractComplete:
 
     def test_extract_complete_result_fields(self, mocker):
         """完整流程：extract(5 entities) → ExtractionResult 所有字段正确。"""
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=5)
 
@@ -861,8 +861,8 @@ class TestExtractComplete:
 
     def test_extract_elapsed_ms_positive(self, mocker):
         """elapsed_ms > 0。"""
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=5)
 
@@ -880,7 +880,7 @@ class TestExtractComplete:
 
     def test_extract_empty_entities(self, mocker):
         """空 entities → ExtractionResult(relations=[], entities_processed=0, llm_calls=0)。"""
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=5)
 
@@ -893,8 +893,8 @@ class TestExtractComplete:
 
     def test_extract_with_doc_entities(self, mocker):
         """extract(doc_entities=...) → 额外 describes 关系。"""
-        from layerkg.domain.schema import CodeEntity, DocEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity, DocEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=5)
         mock_response = json.dumps({"relations": []})
@@ -916,8 +916,8 @@ class TestExtractComplete:
 
     def test_extract_with_concept_entities(self, mocker):
         """extract(concept_entities=...) → 额外 derived_from 关系。"""
-        from layerkg.domain.schema import CodeEntity, ConceptEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity, ConceptEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=5)
         mock_response = json.dumps({"relations": []})
@@ -941,8 +941,8 @@ class TestExtractCrossTypeRelations:
 
     def test_doc_name_in_source_creates_describes_relation(self):
         """Doc 名称出现在 code source → 建立 describes 关系。"""
-        from layerkg.domain.schema import CodeEntity, DocEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity, DocEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor()
 
@@ -969,8 +969,8 @@ class TestExtractCrossTypeRelations:
 
     def test_no_match_returns_empty_list(self):
         """无匹配 → 返回空列表。"""
-        from layerkg.domain.schema import CodeEntity, DocEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity, DocEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor()
 
@@ -992,8 +992,8 @@ class TestExtractCrossTypeRelations:
 
     def test_concept_name_match_creates_derived_from_relation(self):
         """Concept 名称匹配 → 建立 derived_from 关系。"""
-        from layerkg.domain.schema import CodeEntity, ConceptEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity, ConceptEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor()
 
@@ -1024,8 +1024,8 @@ class TestExtractBoundary:
 
     def test_large_entities_batched_correctly(self, mocker):
         """大量实体（20个）→ 正确分批（batch_size=20 → 1批）。"""
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=20)
 
@@ -1048,8 +1048,8 @@ class TestExtractBoundary:
 
     def test_llm_returns_empty_relations(self, mocker):
         """LLM 返回空 relations → 无异常，空列表。"""
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=5)
 
@@ -1068,8 +1068,8 @@ class TestExtractBoundary:
 
     def test_confidence_filtering(self, mocker):
         """置信度过滤：confidence < 0.5 被过滤。"""
-        from layerkg.domain.schema import CodeEntity
-        from layerkg.parsing.extractor.semantic import SemanticExtractor
+        from ontoagent.domain.schema import CodeEntity
+        from ontoagent.parsing.extractor.semantic import SemanticExtractor
 
         extractor = SemanticExtractor(batch_size=5)
 

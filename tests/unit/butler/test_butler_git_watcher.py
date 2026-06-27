@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from layerkg.butler.event_bus import ButlerEvent, EventBus
-from layerkg.butler.watchers.git_watcher import GitWatcher
+from ontoagent.butler.event_bus import ButlerEvent, EventBus
+from ontoagent.butler.watchers.git_watcher import GitWatcher
 
 
 class TestGitWatcher:

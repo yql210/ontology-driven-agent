@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from layerkg.pipeline.change_detector import (
+from ontoagent.pipeline.change_detector import (
     ChangedFile,
     ChangeType,
     GitChangeDetector,

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from layerkg.domain.schema import CodeEntity
-from layerkg.parsing.extractor.relation import RelationExtractor
-from layerkg.parsing.parser.base import ExtractedRelation
+from ontoagent.domain.schema import CodeEntity
+from ontoagent.parsing.extractor.relation import RelationExtractor
+from ontoagent.parsing.parser.base import ExtractedRelation
 
 
 def test_extract_contains_module_to_function() -> None:
@@ -473,7 +473,7 @@ def test_build_name_map_multi_value() -> None:
     ]
 
     # Act
-    from layerkg.parsing.extractor.relation import RelationExtractor
+    from ontoagent.parsing.extractor.relation import RelationExtractor
 
     name_map = RelationExtractor._build_name_map(entities)
 

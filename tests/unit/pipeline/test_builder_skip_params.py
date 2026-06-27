@@ -5,14 +5,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from layerkg.config import LayerKGConfig
-from layerkg.pipeline.builder import LayerKGBuilder
+from ontoagent.config import OntoAgentConfig
+from ontoagent.pipeline.builder import OntoAgentBuilder
 
 
 @pytest.fixture
-def mock_config() -> LayerKGConfig:
+def mock_config() -> OntoAgentConfig:
     """创建测试配置。"""
-    return LayerKGConfig(
+    return OntoAgentConfig(
         neo4j_uri="bolt://localhost:7687",
         neo4j_user="neo4j",
         neo4j_password="test",
@@ -23,15 +23,15 @@ def mock_config() -> LayerKGConfig:
 
 
 @pytest.fixture
-def builder(mock_config: LayerKGConfig) -> LayerKGBuilder:
+def builder(mock_config: OntoAgentConfig) -> OntoAgentBuilder:
     """创建 Builder 实例。"""
-    return LayerKGBuilder(mock_config)
+    return OntoAgentBuilder(mock_config)
 
 
 class TestBuildSkipSemantic:
     """测试 build() skip_semantic 参数。"""
 
-    def test_build_skip_semantic_returns_zero_concepts(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_build_skip_semantic_returns_zero_concepts(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         # Arrange
         mock_graph = MagicMock()
         mock_chroma = MagicMock()
@@ -48,7 +48,7 @@ class TestBuildSkipSemantic:
             assert result.concepts_created == 0
             assert result.semantic_relations_created == 0
 
-    def test_build_default_semantic_not_skipped(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_build_default_semantic_not_skipped(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         # Arrange
         mock_graph = MagicMock()
         mock_chroma = MagicMock()
@@ -69,7 +69,7 @@ class TestBuildSkipSemantic:
 class TestBuildSkipClustering:
     """测试 build() skip_clustering 参数。"""
 
-    def test_build_skip_clustering_returns_zero_modules(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_build_skip_clustering_returns_zero_modules(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         # Arrange
         mock_graph = MagicMock()
         mock_chroma = MagicMock()
@@ -84,7 +84,7 @@ class TestBuildSkipClustering:
             # Assert
             assert result.modules_created == 0
 
-    def test_build_default_clustering_not_skipped(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_build_default_clustering_not_skipped(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         # Arrange
         mock_graph = MagicMock()
         mock_chroma = MagicMock()
@@ -105,7 +105,7 @@ class TestBuildSkipClustering:
 class TestBuildSkipBoth:
     """测试同时跳过语义和聚类。"""
 
-    def test_build_skip_both(self, builder: LayerKGBuilder, tmp_path: Path) -> None:
+    def test_build_skip_both(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         # Arrange
         mock_graph = MagicMock()
         mock_chroma = MagicMock()

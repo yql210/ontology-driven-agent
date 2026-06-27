@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from layerkg.execution.action_types import ActionContext, FunctionResult
-from layerkg.execution.functions.registry import (
+from ontoagent.execution.action_types import ActionContext, FunctionResult
+from ontoagent.execution.functions.registry import (
     clear_registry,
     get_function,
     list_functions,

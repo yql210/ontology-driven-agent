@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from layerkg.butler.consistency.guard import ConsistencyGuard
+from ontoagent.butler.consistency.guard import ConsistencyGuard
 
 
 @pytest.fixture

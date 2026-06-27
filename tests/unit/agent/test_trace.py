@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from layerkg.agent.trace import TraceCollector, TraceStep
+from ontoagent.agent.trace import TraceCollector, TraceStep
 
 
 @pytest.mark.asyncio

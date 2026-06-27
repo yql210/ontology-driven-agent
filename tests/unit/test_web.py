@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from layerkg.api.web.app import create_app
+from ontoagent.api.web.app import create_app
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ class TestCORS:
     def test_cors_custom_origins(self):
         """Custom origins from env should be respected."""
         # Re-create app with patched env
-        from layerkg.api.web.app import create_app
+        from ontoagent.api.web.app import create_app
 
         app = create_app()
         test_client = TestClient(app)
@@ -47,7 +47,7 @@ class TestCORS:
     @patch.dict("os.environ", {"CORS_ORIGINS": "http://localhost:5173"})
     def test_cors_wildcard_blocked(self):
         """With explicit origins, wildcard should NOT be used."""
-        from layerkg.api.web.app import create_app
+        from ontoagent.api.web.app import create_app
 
         app = create_app()
         test_client = TestClient(app)
@@ -62,7 +62,7 @@ class TestCORS:
 
 
 class TestChatSync:
-    @patch("layerkg.api.web.router.chat.run_query", new_callable=AsyncMock)
+    @patch("ontoagent.api.web.router.chat.run_query", new_callable=AsyncMock)
     def test_chat_sync_returns_answer(self, mock_run, client):
         mock_run.return_value = "ConceptAligner 在 aligner.py"
         resp = client.post("/api/chat", json={"message": "ConceptAligner在哪"})
@@ -76,7 +76,7 @@ class TestChatSync:
         resp = client.post("/api/chat", json={"message": "  "})
         assert resp.status_code == 422
 
-    @patch("layerkg.api.web.router.chat.run_query", new_callable=AsyncMock)
+    @patch("ontoagent.api.web.router.chat.run_query", new_callable=AsyncMock)
     def test_chat_sync_with_thread_id(self, mock_run, client):
         mock_run.return_value = "ok"
         resp = client.post("/api/chat", json={"message": "test", "thread_id": "my-thread"})
@@ -92,7 +92,7 @@ class TestChatStream:
             yield {"type": "tool_end", "tool": "graph_query"}
             yield {"type": "token", "content": " World"}
 
-        with patch("layerkg.agent.graph.run_query_stream", return_value=fake_stream()):
+        with patch("ontoagent.agent.graph.run_query_stream", return_value=fake_stream()):
             resp = client.post("/api/chat/stream", json={"message": "test"})
             assert resp.status_code == 200
             assert "text/event-stream" in resp.headers.get("content-type", "")
@@ -105,7 +105,7 @@ class TestChatStream:
         async def fake_stream(*args, **kwargs):
             yield {"type": "token", "content": "hi"}
 
-        with patch("layerkg.agent.graph.run_query_stream", return_value=fake_stream()):
+        with patch("ontoagent.agent.graph.run_query_stream", return_value=fake_stream()):
             resp = client.post("/api/chat/stream", json={"message": "test", "thread_id": "t1"})
             assert resp.status_code == 200
 
@@ -117,7 +117,7 @@ class TestChatStream:
             yield {"type": "tool_start", "tool": "search", "args": {}}
             yield {"type": "tool_end", "tool": "search", "result": "ok"}
 
-        with patch("layerkg.agent.graph.run_query_stream", return_value=fake_stream()):
+        with patch("ontoagent.agent.graph.run_query_stream", return_value=fake_stream()):
             resp = client.post("/api/chat/stream", json={"message": "test"})
             assert resp.status_code == 200
             content = resp.text
@@ -135,7 +135,7 @@ class TestChatStream:
             yield {"type": "token", "content": "Hello"}
             raise ValueError("Something went wrong")
 
-        with patch("layerkg.agent.graph.run_query_stream", return_value=fake_stream_error()):
+        with patch("ontoagent.agent.graph.run_query_stream", return_value=fake_stream_error()):
             resp = client.post("/api/chat/stream", json={"message": "test"})
             assert resp.status_code == 200
             content = resp.text
@@ -151,7 +151,7 @@ class TestChatStream:
             yield {"type": "token", "content": "Starting"}
             raise TimeoutError()
 
-        with patch("layerkg.agent.graph.run_query_stream", return_value=fake_stream_timeout()):
+        with patch("ontoagent.agent.graph.run_query_stream", return_value=fake_stream_timeout()):
             resp = client.post("/api/chat/stream", json={"message": "test"})
             assert resp.status_code == 200
             content = resp.text
@@ -247,10 +247,10 @@ def graph_client():
     mock_store = MockGraphStore()
 
     with (
-        patch("layerkg.store.neo4j_store.GraphDatabase"),
-        patch("layerkg.api.web.app.Neo4jGraphStore", return_value=mock_store),
+        patch("ontoagent.store.neo4j_store.GraphDatabase"),
+        patch("ontoagent.api.web.app.Neo4jGraphStore", return_value=mock_store),
     ):
-        from layerkg.api.web.app import create_app
+        from ontoagent.api.web.app import create_app
 
         app = create_app()
         # Override the graph_store with mock
@@ -281,10 +281,10 @@ class TestGraphStats:
         mock_store.query = empty_query
 
         with (
-            patch("layerkg.store.neo4j_store.GraphDatabase"),
-            patch("layerkg.api.web.app.Neo4jGraphStore", return_value=mock_store),
+            patch("ontoagent.store.neo4j_store.GraphDatabase"),
+            patch("ontoagent.api.web.app.Neo4jGraphStore", return_value=mock_store),
         ):
-            from layerkg.api.web.app import create_app
+            from ontoagent.api.web.app import create_app
 
             app = create_app()
             app.state.graph_store = mock_store
@@ -332,10 +332,10 @@ class TestGetGraph:
         mock_store.query = filtered_query
 
         with (
-            patch("layerkg.store.neo4j_store.GraphDatabase"),
-            patch("layerkg.api.web.app.Neo4jGraphStore", return_value=mock_store),
+            patch("ontoagent.store.neo4j_store.GraphDatabase"),
+            patch("ontoagent.api.web.app.Neo4jGraphStore", return_value=mock_store),
         ):
-            from layerkg.api.web.app import create_app
+            from ontoagent.api.web.app import create_app
 
             app = create_app()
             app.state.graph_store = mock_store
@@ -369,10 +369,10 @@ class TestGetGraph:
         mock_store.query = empty_center_query
 
         with (
-            patch("layerkg.store.neo4j_store.GraphDatabase"),
-            patch("layerkg.api.web.app.Neo4jGraphStore", return_value=mock_store),
+            patch("ontoagent.store.neo4j_store.GraphDatabase"),
+            patch("ontoagent.api.web.app.Neo4jGraphStore", return_value=mock_store),
         ):
-            from layerkg.api.web.app import create_app
+            from ontoagent.api.web.app import create_app
 
             app = create_app()
             app.state.graph_store = mock_store

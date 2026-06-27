@@ -16,7 +16,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage
 
-from layerkg.agent.graph import create_agent
+from ontoagent.agent.graph import create_agent
 
 
 def load_eval_set(eval_set_path: Path) -> dict[str, Any]:

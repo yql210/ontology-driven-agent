@@ -4,9 +4,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from layerkg.domain.schema import ConceptEntity
-from layerkg.pipeline.aligner import NO_MATCH, AlignResult, ConceptAligner
-from layerkg.store.neo4j_store import Neo4jGraphStore
+from ontoagent.domain.schema import ConceptEntity
+from ontoagent.pipeline.aligner import NO_MATCH, AlignResult, ConceptAligner
+from ontoagent.store.neo4j_store import Neo4jGraphStore
 
 
 @pytest.fixture

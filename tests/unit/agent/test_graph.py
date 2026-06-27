@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 def test_agent_state_is_messages_state() -> None:
     """验证 AgentState 是 MessagesState 子类"""
-    from layerkg.agent.graph import AgentState
+    from ontoagent.agent.graph import AgentState
 
     # MessagesState 是一个 TypedDict，不能用 issubclass 检查
     # 改为检查 AgentState 是否有 messages 属性
@@ -18,7 +18,7 @@ def test_agent_state_is_messages_state() -> None:
 def test_create_agent_returns_compiled_graph() -> None:
     """验证 create_agent() 返回有 invoke/ainvoke 方法的编译图"""
     # Mock get_config 避免读取环境变量
-    with patch("layerkg.agent._helpers.get_config") as mock_get_config:
+    with patch("ontoagent.agent._helpers.get_config") as mock_get_config:
         mock_config = MagicMock()
         mock_config.agent_llm_model = "gpt-4"
         mock_config.agent_base_url = "https://api.example.com"
@@ -26,13 +26,13 @@ def test_create_agent_returns_compiled_graph() -> None:
         mock_get_config.return_value = mock_config
 
         # Mock ChatAnthropic 避免真实 API 调用
-        with patch("layerkg.agent.graph.ChatOpenAI") as mock_llm_class:
+        with patch("ontoagent.agent.graph.ChatOpenAI") as mock_llm_class:
             mock_llm = MagicMock()
             mock_llm.bind_tools.return_value = mock_llm
             mock_llm.ainvoke.return_value = MagicMock(content="test response")
             mock_llm_class.return_value = mock_llm
 
-            from layerkg.agent.graph import create_agent
+            from ontoagent.agent.graph import create_agent
 
             graph = create_agent()
 
@@ -46,20 +46,20 @@ def test_create_agent_returns_compiled_graph() -> None:
 
 def test_create_agent_has_correct_nodes() -> None:
     """验证 create_agent() 创建的图包含 agent 和 tools 节点"""
-    with patch("layerkg.agent._helpers.get_config") as mock_get_config:
+    with patch("ontoagent.agent._helpers.get_config") as mock_get_config:
         mock_config = MagicMock()
         mock_config.agent_llm_model = "gpt-4"
         mock_config.agent_base_url = "https://api.example.com"
         mock_config.agent_api_key = "test-key"
         mock_get_config.return_value = mock_config
 
-        with patch("layerkg.agent.graph.ChatOpenAI") as mock_llm_class:
+        with patch("ontoagent.agent.graph.ChatOpenAI") as mock_llm_class:
             mock_llm = MagicMock()
             mock_llm.bind_tools.return_value = mock_llm
             mock_llm.ainvoke.return_value = MagicMock(content="test response")
             mock_llm_class.return_value = mock_llm
 
-            from layerkg.agent.graph import create_agent
+            from ontoagent.agent.graph import create_agent
 
             graph = create_agent()
 
@@ -74,14 +74,14 @@ def test_create_agent_has_correct_nodes() -> None:
 
 def test_llm_singleton() -> None:
     """验证多次调用 _get_llm() 返回同一实例"""
-    with patch("layerkg.agent._helpers.get_config") as mock_get_config:
+    with patch("ontoagent.agent._helpers.get_config") as mock_get_config:
         mock_config = MagicMock()
         mock_config.agent_llm_model = "gpt-4"
         mock_config.agent_base_url = "https://api.example.com"
         mock_config.agent_api_key = "test-key"
         mock_get_config.return_value = mock_config
 
-        from layerkg.agent.graph import _get_llm, _reset_llm
+        from ontoagent.agent.graph import _get_llm, _reset_llm
 
         # Reset first
         _reset_llm()
@@ -97,14 +97,14 @@ def test_llm_singleton() -> None:
 
 def test_llm_reset() -> None:
     """验证 _reset_llm() 后创建新实例"""
-    with patch("layerkg.agent._helpers.get_config") as mock_get_config:
+    with patch("ontoagent.agent._helpers.get_config") as mock_get_config:
         mock_config = MagicMock()
         mock_config.agent_llm_model = "gpt-4"
         mock_config.agent_base_url = "https://api.example.com"
         mock_config.agent_api_key = "test-key"
         mock_get_config.return_value = mock_config
 
-        from layerkg.agent.graph import _get_llm, _reset_llm
+        from ontoagent.agent.graph import _get_llm, _reset_llm
 
         # Get first instance
         llm1 = _get_llm()

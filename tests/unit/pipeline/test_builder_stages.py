@@ -5,15 +5,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from layerkg.config import LayerKGConfig
-from layerkg.domain.schema import CodeEntity, Relation
-from layerkg.pipeline.builder import LayerKGBuilder
+from ontoagent.config import OntoAgentConfig
+from ontoagent.domain.schema import CodeEntity, Relation
+from ontoagent.pipeline.builder import OntoAgentBuilder
 
 
 @pytest.fixture
-def mock_config() -> LayerKGConfig:
+def mock_config() -> OntoAgentConfig:
     """创建测试配置。"""
-    return LayerKGConfig(
+    return OntoAgentConfig(
         neo4j_uri="bolt://localhost:7687",
         neo4j_user="neo4j",
         neo4j_password="test",
@@ -24,9 +24,9 @@ def mock_config() -> LayerKGConfig:
 
 
 @pytest.fixture
-def builder(mock_config: LayerKGConfig) -> LayerKGBuilder:
+def builder(mock_config: OntoAgentConfig) -> OntoAgentBuilder:
     """创建 Builder 实例。"""
-    return LayerKGBuilder(mock_config)
+    return OntoAgentBuilder(mock_config)
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ def sample_entities() -> list[CodeEntity]:
 class TestStageParse:
     """测试 _stage_parse 方法。"""
 
-    def test_stage_parse_returns_entities_and_relations(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+    def test_stage_parse_returns_entities_and_relations(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
         """验证 _stage_parse 正常工作，返回五元组 (entities, doc_entities, relations, files_scanned, unresolved_imports)。"""
         # Arrange & Act
         all_entities, doc_entities, relations, files_scanned, unresolved_imports = builder._stage_parse(temp_repo)
@@ -80,7 +80,7 @@ class TestStageWriteStructural:
     """测试 _stage_write_structural 方法。"""
 
     def test_stage_write_structural_raises_on_neo4j_failure(
-        self, builder: LayerKGBuilder, sample_entities: list[CodeEntity]
+        self, builder: OntoAgentBuilder, sample_entities: list[CodeEntity]
     ) -> None:
         """验证 Stage 2 Neo4j merge_node 失败时抛 RuntimeError。"""
         # Arrange
@@ -98,7 +98,7 @@ class TestStageWriteStructural:
             builder._stage_write_structural(sample_entities, doc_entities, relations, unresolved_imports)
 
     def test_stage_write_structural_writes_entities_and_relations(
-        self, builder: LayerKGBuilder, sample_entities: list[CodeEntity]
+        self, builder: OntoAgentBuilder, sample_entities: list[CodeEntity]
     ) -> None:
         """验证 Stage 2 正常写入实体和关系。"""
         # Arrange
@@ -128,7 +128,7 @@ class TestStageSemantic:
 
     def test_stage_semantic_degraded_when_ollama_down(
         self,
-        builder: LayerKGBuilder,
+        builder: OntoAgentBuilder,
         sample_entities: list[CodeEntity],
         temp_repo: Path,
     ) -> None:
@@ -151,7 +151,7 @@ class TestStageSemantic:
 
     def test_stage_semantic_extracts_when_ollama_available(
         self,
-        builder: LayerKGBuilder,
+        builder: OntoAgentBuilder,
         sample_entities: list[CodeEntity],
         temp_repo: Path,
     ) -> None:
@@ -178,7 +178,7 @@ class TestStageSemantic:
 class TestBuildAborted:
     """测试 build() 的中止行为。"""
 
-    def test_build_aborted_on_stage2_failure(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+    def test_build_aborted_on_stage2_failure(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
         """验证 Stage 2 失败 → aborted=True，提前返回。"""
         # Arrange
         mock_graph = MagicMock()
@@ -199,7 +199,7 @@ class TestBuildAborted:
 class TestBuildElapsed:
     """测试 build() 的计时功能。"""
 
-    def test_build_elapsed_ms_positive(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+    def test_build_elapsed_ms_positive(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
         """验证 elapsed_ms > 0。"""
         # Arrange
         mock_graph = MagicMock()
@@ -219,7 +219,7 @@ class TestBuildElapsed:
 class TestBuildFullPipeline:
     """测试 build() 完整流水线。"""
 
-    def test_build_full_pipeline_succeeds(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+    def test_build_full_pipeline_succeeds(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
         """端到端正常路径，验证所有阶段成功执行。"""
         # Arrange
         mock_graph = MagicMock()
@@ -252,7 +252,7 @@ class TestBuildFullPipeline:
 class TestBuildErrorAccumulation:
     """测试 build() 的错误累积行为。"""
 
-    def test_build_continues_after_stage4_failure(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+    def test_build_continues_after_stage4_failure(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
         """验证 Stage 4 失败后继续 Stage 5，结果包含错误但不中止。"""
         # Arrange
         mock_graph = MagicMock()
@@ -282,7 +282,7 @@ class TestBuildErrorAccumulation:
             assert len(result.errors) > 0
             assert any("Module clustering error" in e for e in result.errors)
 
-    def test_build_accumulates_errors_from_stages_3_4_5(self, builder: LayerKGBuilder, temp_repo: Path) -> None:
+    def test_build_accumulates_errors_from_stages_3_4_5(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
         """验证多阶段降级时错误累积到 errors 列表。"""
         # Arrange
         mock_graph = MagicMock()

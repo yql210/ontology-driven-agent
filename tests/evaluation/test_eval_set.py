@@ -28,7 +28,7 @@ VALID_ENTITIES = {
     "ConceptAligner",
     "AlignResult",
     "ChromaStore",
-    "LayerKGConfig",
+    "OntoAgentConfig",
     "GitChangeDetector",
     "SHA256Cache",
     "ChangedFile",
@@ -36,7 +36,7 @@ VALID_ENTITIES = {
     "GitStatus",
     "RelationExtractor",
     "SemanticExtractor",
-    "LayerKGError",
+    "OntoAgentError",
     "SchemaValidationError",
     "StoreError",
     "EmbeddingError",
@@ -73,7 +73,7 @@ VALID_ENTITIES = {
     "Builder Pattern",
     # 模块
     "module_0",
-    "layerkg",
+    "ontoagent",
 }
 
 

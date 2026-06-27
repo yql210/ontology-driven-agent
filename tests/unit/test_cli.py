@@ -6,9 +6,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from layerkg.api.cli import main
-from layerkg.pipeline.builder import BuildResult
-from layerkg.store.schema_version import SchemaStatus
+from ontoagent.api.cli import main
+from ontoagent.pipeline.builder import BuildResult
+from ontoagent.store.schema_version import SchemaStatus
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ class TestMain:
 
         # Assert
         assert result.exit_code == 0
-        assert "LayerKG" in result.output
+        assert "OntoAgent" in result.output
         assert "build" in result.output
         assert "query" in result.output
         assert "info" in result.output
@@ -55,8 +55,8 @@ class TestBuildCommand:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.OntoAgentBuilder", return_value=mock_builder),
         ):
             mock_config_cls.from_env.return_value = MagicMock()
 
@@ -88,8 +88,8 @@ class TestBuildCommand:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.OntoAgentBuilder", return_value=mock_builder),
         ):
             mock_config_cls.from_env.return_value = MagicMock()
 
@@ -120,8 +120,8 @@ class TestQueryCommand:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.OntoAgentBuilder", return_value=mock_builder),
         ):
             mock_config_cls.from_env.return_value = MagicMock()
 
@@ -143,8 +143,8 @@ class TestQueryCommand:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.OntoAgentBuilder", return_value=mock_builder),
         ):
             mock_config_cls.from_env.return_value = MagicMock()
 
@@ -163,8 +163,8 @@ class TestQueryCommand:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.OntoAgentBuilder", return_value=mock_builder),
         ):
             mock_config_cls.from_env.return_value = MagicMock()
 
@@ -183,8 +183,8 @@ class TestQueryCommand:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.OntoAgentBuilder", return_value=mock_builder),
         ):
             mock_config_cls.from_env.return_value = MagicMock()
 
@@ -210,8 +210,8 @@ class TestQueryCommand:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.OntoAgentBuilder", return_value=mock_builder),
         ):
             mock_config_cls.from_env.return_value = MagicMock()
 
@@ -242,8 +242,8 @@ class TestInfoCommand:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.OntoAgentBuilder", return_value=mock_builder),
         ):
             mock_config = MagicMock()
             mock_config.neo4j_uri = "bolt://localhost:7687"
@@ -272,7 +272,7 @@ class TestServeCommand:
         # Arrange
         mock_run = MagicMock()
 
-        with patch("layerkg.api.mcp_server.mcp.run", mock_run):
+        with patch("ontoagent.api.mcp_server.mcp.run", mock_run):
             # Act
             result = runner.invoke(main, ["serve"])
 
@@ -286,7 +286,7 @@ class TestServeCommand:
         # Arrange
         mock_run = MagicMock()
 
-        with patch("layerkg.api.mcp_server.mcp.run", mock_run):
+        with patch("ontoagent.api.mcp_server.mcp.run", mock_run):
             # Act
             result = runner.invoke(main, ["serve", "--transport", "http", "--port", "9000"])
 
@@ -309,7 +309,7 @@ class TestUpdateCommand:
         mock_updater.__enter__ = MagicMock(return_value=mock_updater)
         mock_updater.__exit__ = MagicMock(return_value=False)
 
-        with patch("layerkg.api.cli.IncrementalUpdater", return_value=mock_updater):
+        with patch("ontoagent.api.cli.IncrementalUpdater", return_value=mock_updater):
             # Act
             result = runner.invoke(main, ["update", str(tmp_path)])
 
@@ -328,7 +328,7 @@ class TestUpdateCommand:
         mock_updater.__enter__ = MagicMock(return_value=mock_updater)
         mock_updater.__exit__ = MagicMock(return_value=False)
 
-        with patch("layerkg.api.cli.IncrementalUpdater", return_value=mock_updater):
+        with patch("ontoagent.api.cli.IncrementalUpdater", return_value=mock_updater):
             # Act
             result = runner.invoke(main, ["update", str(tmp_path), "--dry-run"])
 
@@ -379,8 +379,8 @@ class TestErrorHandling:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.OntoAgentBuilder", return_value=mock_builder),
         ):
             mock_config_cls.from_env.return_value = MagicMock()
 
@@ -405,8 +405,8 @@ class TestVerboseFlag:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.OntoAgentBuilder", return_value=mock_builder),
         ):
             mock_config_cls.from_env.return_value = MagicMock()
 
@@ -428,11 +428,11 @@ class TestMigrateCommand:
         mock_config = MagicMock()
 
         with (
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.api.cli.Neo4jGraphStore", return_value=mock_store),
-            patch("layerkg.api.cli.check_schema_version") as mock_check,
-            patch("layerkg.api.cli.MigrationRunner") as mock_runner_cls,
-            patch("layerkg.api.cli.MigrationRegistry") as mock_registry_cls,
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.Neo4jGraphStore", return_value=mock_store),
+            patch("ontoagent.api.cli.check_schema_version") as mock_check,
+            patch("ontoagent.api.cli.MigrationRunner") as mock_runner_cls,
+            patch("ontoagent.api.cli.MigrationRegistry") as mock_registry_cls,
         ):
             mock_config_cls.from_env.return_value = mock_config
             mock_config.neo4j_uri = "bolt://localhost:7687"
@@ -459,11 +459,11 @@ class TestMigrateCommand:
         mock_config = MagicMock()
 
         with (
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.api.cli.Neo4jGraphStore", return_value=mock_store),
-            patch("layerkg.api.cli.check_schema_version") as mock_check,
-            patch("layerkg.api.cli.MigrationRunner") as mock_runner_cls,
-            patch("layerkg.api.cli.MigrationRegistry") as mock_registry_cls,
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.Neo4jGraphStore", return_value=mock_store),
+            patch("ontoagent.api.cli.check_schema_version") as mock_check,
+            patch("ontoagent.api.cli.MigrationRunner") as mock_runner_cls,
+            patch("ontoagent.api.cli.MigrationRegistry") as mock_registry_cls,
         ):
             mock_config_cls.from_env.return_value = mock_config
             mock_config.neo4j_uri = "bolt://localhost:7687"
@@ -490,10 +490,10 @@ class TestMigrateCommand:
         mock_config = MagicMock()
 
         with (
-            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.api.cli.Neo4jGraphStore", return_value=mock_store),
-            patch("layerkg.api.cli.MigrationRunner") as mock_runner_cls,
-            patch("layerkg.api.cli.MigrationRegistry") as mock_registry_cls,
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.Neo4jGraphStore", return_value=mock_store),
+            patch("ontoagent.api.cli.MigrationRunner") as mock_runner_cls,
+            patch("ontoagent.api.cli.MigrationRegistry") as mock_registry_cls,
         ):
             mock_config_cls.from_env.return_value = mock_config
             mock_config.neo4j_uri = "bolt://localhost:7687"

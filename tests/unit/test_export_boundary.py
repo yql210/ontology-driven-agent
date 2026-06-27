@@ -10,7 +10,7 @@ def test_export_graph_dot_format():
     """验证 DOT 输出格式正确。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_neo4j = unittest.mock.MagicMock()
 
@@ -27,7 +27,7 @@ def test_export_graph_dot_format():
 
     mock_neo4j.query.side_effect = mock_query
 
-    with unittest.mock.patch("layerkg.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
         result = mcp_server.export_graph(format="dot")
 
         # 验证返回结构
@@ -47,7 +47,7 @@ def test_export_graph_cytoscape_format():
     """验证 Cytoscape 输出结构。"""
     import unittest.mock
 
-    from layerkg.api import mcp_server
+    from ontoagent.api import mcp_server
 
     mock_neo4j = unittest.mock.MagicMock()
 
@@ -65,7 +65,7 @@ def test_export_graph_cytoscape_format():
 
     mock_neo4j.query.side_effect = mock_query
 
-    with unittest.mock.patch("layerkg.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
         result = mcp_server.export_graph(format="cytoscape")
 
         # 验证返回结构
@@ -98,7 +98,7 @@ def test_change_detector_mixed_status():
     """验证 git diff 含混合状态（A+M+D）的正确分类。"""
     import unittest.mock
 
-    from layerkg.pipeline.change_detector import GitChangeDetector, GitStatus
+    from ontoagent.pipeline.change_detector import GitChangeDetector, GitStatus
 
     detector = GitChangeDetector(repo_path=Path.cwd())
 

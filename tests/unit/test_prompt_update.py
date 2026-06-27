@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from layerkg.agent.prompt import AGENT_SYSTEM_PROMPT, INTENT_SECTION
+from ontoagent.agent.prompt import AGENT_SYSTEM_PROMPT, INTENT_SECTION
 
 
 def test_prompt_contains_express_intent() -> None:

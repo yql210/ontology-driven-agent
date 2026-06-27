@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-from layerkg.execution.action_types import ActionResult, FunctionResult
+from ontoagent.execution.action_types import ActionResult, FunctionResult
 
 
 def test_express_intent_refactor() -> None:
     """express_intent calls ActionExecutor.execute and returns JSON result."""
-    from layerkg.agent.tools import express_intent
+    from ontoagent.agent.tools import express_intent
 
     mock_result = ActionResult(
         success=True,
@@ -23,8 +23,8 @@ def test_express_intent_refactor() -> None:
     mock_executor.execute.return_value = mock_result
 
     with (
-        patch("layerkg.agent.tools._get_action_executor", return_value=mock_executor),
-        patch("layerkg.agent.tools.get_neo4j"),
+        patch("ontoagent.agent.tools._get_action_executor", return_value=mock_executor),
+        patch("ontoagent.agent.tools.get_neo4j"),
     ):
         raw = express_intent.invoke({"intent_type": "refactor", "target": "Cache", "params": None})
         parsed = json.loads(raw)
@@ -37,7 +37,7 @@ def test_express_intent_refactor() -> None:
 
 def test_express_intent_unknown_type() -> None:
     """express_intent returns error JSON for unknown intent_type."""
-    from layerkg.agent.tools import express_intent
+    from ontoagent.agent.tools import express_intent
 
     mock_result = ActionResult(
         success=False,
@@ -49,8 +49,8 @@ def test_express_intent_unknown_type() -> None:
     mock_executor.execute.return_value = mock_result
 
     with (
-        patch("layerkg.agent.tools._get_action_executor", return_value=mock_executor),
-        patch("layerkg.agent.tools.get_neo4j"),
+        patch("ontoagent.agent.tools._get_action_executor", return_value=mock_executor),
+        patch("ontoagent.agent.tools.get_neo4j"),
     ):
         raw = express_intent.invoke({"intent_type": "unknown_action", "target": "Cache", "params": None})
         parsed = json.loads(raw)
@@ -61,14 +61,14 @@ def test_express_intent_unknown_type() -> None:
 
 def test_express_intent_exception_handling() -> None:
     """express_intent catches exceptions and returns error JSON."""
-    from layerkg.agent.tools import express_intent
+    from ontoagent.agent.tools import express_intent
 
     mock_executor = MagicMock()
     mock_executor.execute.side_effect = RuntimeError("boom")
 
     with (
-        patch("layerkg.agent.tools._get_action_executor", return_value=mock_executor),
-        patch("layerkg.agent.tools.get_neo4j"),
+        patch("ontoagent.agent.tools._get_action_executor", return_value=mock_executor),
+        patch("ontoagent.agent.tools.get_neo4j"),
     ):
         raw = express_intent.invoke({"intent_type": "refactor", "target": "Cache", "params": None})
         parsed = json.loads(raw)
@@ -79,7 +79,7 @@ def test_express_intent_exception_handling() -> None:
 
 def test_all_tools_contains_express_intent() -> None:
     """ALL_TOOLS list contains express_intent, not ontology_action."""
-    from layerkg.agent.tools import ALL_TOOLS
+    from ontoagent.agent.tools import ALL_TOOLS
 
     tool_names = [t.name for t in ALL_TOOLS]
     assert "express_intent" in tool_names
@@ -88,13 +88,13 @@ def test_all_tools_contains_express_intent() -> None:
 
 def test_action_executor_singleton() -> None:
     """_get_action_executor creates and caches a singleton."""
-    import layerkg.agent.tools as tools_mod
+    import ontoagent.agent.tools as tools_mod
 
     # Reset singleton
     tools_mod._action_executor = None
 
     mock_store = MagicMock()
-    with patch("layerkg.execution.action_executor.ActionExecutor") as mock_executor_cls:
+    with patch("ontoagent.execution.action_executor.ActionExecutor") as mock_executor_cls:
         instance = MagicMock()
         mock_executor_cls.return_value = instance
 
@@ -115,7 +115,7 @@ class TestGap1FunctionRunnerInjection:
 
     def test_action_executor_receives_function_runner(self) -> None:
         """ActionExecutor 单例应注入 FunctionRunner."""
-        import layerkg.agent.tools as tools_mod
+        import ontoagent.agent.tools as tools_mod
 
         tools_mod._action_executor = None
         mock_store = MagicMock()
@@ -131,7 +131,7 @@ class TestGap1FunctionRunnerInjection:
 
     def test_function_runner_is_shared_singleton(self) -> None:
         """Repeated _get_action_executor calls share the same FunctionRunner."""
-        import layerkg.agent.tools as tools_mod
+        import ontoagent.agent.tools as tools_mod
 
         mock_store = MagicMock()
 
@@ -154,7 +154,7 @@ class TestGap2GeneralFunctionsRegistered:
 
     def test_general_functions_registered_on_tools_import(self) -> None:
         """Importing tools.py should trigger general function registration."""
-        from layerkg.execution.functions.registry import list_functions
+        from ontoagent.execution.functions.registry import list_functions
 
         expected = [
             "query_entity",
@@ -166,7 +166,7 @@ class TestGap2GeneralFunctionsRegistered:
         ]
 
         # Import tools triggers the chain
-        import layerkg.agent.tools  # noqa: F401
+        import ontoagent.agent.tools  # noqa: F401
 
         registered = list_functions()
         for name in expected:
@@ -174,9 +174,9 @@ class TestGap2GeneralFunctionsRegistered:
 
     def test_query_entity_callable_from_registry(self) -> None:
         """query_entity should be callable from the registry."""
-        import layerkg.agent.tools  # noqa: F401
-        from layerkg.execution.action_types import ActionContext
-        from layerkg.execution.functions.registry import get_function
+        import ontoagent.agent.tools  # noqa: F401
+        from ontoagent.execution.action_types import ActionContext
+        from ontoagent.execution.functions.registry import get_function
 
         fn = get_function("query_entity")
         assert fn is not None
@@ -190,9 +190,9 @@ class TestGap2GeneralFunctionsRegistered:
 
     def test_check_condition_callable_from_registry(self) -> None:
         """check_condition should be callable from the registry."""
-        import layerkg.agent.tools  # noqa: F401
-        from layerkg.execution.action_types import ActionContext
-        from layerkg.execution.functions.registry import get_function
+        import ontoagent.agent.tools  # noqa: F401
+        from ontoagent.execution.action_types import ActionContext
+        from ontoagent.execution.functions.registry import get_function
 
         fn = get_function("check_condition")
         assert fn is not None

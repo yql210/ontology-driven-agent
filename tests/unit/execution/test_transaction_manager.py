@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from layerkg.execution.transaction_manager import Neo4jTransaction, TransactionManager
+from ontoagent.execution.transaction_manager import Neo4jTransaction, TransactionManager
 
 # =============================================================================
 # TransactionManager tests

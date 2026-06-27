@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from layerkg.execution.action_types import ActionContext, FunctionResult
-from layerkg.execution.saga import SagaExecution, SagaOrchestrator, SagaStep
+from ontoagent.execution.action_types import ActionContext, FunctionResult
+from ontoagent.execution.saga import SagaExecution, SagaOrchestrator, SagaStep
 
 # =============================================================================
 # Helpers

@@ -1,4 +1,4 @@
-# LayerKG — Ontology-Driven Knowledge Graph Engine
+# OntoAgent — Ontology-Driven Knowledge Graph Engine
 
 <p align="center">
   <strong>Query your codebase with natural language</strong>
@@ -15,7 +15,7 @@
 
 ---
 
-LayerKG is an **ontology-driven intelligent DevOps platform** that automatically constructs knowledge graphs from source code and documentation, enabling architectural queries, dependency analysis, and change impact assessment through natural language.
+OntoAgent is an **ontology-driven intelligent DevOps platform** that automatically constructs knowledge graphs from source code and documentation, enabling architectural queries, dependency analysis, and change impact assessment through natural language.
 
 ```
 "Who depends on merge_node()?"  →  BFS impact propagation
@@ -35,7 +35,7 @@ LayerKG is an **ontology-driven intelligent DevOps platform** that automatically
 
 ## Architecture
 
-LayerKG V3.4 adopts a four-layer architecture: **Intent → Control → Capability → Semantic**.
+OntoAgent V3.4 adopts a four-layer architecture: **Intent → Control → Capability → Semantic**.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -73,23 +73,23 @@ cp .env.example .env
 # Edit .env with your Neo4j credentials and LLM API keys
 
 # Build knowledge graph
-uv run layerkg build ./your-repo --clear
+uv run ontoagent build ./your-repo --clear
 
 # Query with natural language
-uv run layerkg query "functions handling user authentication"
+uv run ontoagent query "functions handling user authentication"
 ```
 
 ## Docker Deployment
 
 ```bash
-# Start Neo4j + ChromaDB + LayerKG
+# Start Neo4j + ChromaDB + OntoAgent
 docker compose up -d
 
 # Run CLI commands
-docker compose run --rm layerkg layerkg build ./repo
+docker compose run --rm ontoagent ontoagent build ./repo
 ```
 
-## LayerKG Schema
+## OntoAgent Schema
 
 ### 6 Entities
 
@@ -113,17 +113,17 @@ docker compose run --rm layerkg layerkg build ./repo
 ## CLI Commands
 
 ```bash
-layerkg build <repo>      # Full build (7-stage pipeline)
-layerkg query <text>      # Semantic search
-layerkg update --since <rev>  # Incremental update
-layerkg migrate           # Schema migration
-layerkg serve             # Start MCP server
+ontoagent build <repo>      # Full build (7-stage pipeline)
+ontoagent query <text>      # Semantic search
+ontoagent update --since <rev>  # Incremental update
+ontoagent migrate           # Schema migration
+ontoagent serve             # Start MCP server
 ```
 
 ## Project Structure
 
 ```
-src/layerkg/
+src/ontoagent/
 ├── schema.py              # 6 entities + 11 relations
 ├── graph_store.py         # GraphStore abstract interface
 ├── neo4j_store.py         # Neo4j with constraints + version registry

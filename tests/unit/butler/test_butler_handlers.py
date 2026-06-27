@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from layerkg.butler.event_bus import ButlerEvent
-from layerkg.butler.handlers.base import BaseHandler, HandlerContext, HandlerResult
-from layerkg.config import LayerKGConfig
+from ontoagent.butler.event_bus import ButlerEvent
+from ontoagent.butler.handlers.base import BaseHandler, HandlerContext, HandlerResult
+from ontoagent.config import OntoAgentConfig
 
 
 class DummyHandler(BaseHandler):
@@ -55,7 +55,7 @@ class TestHandlerContext:
 
     def test_handler_context_init(self) -> None:
         """Test HandlerContext initialization."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         ctx = HandlerContext(config=config)
         assert ctx.config is config
         assert ctx.guard is None
@@ -64,7 +64,7 @@ class TestHandlerContext:
 
     def test_handler_context_with_guard(self) -> None:
         """Test HandlerContext with guard."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         guard = MagicMock()
         ctx = HandlerContext(config=config, guard=guard)
         assert ctx.guard is guard
@@ -72,7 +72,7 @@ class TestHandlerContext:
 
     def test_handler_context_with_skill_store(self) -> None:
         """Test HandlerContext with skill_store."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         skill_store = MagicMock()
         ctx = HandlerContext(config=config, skill_store=skill_store)
         assert ctx.skill_store is skill_store
@@ -80,7 +80,7 @@ class TestHandlerContext:
 
     def test_handler_context_get_graph_store_lazy_init(self) -> None:
         """Test HandlerContext.get_graph_store lazy initialization."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         ctx = HandlerContext(config=config)
 
         # Verify _graph_store is None initially
@@ -92,7 +92,7 @@ class TestHandlerContext:
 
     def test_handler_context_get_graph_store_cached(self) -> None:
         """Test HandlerContext.get_graph_store returns cached instance."""
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         ctx = HandlerContext(config=config)
         mock_store = MagicMock()
         ctx._graph_store = mock_store
@@ -115,7 +115,7 @@ class TestBaseHandler:
         """Test DummyHandler.handle returns HandlerResult."""
         handler = DummyHandler()
         event = ButlerEvent(event_type="test.event", payload={"test": "data"})
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         ctx = HandlerContext(config=config)
 
         result = await handler.handle(event, ctx)
@@ -133,7 +133,7 @@ class TestKnowledgeUpdateHandler:
 
     def test_handler_properties(self) -> None:
         """Test KnowledgeUpdateHandler properties."""
-        from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
+        from ontoagent.butler.handlers.knowledge_update import KnowledgeUpdateHandler
 
         handler = KnowledgeUpdateHandler()
         assert handler.handler_id == "knowledge.update"
@@ -142,8 +142,8 @@ class TestKnowledgeUpdateHandler:
     @pytest.mark.asyncio
     async def test_handle_success(self) -> None:
         """Test KnowledgeUpdateHandler.handle success case."""
-        from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
-        from layerkg.pipeline.incremental_updater import UpdateReport
+        from ontoagent.butler.handlers.knowledge_update import KnowledgeUpdateHandler
+        from ontoagent.pipeline.incremental_updater import UpdateReport
 
         handler = KnowledgeUpdateHandler()
         event = ButlerEvent(
@@ -151,7 +151,7 @@ class TestKnowledgeUpdateHandler:
             payload={"since": "HEAD~3", "repo_path": "/path/to/repo", "full_scan": False},
         )
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         mock_guard = MagicMock()
         mock_guard.log_operation = AsyncMock()
         ctx = HandlerContext(config=config, guard=mock_guard)
@@ -170,7 +170,7 @@ class TestKnowledgeUpdateHandler:
             elapsed_ms=123.45,
         )
 
-        with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_class:
+        with patch("ontoagent.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater.update = MagicMock(return_value=mock_report)
             mock_updater.close = MagicMock()
@@ -188,13 +188,13 @@ class TestKnowledgeUpdateHandler:
     @pytest.mark.asyncio
     async def test_handle_with_default_payload(self) -> None:
         """Test KnowledgeUpdateHandler.handle with default payload values."""
-        from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
-        from layerkg.pipeline.incremental_updater import UpdateReport
+        from ontoagent.butler.handlers.knowledge_update import KnowledgeUpdateHandler
+        from ontoagent.pipeline.incremental_updater import UpdateReport
 
         handler = KnowledgeUpdateHandler()
         event = ButlerEvent(event_type="code.changed", payload={})
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         mock_guard = MagicMock()
         mock_guard.log_operation = AsyncMock()
         ctx = HandlerContext(config=config, guard=mock_guard)
@@ -212,7 +212,7 @@ class TestKnowledgeUpdateHandler:
             elapsed_ms=0,
         )
 
-        with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_class:
+        with patch("ontoagent.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater.update = MagicMock(return_value=mock_report)
             mock_updater.close = MagicMock()
@@ -227,17 +227,17 @@ class TestKnowledgeUpdateHandler:
     @pytest.mark.asyncio
     async def test_handle_exception(self) -> None:
         """Test KnowledgeUpdateHandler.handle exception handling."""
-        from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
+        from ontoagent.butler.handlers.knowledge_update import KnowledgeUpdateHandler
 
         handler = KnowledgeUpdateHandler()
         event = ButlerEvent(event_type="code.changed", payload={"since": "HEAD~3"})
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         mock_guard = MagicMock()
         mock_guard.log_operation = AsyncMock()
         ctx = HandlerContext(config=config, guard=mock_guard)
 
-        with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+        with patch("ontoagent.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
             mock_updater = MagicMock()
             mock_updater.update = MagicMock(side_effect=RuntimeError("Connection failed"))
             mock_updater.close = MagicMock()
@@ -253,13 +253,13 @@ class TestKnowledgeUpdateHandler:
     @pytest.mark.asyncio
     async def test_handle_closes_updater(self) -> None:
         """Test KnowledgeUpdateHandler closes updater after use."""
-        from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
-        from layerkg.pipeline.incremental_updater import UpdateReport
+        from ontoagent.butler.handlers.knowledge_update import KnowledgeUpdateHandler
+        from ontoagent.pipeline.incremental_updater import UpdateReport
 
         handler = KnowledgeUpdateHandler()
         event = ButlerEvent(event_type="code.changed", payload={"since": "HEAD~1"})
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         ctx = HandlerContext(config=config)
 
         mock_report = UpdateReport(
@@ -275,7 +275,7 @@ class TestKnowledgeUpdateHandler:
             elapsed_ms=0,
         )
 
-        with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_class:
+        with patch("ontoagent.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater.update = MagicMock(return_value=mock_report)
             mock_updater.close = MagicMock()
@@ -292,7 +292,7 @@ class TestFullBuildHandler:
 
     def test_handler_properties(self) -> None:
         """Test FullBuildHandler properties."""
-        from layerkg.butler.handlers.knowledge_update import FullBuildHandler
+        from ontoagent.butler.handlers.knowledge_update import FullBuildHandler
 
         handler = FullBuildHandler()
         assert handler.handler_id == "knowledge.full_build"
@@ -301,13 +301,13 @@ class TestFullBuildHandler:
     @pytest.mark.asyncio
     async def test_handle_success(self) -> None:
         """Test FullBuildHandler.handle success case."""
-        from layerkg.butler.handlers.knowledge_update import FullBuildHandler
-        from layerkg.pipeline.builder import BuildResult
+        from ontoagent.butler.handlers.knowledge_update import FullBuildHandler
+        from ontoagent.pipeline.builder import BuildResult
 
         handler = FullBuildHandler()
         event = ButlerEvent(event_type="build.full", payload={"repo_path": "/path/to/repo"})
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         mock_guard = MagicMock()
         mock_guard.log_operation = AsyncMock()
         ctx = HandlerContext(config=config, guard=mock_guard)
@@ -325,7 +325,7 @@ class TestFullBuildHandler:
             elapsed_ms=5000.0,
         )
 
-        with patch("layerkg.pipeline.builder.LayerKGBuilder") as mock_builder_class:
+        with patch("ontoagent.pipeline.builder.OntoAgentBuilder") as mock_builder_class:
             mock_builder = MagicMock()
             mock_builder.build = MagicMock(return_value=mock_result)
             mock_builder.close = MagicMock()
@@ -343,13 +343,13 @@ class TestFullBuildHandler:
     @pytest.mark.asyncio
     async def test_handle_with_default_repo_path(self) -> None:
         """Test FullBuildHandler.handle with default repo_path (cwd)."""
-        from layerkg.butler.handlers.knowledge_update import FullBuildHandler
-        from layerkg.pipeline.builder import BuildResult
+        from ontoagent.butler.handlers.knowledge_update import FullBuildHandler
+        from ontoagent.pipeline.builder import BuildResult
 
         handler = FullBuildHandler()
         event = ButlerEvent(event_type="build.full", payload={})
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         ctx = HandlerContext(config=config)
 
         mock_result = BuildResult(
@@ -359,8 +359,8 @@ class TestFullBuildHandler:
         )
 
         with (
-            patch("layerkg.pipeline.builder.LayerKGBuilder") as mock_builder_cls,
-            patch("layerkg.butler.handlers.knowledge_update.Path") as mock_path_cls,
+            patch("ontoagent.pipeline.builder.OntoAgentBuilder") as mock_builder_cls,
+            patch("ontoagent.butler.handlers.knowledge_update.Path") as mock_path_cls,
         ):
             mock_builder = MagicMock()
             mock_builder.build = MagicMock(return_value=mock_result)
@@ -376,17 +376,17 @@ class TestFullBuildHandler:
     @pytest.mark.asyncio
     async def test_handle_exception(self) -> None:
         """Test FullBuildHandler.handle exception handling."""
-        from layerkg.butler.handlers.knowledge_update import FullBuildHandler
+        from ontoagent.butler.handlers.knowledge_update import FullBuildHandler
 
         handler = FullBuildHandler()
         event = ButlerEvent(event_type="build.full", payload={"repo_path": "/path/to/repo"})
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         mock_guard = MagicMock()
         mock_guard.log_operation = AsyncMock()
         ctx = HandlerContext(config=config, guard=mock_guard)
 
-        with patch("layerkg.pipeline.builder.LayerKGBuilder") as mock_builder_cls:
+        with patch("ontoagent.pipeline.builder.OntoAgentBuilder") as mock_builder_cls:
             mock_builder = MagicMock()
             mock_builder.build = MagicMock(side_effect=RuntimeError("Build failed"))
             mock_builder.close = MagicMock()
@@ -402,13 +402,13 @@ class TestFullBuildHandler:
     @pytest.mark.asyncio
     async def test_handle_closes_builder(self) -> None:
         """Test FullBuildHandler closes builder after use."""
-        from layerkg.butler.handlers.knowledge_update import FullBuildHandler
-        from layerkg.pipeline.builder import BuildResult
+        from ontoagent.butler.handlers.knowledge_update import FullBuildHandler
+        from ontoagent.pipeline.builder import BuildResult
 
         handler = FullBuildHandler()
         event = ButlerEvent(event_type="build.full", payload={"repo_path": "/path/to/repo"})
 
-        config = LayerKGConfig()
+        config = OntoAgentConfig()
         ctx = HandlerContext(config=config)
 
         mock_result = BuildResult(
@@ -417,7 +417,7 @@ class TestFullBuildHandler:
             relations_created=0,
         )
 
-        with patch("layerkg.pipeline.builder.LayerKGBuilder") as mock_builder_class:
+        with patch("ontoagent.pipeline.builder.OntoAgentBuilder") as mock_builder_class:
             mock_builder = MagicMock()
             mock_builder.build = MagicMock(return_value=mock_result)
             mock_builder.close = MagicMock()

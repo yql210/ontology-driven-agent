@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from layerkg.execution.action_executor import ActionExecutor
-from layerkg.execution.functions import registry as fn_registry
+from ontoagent.execution.action_executor import ActionExecutor
+from ontoagent.execution.functions import registry as fn_registry
 
 
 class MockGraphStore:
@@ -56,7 +56,7 @@ class MockGraphStore:
 def _ensure_functions_registered() -> None:
     """Ensure builtin functions are registered before each test."""
     fn_registry.clear_registry()
-    from layerkg.execution.functions.builtin import register_all
+    from ontoagent.execution.functions.builtin import register_all
 
     register_all()
     yield
@@ -83,7 +83,7 @@ ENTITIES = {
 
 def _make_executor(entities: dict[str, dict] | None = None) -> ActionExecutor:
     store = MockGraphStore(entities or ENTITIES)
-    yaml_path = Path(__file__).parent.parent.parent / "src" / "layerkg" / "pipeline" / "ontology_actions.yaml"
+    yaml_path = Path(__file__).parent.parent.parent / "src" / "ontoagent" / "pipeline" / "ontology_actions.yaml"
     return ActionExecutor(store, yaml_path=yaml_path)
 
 

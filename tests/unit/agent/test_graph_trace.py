@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from layerkg.agent.graph import run_query_stream
-from layerkg.agent.trace import TraceCollector
+from ontoagent.agent.graph import run_query_stream
+from ontoagent.agent.trace import TraceCollector
 
 
 @pytest.mark.unit
@@ -21,7 +21,7 @@ async def test_trace_thinking_recorded(trace_collector: TraceCollector):
             "data": {"output": MagicMock(content="This is a thinking output")},
         }
 
-    with patch("layerkg.agent.graph.create_agent") as mock_create_agent:
+    with patch("ontoagent.agent.graph.create_agent") as mock_create_agent:
         mock_agent = MagicMock()
         mock_agent.astream_events = mock_astream_events
         mock_create_agent.return_value = mock_agent
@@ -61,7 +61,7 @@ async def test_trace_tool_call_recorded(trace_collector: TraceCollector):
             "data": {"output": "result data"},
         }
 
-    with patch("layerkg.agent.graph.create_agent") as mock_create_agent:
+    with patch("ontoagent.agent.graph.create_agent") as mock_create_agent:
         mock_agent = MagicMock()
         mock_agent.astream_events = mock_astream_events
         mock_create_agent.return_value = mock_agent
@@ -94,7 +94,7 @@ async def test_trace_failed_status(trace_collector: TraceCollector):
         raise ValueError("Test error")
         yield  # makes this an async generator function
 
-    with patch("layerkg.agent.graph.create_agent") as mock_create_agent:
+    with patch("ontoagent.agent.graph.create_agent") as mock_create_agent:
         mock_agent = MagicMock()
         mock_agent.astream_events = mock_astream_events
         mock_create_agent.return_value = mock_agent
@@ -124,7 +124,7 @@ async def test_no_trace_without_collector():
             "data": {"chunk": MagicMock(content="token")},
         }
 
-    with patch("layerkg.agent.graph.create_agent") as mock_create_agent:
+    with patch("ontoagent.agent.graph.create_agent") as mock_create_agent:
         mock_agent = MagicMock()
         mock_agent.astream_events = mock_astream_events
         mock_create_agent.return_value = mock_agent
@@ -153,7 +153,7 @@ async def test_trace_completed_status_normal_end(trace_collector: TraceCollector
             "data": {"chunk": MagicMock(content="token")},
         }
 
-    with patch("layerkg.agent.graph.create_agent") as mock_create_agent:
+    with patch("ontoagent.agent.graph.create_agent") as mock_create_agent:
         mock_agent = MagicMock()
         mock_agent.astream_events = mock_astream_events
         mock_create_agent.return_value = mock_agent

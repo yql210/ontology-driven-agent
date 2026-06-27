@@ -6,12 +6,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from layerkg.domain.exceptions import SchemaMigrationError
-from layerkg.store.graph_store import GraphStore
-from layerkg.store.migrations import MigrationBase
-from layerkg.store.migrations.registry import MigrationRegistry
-from layerkg.store.migrations.runner import MigrationRunner
-from layerkg.store.schema_version import (
+from ontoagent.domain.exceptions import SchemaMigrationError
+from ontoagent.store.graph_store import GraphStore
+from ontoagent.store.migrations import MigrationBase
+from ontoagent.store.migrations.registry import MigrationRegistry
+from ontoagent.store.migrations.runner import MigrationRunner
+from ontoagent.store.schema_version import (
     CURRENT_SCHEMA_VERSION,
 )
 

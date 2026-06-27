@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from layerkg.execution.action_types import ActionConfig, ActionContext, ActionResult, FunctionResult
+from ontoagent.execution.action_types import ActionConfig, ActionContext, ActionResult, FunctionResult
 
 
 def test_function_result_defaults():
@@ -24,7 +24,7 @@ def test_action_context_call_function_success():
         return FunctionResult(success=True, data={"echo": ctx.match_data.get("x")})
 
     # We need to temporarily register via the registry
-    from layerkg.execution.functions import registry
+    from ontoagent.execution.functions import registry
 
     registry._registry["mock_test_fn"] = mock_fn
     try:

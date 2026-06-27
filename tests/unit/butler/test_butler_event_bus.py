@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import threading
 
-from layerkg.butler import ButlerEvent
-from layerkg.butler.event_bus import EventBus
+from ontoagent.butler import ButlerEvent
+from ontoagent.butler.event_bus import EventBus
 
 
 def test_butler_event_creation():

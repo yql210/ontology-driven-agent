@@ -6,11 +6,11 @@ from typing import Any
 
 import pytest
 
-from layerkg.execution.action_types import ActionContext, FunctionResult
-from layerkg.execution.execution_policy import ExecutionPolicy
-from layerkg.execution.function_runner import FunctionRunner
-from layerkg.execution.functions.registry import clear_registry, register_function
-from layerkg.execution.saga import SagaOrchestrator, SagaStep
+from ontoagent.execution.action_types import ActionContext, FunctionResult
+from ontoagent.execution.execution_policy import ExecutionPolicy
+from ontoagent.execution.function_runner import FunctionRunner
+from ontoagent.execution.functions.registry import clear_registry, register_function
+from ontoagent.execution.saga import SagaOrchestrator, SagaStep
 
 
 class _StubGraphStore:

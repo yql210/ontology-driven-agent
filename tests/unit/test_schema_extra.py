@@ -4,8 +4,8 @@ import uuid
 
 import pytest
 
-from layerkg.domain.exceptions import SchemaValidationError
-from layerkg.domain.schema import (
+from ontoagent.domain.exceptions import SchemaValidationError
+from ontoagent.domain.schema import (
     RELATION_TYPE_TO_NEO4J,
     VALID_RELATION_TYPES,
     ChangeSetEntity,

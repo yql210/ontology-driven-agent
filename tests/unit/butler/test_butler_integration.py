@@ -7,19 +7,19 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from layerkg.butler import ButlerEvent
-from layerkg.butler.consistency.guard import ConsistencyGuard
-from layerkg.butler.engine import ButlerEngine
-from layerkg.butler.event_bus import EventBus
-from layerkg.butler.scheduler import HandlerResult, HandlerSpec, Scheduler
-from layerkg.config import LayerKGConfig
+from ontoagent.butler import ButlerEvent
+from ontoagent.butler.consistency.guard import ConsistencyGuard
+from ontoagent.butler.engine import ButlerEngine
+from ontoagent.butler.event_bus import EventBus
+from ontoagent.butler.scheduler import HandlerResult, HandlerSpec, Scheduler
+from ontoagent.config import OntoAgentConfig
 
 
 @pytest.fixture
 def isolated_config(tmp_path):
     """Config with isolated data directory to prevent test cross-contamination."""
-    config = LayerKGConfig()
-    config.data_dir = str(tmp_path / ".layerkg")
+    config = OntoAgentConfig()
+    config.data_dir = str(tmp_path / ".ontoagent")
     return config
 
 
@@ -214,8 +214,8 @@ async def test_eventbus_scheduler_get_status_integration():
 @pytest.mark.asyncio
 async def test_code_changed_triggers_knowledge_update_and_audit(isolated_config):
     """Publish code.changed → KnowledgeUpdateHandler triggered → audit logged."""
-    from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
-    from layerkg.pipeline.incremental_updater import UpdateReport
+    from ontoagent.butler.handlers.knowledge_update import KnowledgeUpdateHandler
+    from ontoagent.pipeline.incremental_updater import UpdateReport
 
     engine = ButlerEngine(isolated_config)
 
@@ -235,7 +235,7 @@ async def test_code_changed_triggers_knowledge_update_and_audit(isolated_config)
         elapsed_ms=100.0,
     )
 
-    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("ontoagent.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(return_value=mock_report)
         mock_updater.close = MagicMock()
@@ -271,9 +271,9 @@ async def test_code_changed_triggers_knowledge_update_and_audit(isolated_config)
 @pytest.mark.asyncio
 async def test_handler_completed_triggers_reflection_and_skill_creation(isolated_config):
     """Publish handler.completed → ReflectionHandler triggered → skill created."""
-    from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
-    from layerkg.butler.handlers.reflection import ReflectionHandler
-    from layerkg.pipeline.incremental_updater import UpdateReport
+    from ontoagent.butler.handlers.knowledge_update import KnowledgeUpdateHandler
+    from ontoagent.butler.handlers.reflection import ReflectionHandler
+    from ontoagent.pipeline.incremental_updater import UpdateReport
 
     engine = ButlerEngine(isolated_config)
 
@@ -296,7 +296,7 @@ async def test_handler_completed_triggers_reflection_and_skill_creation(isolated
         elapsed_ms=50.0,
     )
 
-    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("ontoagent.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(return_value=mock_report)
         mock_updater.close = MagicMock()
@@ -341,8 +341,8 @@ async def test_handler_completed_triggers_reflection_and_skill_creation(isolated
 @pytest.mark.asyncio
 async def test_unknown_event_type_no_handler_responds(isolated_config):
     """Publish unknown event type → no handler responds, no error."""
-    from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
-    from layerkg.butler.handlers.reflection import ReflectionHandler
+    from ontoagent.butler.handlers.knowledge_update import KnowledgeUpdateHandler
+    from ontoagent.butler.handlers.reflection import ReflectionHandler
 
     engine = ButlerEngine(isolated_config)
 
@@ -352,7 +352,7 @@ async def test_unknown_event_type_no_handler_responds(isolated_config):
     mock_report = MagicMock()
     mock_report.to_dict.return_value = {}
 
-    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("ontoagent.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(return_value=mock_report)
         mock_updater.close = MagicMock()
@@ -380,9 +380,9 @@ async def test_unknown_event_type_no_handler_responds(isolated_config):
 @pytest.mark.asyncio
 async def test_code_changed_to_handler_completed_flow(isolated_config):
     """Test full flow: code.changed → handler.completed → ReflectionHandler."""
-    from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
-    from layerkg.butler.handlers.reflection import ReflectionHandler
-    from layerkg.pipeline.incremental_updater import UpdateReport
+    from ontoagent.butler.handlers.knowledge_update import KnowledgeUpdateHandler
+    from ontoagent.butler.handlers.reflection import ReflectionHandler
+    from ontoagent.pipeline.incremental_updater import UpdateReport
 
     engine = ButlerEngine(isolated_config)
 
@@ -402,7 +402,7 @@ async def test_code_changed_to_handler_completed_flow(isolated_config):
         elapsed_ms=50.0,
     )
 
-    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("ontoagent.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(return_value=mock_report)
         mock_updater.close = MagicMock()
@@ -437,7 +437,7 @@ async def test_code_changed_to_handler_completed_flow(isolated_config):
 @pytest.mark.asyncio
 async def test_multiple_handlers_same_event_type(isolated_config):
     """Test that multiple handlers subscribing to the same event type all get called."""
-    from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
+    from ontoagent.butler.handlers.knowledge_update import KnowledgeUpdateHandler
 
     engine = ButlerEngine(isolated_config)
 
@@ -446,7 +446,7 @@ async def test_multiple_handlers_same_event_type(isolated_config):
     mock_report = MagicMock()
     mock_report.to_dict.return_value = {}
 
-    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("ontoagent.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(return_value=mock_report)
         mock_updater.close = MagicMock()
@@ -462,7 +462,7 @@ async def test_multiple_handlers_same_event_type(isolated_config):
             return HandlerResult(handler_id="mock.handler", success=True, result_data={}, error=None)
 
         # Directly register with scheduler
-        from layerkg.butler.scheduler import HandlerSpec
+        from ontoagent.butler.scheduler import HandlerSpec
 
         engine._scheduler.register(
             HandlerSpec(
@@ -492,13 +492,13 @@ async def test_multiple_handlers_same_event_type(isolated_config):
 @pytest.mark.asyncio
 async def test_handler_failure_publishes_failed_event(isolated_config):
     """Test that handler failure publishes handler.failed event."""
-    from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
+    from ontoagent.butler.handlers.knowledge_update import KnowledgeUpdateHandler
 
     engine = ButlerEngine(isolated_config)
 
     engine.register_handler(KnowledgeUpdateHandler())
 
-    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("ontoagent.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(side_effect=RuntimeError("Connection failed"))
         mock_updater.close = MagicMock()

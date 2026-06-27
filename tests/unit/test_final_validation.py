@@ -9,8 +9,8 @@ import pytest
 
 @pytest.mark.unit
 def test_all_source_modules_importable():
-    """验证所有 src/layerkg/*.py 可导入。"""
-    src_dir = pathlib.Path(__file__).parent.parent.parent / "src" / "layerkg"
+    """验证所有 src/ontoagent/*.py 可导入。"""
+    src_dir = pathlib.Path(__file__).parent.parent.parent / "src" / "ontoagent"
 
     # 收集所有 .py 文件（排除 __pycache__ 等）
     py_files = sorted(src_dir.rglob("*.py"))

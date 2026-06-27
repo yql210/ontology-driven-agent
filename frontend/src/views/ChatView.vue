@@ -19,12 +19,12 @@ function handleSend(message: string) {
 <template>
   <div class="chat-view">
     <header class="chat-header">
-      <h1>🔍 LayerKG Agent</h1>
+      <h1>🔍 OntoAgent Agent</h1>
       <p>代码知识图谱助手 — 问任何关于代码架构的问题</p>
     </header>
     <div ref="messagesContainer" class="messages">
       <div v-if="chatStore.messages.length === 0" class="empty-state">
-        <p>👋 你好！我是 LayerKG 代码知识图谱助手</p>
+        <p>👋 你好！我是 OntoAgent 代码知识图谱助手</p>
         <p>可以帮你理解代码架构、查询依赖关系、搜索函数定义...</p>
       </div>
       <MessageBubble

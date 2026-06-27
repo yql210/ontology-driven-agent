@@ -4,9 +4,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from layerkg.domain.schema import ModuleEntity
-from layerkg.pipeline.module_clustering import ModuleCluster, ModuleClustering
-from layerkg.store.neo4j_store import Neo4jGraphStore
+from ontoagent.domain.schema import ModuleEntity
+from ontoagent.pipeline.module_clustering import ModuleCluster, ModuleClustering
+from ontoagent.store.neo4j_store import Neo4jGraphStore
 
 # =============================================================================
 # Task 1: ModuleCluster dataclass (2 tests)
@@ -366,9 +366,9 @@ class TestGenerateModuleName:
     def test_common_path_prefix_generates_name(self) -> None:
         """测试有公共路径前缀 → 返回最后一段。"""
         entity_data = {
-            "e1": {"file_path": "src/layerkg/parser/file1.py"},
-            "e2": {"file_path": "src/layerkg/parser/file2.py"},
-            "e3": {"file_path": "src/layerkg/parser/subdir/file3.py"},
+            "e1": {"file_path": "src/ontoagent/parser/file1.py"},
+            "e2": {"file_path": "src/ontoagent/parser/file2.py"},
+            "e3": {"file_path": "src/ontoagent/parser/subdir/file3.py"},
         }
         entity_ids = ["e1", "e2", "e3"]
 

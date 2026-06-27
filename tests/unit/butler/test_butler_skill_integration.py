@@ -6,9 +6,9 @@ import json
 
 import pytest
 
-from layerkg.butler.consistency.guard import ConsistencyGuard
-from layerkg.butler.skills import SkillEntity, SkillLayer
-from layerkg.butler.skills.store import SkillStore
+from ontoagent.butler.consistency.guard import ConsistencyGuard
+from ontoagent.butler.skills import SkillEntity, SkillLayer
+from ontoagent.butler.skills.store import SkillStore
 
 
 @pytest.fixture

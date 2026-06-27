@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from layerkg.domain.exceptions import EmbeddingError
-from layerkg.store.chroma_store import (
+from ontoagent.domain.exceptions import EmbeddingError
+from ontoagent.store.chroma_store import (
     ChromaStore,
     OllamaEmbeddingFunction,
     _format_query_results,

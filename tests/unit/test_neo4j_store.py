@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from layerkg.store.neo4j_store import Neo4jGraphStore
+from ontoagent.store.neo4j_store import Neo4jGraphStore
 
 
 @pytest.fixture
@@ -207,7 +207,7 @@ class TestNeo4jGraphStoreContextManager:
     def test_context_manager(self):
         """测试 __enter__ 和 __exit__。"""
         # Arrange
-        with patch("layerkg.store.neo4j_store.GraphDatabase") as mock_gd:
+        with patch("ontoagent.store.neo4j_store.GraphDatabase") as mock_gd:
             mock_driver = MagicMock()
             mock_gd.driver.return_value = mock_driver
 

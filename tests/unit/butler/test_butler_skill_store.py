@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from layerkg.butler.skills.store import SkillEntity, SkillLayer, SkillStore
+from ontoagent.butler.skills.store import SkillEntity, SkillLayer, SkillStore
 
 
 @pytest.fixture

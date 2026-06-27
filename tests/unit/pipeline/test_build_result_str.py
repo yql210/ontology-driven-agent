@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from layerkg.pipeline.builder import BuildResult
+from ontoagent.pipeline.builder import BuildResult
 
 
 class TestBuildResultStr:

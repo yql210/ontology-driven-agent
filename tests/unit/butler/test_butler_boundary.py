@@ -7,18 +7,18 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from layerkg.butler.event_bus import ButlerEvent
-from layerkg.butler.handlers.base import HandlerResult
-from layerkg.butler.scheduler import HandlerResult as SchedulerHandlerResult
-from layerkg.butler.scheduler import HandlerSpec
-from layerkg.config import LayerKGConfig
+from ontoagent.butler.event_bus import ButlerEvent
+from ontoagent.butler.handlers.base import HandlerResult
+from ontoagent.butler.scheduler import HandlerResult as SchedulerHandlerResult
+from ontoagent.butler.scheduler import HandlerSpec
+from ontoagent.config import OntoAgentConfig
 
 
 @pytest.fixture
 def isolated_config(tmp_path):
     """Config with isolated data directory to prevent test cross-contamination."""
-    config = LayerKGConfig()
-    config.data_dir = str(tmp_path / ".layerkg")
+    config = OntoAgentConfig()
+    config.data_dir = str(tmp_path / ".ontoagent")
     return config
 
 
@@ -26,7 +26,7 @@ def isolated_config(tmp_path):
 @pytest.mark.asyncio
 async def test_skill_store_confidence_out_of_bounds(isolated_config):
     """SkillStore rejects confidence values outside [0.0, 1.0] range."""
-    from layerkg.butler.skills.store import SkillEntity, SkillLayer
+    from ontoagent.butler.skills.store import SkillEntity, SkillLayer
 
     # Test confidence > 1.0
     with pytest.raises(ValueError, match=r"confidence must be between 0\.0 and 1\.0"):
@@ -78,7 +78,7 @@ async def test_skill_store_confidence_out_of_bounds(isolated_config):
 @pytest.mark.asyncio
 async def test_eventbus_publish_no_subscriber():
     """EventBus publish with no subscribers should not raise any error."""
-    from layerkg.butler.event_bus import EventBus
+    from ontoagent.butler.event_bus import EventBus
 
     bus = EventBus()
 
@@ -95,8 +95,8 @@ async def test_eventbus_publish_no_subscriber():
 @pytest.mark.asyncio
 async def test_three_same_patterns_promote_skill_to_active(isolated_config):
     """Three same patterns promote skill to active with confidence >= 0.8."""
-    from layerkg.butler.engine import ButlerEngine
-    from layerkg.butler.handlers.reflection import ReflectionHandler
+    from ontoagent.butler.engine import ButlerEngine
+    from ontoagent.butler.handlers.reflection import ReflectionHandler
 
     engine = ButlerEngine(isolated_config)
     handler = ReflectionHandler()
@@ -141,8 +141,8 @@ async def test_three_same_patterns_promote_skill_to_active(isolated_config):
 @pytest.mark.asyncio
 async def test_handler_exception_scheduler_retries_and_audits(isolated_config, tmp_path):
     """Handler exception triggers scheduler retry and logs to ConsistencyGuard."""
-    from layerkg.butler.consistency.guard import ConsistencyGuard
-    from layerkg.butler.scheduler import Scheduler
+    from ontoagent.butler.consistency.guard import ConsistencyGuard
+    from ontoagent.butler.scheduler import Scheduler
 
     scheduler = Scheduler()
     guard = ConsistencyGuard(db_path=str(tmp_path / "audit.db"))
@@ -197,7 +197,7 @@ async def test_handler_exception_scheduler_retries_and_audits(isolated_config, t
 @pytest.mark.asyncio
 async def test_engine_not_started_submit_returns_empty(isolated_config):
     """ButlerEngine without start() returns empty list from submit_event()."""
-    from layerkg.butler.engine import ButlerEngine
+    from ontoagent.butler.engine import ButlerEngine
 
     engine = ButlerEngine(isolated_config)
 
@@ -213,7 +213,7 @@ async def test_engine_not_started_submit_returns_empty(isolated_config):
 @pytest.mark.asyncio
 async def test_engine_context_manager(isolated_config):
     """ButlerEngine async context manager starts engine on enter and stops on exit."""
-    from layerkg.butler.engine import ButlerEngine
+    from ontoagent.butler.engine import ButlerEngine
 
     # Engine should not be running before context
     engine = ButlerEngine(isolated_config)
@@ -241,8 +241,8 @@ async def test_engine_context_manager(isolated_config):
 @pytest.mark.asyncio
 async def test_git_watcher_nonexistent_path():
     """GitWatcher with nonexistent path handles trigger() gracefully."""
-    from layerkg.butler.event_bus import EventBus
-    from layerkg.butler.watchers.git_watcher import GitWatcher
+    from ontoagent.butler.event_bus import EventBus
+    from ontoagent.butler.watchers.git_watcher import GitWatcher
 
     bus = EventBus()
     nonexistent_path = MagicMock()
@@ -278,8 +278,8 @@ async def test_git_watcher_nonexistent_path():
 @pytest.mark.asyncio
 async def test_concurrent_events_processing(isolated_config):
     """Concurrent event submission processes all events without race conditions."""
-    from layerkg.butler.engine import ButlerEngine
-    from layerkg.butler.handlers.base import BaseHandler, HandlerContext
+    from ontoagent.butler.engine import ButlerEngine
+    from ontoagent.butler.handlers.base import BaseHandler, HandlerContext
 
     class CountingHandler(BaseHandler):
         """Test handler that counts invocations."""
