@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from layerkg.config import LayerKGConfig
 from layerkg.domain.provenance import add_provenance
+from layerkg.pipeline.builder_utils import entity_to_dict, entity_to_text
 from layerkg.pipeline.change_detector import ChangeType
 
 if TYPE_CHECKING:
@@ -225,50 +226,12 @@ class IncrementalUpdater:
 
     @staticmethod
     def _entity_to_dict(entity):
-        """将 CodeEntity 转为 Neo4j 属性字典。
+        """将 CodeEntity 转为 Neo4j 属性字典。"""
+        return entity_to_dict(entity)
 
-        Args:
-            entity: 代码实体。
-
-        Returns:
-            属性字典。
-        """
-        d = {
-            "id": entity.id,
-            "name": entity.name,
-            "entity_type": entity.entity_type,
-        }
-        if entity.file_path:
-            d["file_path"] = entity.file_path
-        if entity.start_line is not None:
-            d["start_line"] = entity.start_line
-        if entity.end_line is not None:
-            d["end_line"] = entity.end_line
-        if entity.language:
-            d["language"] = entity.language
-        if entity.docstring:
-            d["docstring"] = entity.docstring
-        if entity.parameters:
-            d["code_parameters"] = entity.parameters
-        return d
-
-    @staticmethod
-    def _entity_to_text(entity):
-        """提取实体的可嵌入文本。
-
-        Args:
-            entity: 代码实体。
-
-        Returns:
-            可嵌入的文本，无内容时返回 None。
-        """
-        if entity.source:
-            return entity.source
-        # 对于没有 source 的实体，构造描述文本
-        parts = [f"{entity.entity_type} {entity.name}"]
-        if entity.file_path:
-            parts.append(f"in {entity.file_path}")
-        return " ".join(parts) if parts else None
+    def _entity_to_text(self, entity):
+        """提取实体的可嵌入文本。"""
+        return entity_to_text(entity, self._config.build_source_max_length)
 
     def _apply_added(self, change):
         """处理新增文件：解析 → 写入图谱 + 向量。
