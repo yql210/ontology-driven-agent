@@ -615,7 +615,7 @@ class OntoAgentBuilder:
                                 "target_label": "ServiceEntity",
                                 "properties": add_provenance(
                                     {"weight": rel.weight},
-                                    source="service_linker",
+                                    source="ast_parser",
                                     confidence=1.0,
                                     extracted_at=batch_time,
                                 ),
@@ -657,7 +657,7 @@ class OntoAgentBuilder:
                             "target_label": "ConceptEntity",
                             "properties": add_provenance(
                                 {"weight": rel.weight},
-                                source="topic_linker",
+                                source="ast_parser",
                                 confidence=1.0,
                                 extracted_at=batch_time,
                             ),
