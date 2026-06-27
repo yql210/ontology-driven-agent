@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from layerkg.builder import BuildResult
-from layerkg.cli import main
+from layerkg.api.cli import main
+from layerkg.pipeline.builder import BuildResult
 
 
 @pytest.fixture
@@ -39,8 +39,8 @@ class TestBuildCommandSkipOptions:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
+            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
         ):
             mock_config_cls.from_env.return_value = MagicMock()
 
@@ -63,8 +63,8 @@ class TestBuildCommandSkipOptions:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
+            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
         ):
             mock_config_cls.from_env.return_value = MagicMock()
 
@@ -85,8 +85,8 @@ class TestBuildCommandSkipOptions:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
+            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
         ):
             mock_config_cls.from_env.return_value = MagicMock()
 
@@ -118,8 +118,8 @@ class TestBuildCommandSkipOptions:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
+            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
         ):
             mock_config_cls.from_env.return_value = MagicMock()
 
@@ -142,8 +142,8 @@ class TestBuildCommandSkipOptions:
         mock_builder.__exit__ = MagicMock(return_value=False)
 
         with (
-            patch("layerkg.cli.LayerKGConfig") as mock_config_cls,
-            patch("layerkg.cli.LayerKGBuilder", return_value=mock_builder),
+            patch("layerkg.api.cli.LayerKGConfig") as mock_config_cls,
+            patch("layerkg.api.cli.LayerKGBuilder", return_value=mock_builder),
         ):
             mock_config_cls.from_env.return_value = MagicMock()
 

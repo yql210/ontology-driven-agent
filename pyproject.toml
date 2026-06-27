@@ -35,7 +35,7 @@ dev = [
 ]
 
 [project.scripts]
-layerkg = "layerkg.cli:main"
+layerkg = "layerkg.api.cli:main"
 
 [build-system]
 requires = ["hatchling"]

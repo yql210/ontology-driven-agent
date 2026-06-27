@@ -143,7 +143,7 @@ class TestKnowledgeUpdateHandler:
     async def test_handle_success(self) -> None:
         """Test KnowledgeUpdateHandler.handle success case."""
         from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
-        from layerkg.incremental_updater import UpdateReport
+        from layerkg.pipeline.incremental_updater import UpdateReport
 
         handler = KnowledgeUpdateHandler()
         event = ButlerEvent(
@@ -170,7 +170,7 @@ class TestKnowledgeUpdateHandler:
             elapsed_ms=123.45,
         )
 
-        with patch("layerkg.incremental_updater.IncrementalUpdater") as mock_updater_class:
+        with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater.update = MagicMock(return_value=mock_report)
             mock_updater.close = MagicMock()
@@ -189,7 +189,7 @@ class TestKnowledgeUpdateHandler:
     async def test_handle_with_default_payload(self) -> None:
         """Test KnowledgeUpdateHandler.handle with default payload values."""
         from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
-        from layerkg.incremental_updater import UpdateReport
+        from layerkg.pipeline.incremental_updater import UpdateReport
 
         handler = KnowledgeUpdateHandler()
         event = ButlerEvent(event_type="code.changed", payload={})
@@ -212,7 +212,7 @@ class TestKnowledgeUpdateHandler:
             elapsed_ms=0,
         )
 
-        with patch("layerkg.incremental_updater.IncrementalUpdater") as mock_updater_class:
+        with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater.update = MagicMock(return_value=mock_report)
             mock_updater.close = MagicMock()
@@ -237,7 +237,7 @@ class TestKnowledgeUpdateHandler:
         mock_guard.log_operation = AsyncMock()
         ctx = HandlerContext(config=config, guard=mock_guard)
 
-        with patch("layerkg.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+        with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
             mock_updater = MagicMock()
             mock_updater.update = MagicMock(side_effect=RuntimeError("Connection failed"))
             mock_updater.close = MagicMock()
@@ -254,7 +254,7 @@ class TestKnowledgeUpdateHandler:
     async def test_handle_closes_updater(self) -> None:
         """Test KnowledgeUpdateHandler closes updater after use."""
         from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
-        from layerkg.incremental_updater import UpdateReport
+        from layerkg.pipeline.incremental_updater import UpdateReport
 
         handler = KnowledgeUpdateHandler()
         event = ButlerEvent(event_type="code.changed", payload={"since": "HEAD~1"})
@@ -275,7 +275,7 @@ class TestKnowledgeUpdateHandler:
             elapsed_ms=0,
         )
 
-        with patch("layerkg.incremental_updater.IncrementalUpdater") as mock_updater_class:
+        with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_class:
             mock_updater = MagicMock()
             mock_updater.update = MagicMock(return_value=mock_report)
             mock_updater.close = MagicMock()
@@ -301,8 +301,8 @@ class TestFullBuildHandler:
     @pytest.mark.asyncio
     async def test_handle_success(self) -> None:
         """Test FullBuildHandler.handle success case."""
-        from layerkg.builder import BuildResult
         from layerkg.butler.handlers.knowledge_update import FullBuildHandler
+        from layerkg.pipeline.builder import BuildResult
 
         handler = FullBuildHandler()
         event = ButlerEvent(event_type="build.full", payload={"repo_path": "/path/to/repo"})
@@ -325,7 +325,7 @@ class TestFullBuildHandler:
             elapsed_ms=5000.0,
         )
 
-        with patch("layerkg.builder.LayerKGBuilder") as mock_builder_class:
+        with patch("layerkg.pipeline.builder.LayerKGBuilder") as mock_builder_class:
             mock_builder = MagicMock()
             mock_builder.build = MagicMock(return_value=mock_result)
             mock_builder.close = MagicMock()
@@ -343,8 +343,8 @@ class TestFullBuildHandler:
     @pytest.mark.asyncio
     async def test_handle_with_default_repo_path(self) -> None:
         """Test FullBuildHandler.handle with default repo_path (cwd)."""
-        from layerkg.builder import BuildResult
         from layerkg.butler.handlers.knowledge_update import FullBuildHandler
+        from layerkg.pipeline.builder import BuildResult
 
         handler = FullBuildHandler()
         event = ButlerEvent(event_type="build.full", payload={})
@@ -359,7 +359,7 @@ class TestFullBuildHandler:
         )
 
         with (
-            patch("layerkg.builder.LayerKGBuilder") as mock_builder_cls,
+            patch("layerkg.pipeline.builder.LayerKGBuilder") as mock_builder_cls,
             patch("layerkg.butler.handlers.knowledge_update.Path") as mock_path_cls,
         ):
             mock_builder = MagicMock()
@@ -386,7 +386,7 @@ class TestFullBuildHandler:
         mock_guard.log_operation = AsyncMock()
         ctx = HandlerContext(config=config, guard=mock_guard)
 
-        with patch("layerkg.builder.LayerKGBuilder") as mock_builder_cls:
+        with patch("layerkg.pipeline.builder.LayerKGBuilder") as mock_builder_cls:
             mock_builder = MagicMock()
             mock_builder.build = MagicMock(side_effect=RuntimeError("Build failed"))
             mock_builder.close = MagicMock()
@@ -402,8 +402,8 @@ class TestFullBuildHandler:
     @pytest.mark.asyncio
     async def test_handle_closes_builder(self) -> None:
         """Test FullBuildHandler closes builder after use."""
-        from layerkg.builder import BuildResult
         from layerkg.butler.handlers.knowledge_update import FullBuildHandler
+        from layerkg.pipeline.builder import BuildResult
 
         handler = FullBuildHandler()
         event = ButlerEvent(event_type="build.full", payload={"repo_path": "/path/to/repo"})
@@ -417,7 +417,7 @@ class TestFullBuildHandler:
             relations_created=0,
         )
 
-        with patch("layerkg.builder.LayerKGBuilder") as mock_builder_class:
+        with patch("layerkg.pipeline.builder.LayerKGBuilder") as mock_builder_class:
             mock_builder = MagicMock()
             mock_builder.build = MagicMock(return_value=mock_result)
             mock_builder.close = MagicMock()

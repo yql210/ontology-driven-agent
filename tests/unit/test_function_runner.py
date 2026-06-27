@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from layerkg.action_types import ActionContext, FunctionResult
-from layerkg.circuit_breaker import CircuitBreaker
-from layerkg.execution_policy import ExecutionPolicy
-from layerkg.function_runner import FunctionRunner
-from layerkg.functions.registry import clear_registry, register_function
+from layerkg.execution.action_types import ActionContext, FunctionResult
+from layerkg.execution.circuit_breaker import CircuitBreaker
+from layerkg.execution.execution_policy import ExecutionPolicy
+from layerkg.execution.function_runner import FunctionRunner
+from layerkg.execution.functions.registry import clear_registry, register_function
 
 
 def _setup_function(name: str, fn):

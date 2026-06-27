@@ -7,11 +7,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from layerkg.builder import LayerKGBuilder
 from layerkg.config import LayerKGConfig
-from layerkg.module_clustering import ModuleCluster
-from layerkg.schema import CodeEntity, ModuleEntity
-from layerkg.schema_version import SchemaStatus
+from layerkg.domain.schema import CodeEntity, ModuleEntity
+from layerkg.pipeline.builder import LayerKGBuilder
+from layerkg.pipeline.module_clustering import ModuleCluster
+from layerkg.store.schema_version import SchemaStatus
 
 
 @pytest.fixture
@@ -94,7 +94,7 @@ class TestDetectAndWriteModules:
 class TestWriteAllVectors:
     def test_write_all_vectors_code_entities_only(self, builder: LayerKGBuilder) -> None:
         """CodeEntity 向量写入。"""
-        from layerkg.schema import CodeEntity
+        from layerkg.domain.schema import CodeEntity
 
         entity = CodeEntity(
             name="my_func",
@@ -115,7 +115,7 @@ class TestWriteAllVectors:
 
     def test_write_all_vectors_concept_entities_only(self, builder: LayerKGBuilder) -> None:
         """ConceptEntity 向量写入。"""
-        from layerkg.schema import ConceptEntity
+        from layerkg.domain.schema import ConceptEntity
 
         concept = ConceptEntity(
             name="retry_pattern", entity_type="design_pattern", description="Retry failed operations"
@@ -145,7 +145,7 @@ class TestWriteAllVectors:
 
     def test_write_all_vectors_mixed_types(self, builder: LayerKGBuilder) -> None:
         """混合三种实体类型。"""
-        from layerkg.schema import CodeEntity, ConceptEntity
+        from layerkg.domain.schema import CodeEntity, ConceptEntity
 
         entity = CodeEntity(name="fn", entity_type="function", file_path="/a.py", source="def fn(): pass")
         concept = ConceptEntity(name="c1", entity_type="business_concept", description="desc")
@@ -175,7 +175,7 @@ class TestBuildIntegration:
 
         clusters = [_make_cluster("m1"), _make_cluster("m2")]
         with (
-            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store") as mock_gs,
             patch.object(builder, "_get_chroma_store") as mock_chroma,
             patch.object(builder, "_check_llm_available", return_value=False),
@@ -202,7 +202,7 @@ class TestBuildIntegration:
         test_file.write_text("def hello(): pass\n")
 
         with (
-            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store") as mock_gs,
             patch.object(builder, "_check_llm_available", return_value=False),
             patch.object(builder, "_detect_and_write_modules", return_value=(0, [])),

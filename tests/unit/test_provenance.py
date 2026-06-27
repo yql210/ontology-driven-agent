@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from layerkg.exceptions import SchemaValidationError
-from layerkg.provenance import (
+from layerkg.domain.exceptions import SchemaValidationError
+from layerkg.domain.provenance import (
     PROVENANCE_SOURCES,
     add_provenance,
     clamp_confidence,

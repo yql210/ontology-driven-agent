@@ -7,9 +7,9 @@ from typing import Any
 
 import pytest
 
-from layerkg.action_executor import ActionExecutor
-from layerkg.action_types import FunctionResult
-from layerkg.functions.registry import clear_registry, register_function
+from layerkg.execution.action_executor import ActionExecutor
+from layerkg.execution.action_types import FunctionResult
+from layerkg.execution.functions.registry import clear_registry, register_function
 
 
 class MockGraphStore:
@@ -147,7 +147,7 @@ def _register_test_functions():
     """Register test-only functions for each test, clean up after."""
     clear_registry()
     # Re-register builtins explicitly (module-level register_all guards against re-import)
-    from layerkg.functions.builtin import register_all
+    from layerkg.execution.functions.builtin import register_all
 
     register_all()
 
@@ -265,8 +265,8 @@ class TestActionExecutorFunctionRunner:
         """When FunctionRunner is injected, it is used instead of ctx.call_function."""
         from unittest.mock import MagicMock
 
-        from layerkg.action_types import FunctionResult
-        from layerkg.function_runner import FunctionRunner
+        from layerkg.execution.action_types import FunctionResult
+        from layerkg.execution.function_runner import FunctionRunner
 
         runner = MagicMock(spec=FunctionRunner)
         runner.run.return_value = FunctionResult(success=True, data={"via": "runner"})
@@ -297,8 +297,8 @@ class TestActionExecutorFunctionRunner:
         """When FunctionRunner returns failure, action result reflects it."""
         from unittest.mock import MagicMock
 
-        from layerkg.action_types import FunctionResult
-        from layerkg.function_runner import FunctionRunner
+        from layerkg.execution.action_types import FunctionResult
+        from layerkg.execution.function_runner import FunctionRunner
 
         runner = MagicMock(spec=FunctionRunner)
         runner.run.return_value = FunctionResult(success=False, error="runner failed")

@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 from layerkg.config import LayerKGConfig
 
 if TYPE_CHECKING:
-    from layerkg.aligner import ConceptAligner
-    from layerkg.chroma_store import ChromaStore
-    from layerkg.impact_propagator import ImpactPropagator
-    from layerkg.module_clustering import ModuleClustering
-    from layerkg.neo4j_store import Neo4jGraphStore
+    from layerkg.pipeline.aligner import ConceptAligner
+    from layerkg.pipeline.impact_propagator import ImpactPropagator
+    from layerkg.pipeline.module_clustering import ModuleClustering
+    from layerkg.store.chroma_store import ChromaStore
+    from layerkg.store.neo4j_store import Neo4jGraphStore
 
 _config: LayerKGConfig | None = None
 _neo4j: Neo4jGraphStore | None = None
@@ -31,7 +31,7 @@ def get_config() -> LayerKGConfig:
 def get_neo4j() -> Neo4jGraphStore:
     global _neo4j
     if _neo4j is None:
-        from layerkg.neo4j_store import Neo4jGraphStore
+        from layerkg.store.neo4j_store import Neo4jGraphStore
 
         cfg = get_config()
         _neo4j = Neo4jGraphStore(cfg.neo4j_uri, cfg.neo4j_user, cfg.neo4j_password)
@@ -41,7 +41,7 @@ def get_neo4j() -> Neo4jGraphStore:
 def get_chroma() -> ChromaStore:
     global _chroma
     if _chroma is None:
-        from layerkg.chroma_store import ChromaStore
+        from layerkg.store.chroma_store import ChromaStore
 
         cfg = get_config()
         _chroma = ChromaStore(cfg.chroma_persist_dir, cfg.ollama_base_url, cfg.embedding_model)
@@ -58,8 +58,8 @@ def get_aligner() -> ConceptAligner:
             "MATCH (c:ConceptEntity) RETURN c.id AS id, c.name AS name, "
             "c.entity_type AS type, c.description AS description, c.aliases AS aliases"
         )
-        from layerkg.aligner import ConceptAligner
-        from layerkg.schema import ConceptEntity
+        from layerkg.domain.schema import ConceptEntity
+        from layerkg.pipeline.aligner import ConceptAligner
 
         concepts = []
         for r in results:
@@ -85,7 +85,7 @@ def get_clustering() -> ModuleClustering:
     """获取 ModuleClustering 单例。"""
     global _clustering
     if _clustering is None:
-        from layerkg.module_clustering import ModuleClustering
+        from layerkg.pipeline.module_clustering import ModuleClustering
 
         _clustering = ModuleClustering(neo4j_store=get_neo4j())
     return _clustering
@@ -95,7 +95,7 @@ def get_impact_propagator() -> ImpactPropagator:
     """获取 ImpactPropagator 单例。"""
     global _impact_propagator
     if _impact_propagator is None:
-        from layerkg.impact_propagator import ImpactPropagator
+        from layerkg.pipeline.impact_propagator import ImpactPropagator
 
         _impact_propagator = ImpactPropagator(graph_store=get_neo4j())
     return _impact_propagator

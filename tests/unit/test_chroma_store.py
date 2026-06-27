@@ -5,13 +5,13 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from layerkg.chroma_store import (
+from layerkg.domain.exceptions import EmbeddingError
+from layerkg.store.chroma_store import (
     ChromaStore,
     OllamaEmbeddingFunction,
     _format_query_results,
     _sanitize_metadata,
 )
-from layerkg.exceptions import EmbeddingError
 
 # =============================================================================
 # Fixtures

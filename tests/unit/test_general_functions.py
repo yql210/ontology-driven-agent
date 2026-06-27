@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from layerkg.action_types import ActionContext
-from layerkg.functions.registry import clear_registry, get_function
+from layerkg.execution.action_types import ActionContext
+from layerkg.execution.functions.registry import clear_registry, get_function
 
 
 class MockGraphStore:
@@ -22,7 +22,7 @@ class MockGraphStore:
 
 def _register_general():
     """Import + register general functions (works after clear_registry)."""
-    from layerkg.functions.general import register_all
+    from layerkg.execution.functions.general import register_all
 
     register_all()
 

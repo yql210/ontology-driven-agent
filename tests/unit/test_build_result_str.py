@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from layerkg.builder import BuildResult
+from layerkg.pipeline.builder import BuildResult
 
 
 class TestBuildResultStr:

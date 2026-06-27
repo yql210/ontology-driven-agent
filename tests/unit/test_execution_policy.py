@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from layerkg.execution_policy import ExecutionPolicy
+from layerkg.execution.execution_policy import ExecutionPolicy
 
 
 def test_defaults():

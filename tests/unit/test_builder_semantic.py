@@ -6,11 +6,11 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from layerkg.aligner import NO_MATCH, AlignResult, ConceptAligner
-from layerkg.builder import LayerKGBuilder
 from layerkg.config import LayerKGConfig
-from layerkg.extractor.semantic import SemanticExtractor, SemanticRelation
-from layerkg.schema_version import SchemaStatus
+from layerkg.parsing.extractor.semantic import SemanticExtractor, SemanticRelation
+from layerkg.pipeline.aligner import NO_MATCH, AlignResult, ConceptAligner
+from layerkg.pipeline.builder import LayerKGBuilder
+from layerkg.store.schema_version import SchemaStatus
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def config() -> LayerKGConfig:
 @pytest.fixture
 def builder(config: LayerKGConfig) -> LayerKGBuilder:
     """Builder 测试 fixture（mock 掉 Neo4j/ChromaDB）。"""
-    with patch("layerkg.builder.Neo4jGraphStore"), patch("layerkg.builder.ChromaStore"):
+    with patch("layerkg.pipeline.builder.Neo4jGraphStore"), patch("layerkg.pipeline.builder.ChromaStore"):
         return LayerKGBuilder(config)
 
 
@@ -417,7 +417,7 @@ class TestBuildSemanticPipeline:
         mock_chroma = MagicMock()
 
         with (
-            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_check_llm_available", return_value=True),
             patch.object(builder, "_init_semantic_extractor") as mock_init_ext,
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
@@ -507,7 +507,7 @@ class TestBuildSemanticPipeline:
         mock_graph.merge_relation.side_effect = Exception("Neo4j write failed")
 
         with (
-            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_check_llm_available", return_value=True),
             patch.object(builder, "_init_semantic_extractor") as mock_init_ext,
             patch.object(builder, "_get_graph_store", return_value=mock_graph),

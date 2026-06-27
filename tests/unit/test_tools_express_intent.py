@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-from layerkg.action_types import ActionResult, FunctionResult
+from layerkg.execution.action_types import ActionResult, FunctionResult
 
 
 def test_express_intent_refactor() -> None:
@@ -94,7 +94,7 @@ def test_action_executor_singleton() -> None:
     tools_mod._action_executor = None
 
     mock_store = MagicMock()
-    with patch("layerkg.action_executor.ActionExecutor") as mock_executor_cls:
+    with patch("layerkg.execution.action_executor.ActionExecutor") as mock_executor_cls:
         instance = MagicMock()
         mock_executor_cls.return_value = instance
 
@@ -154,7 +154,7 @@ class TestGap2GeneralFunctionsRegistered:
 
     def test_general_functions_registered_on_tools_import(self) -> None:
         """Importing tools.py should trigger general function registration."""
-        from layerkg.functions.registry import list_functions
+        from layerkg.execution.functions.registry import list_functions
 
         expected = [
             "query_entity",
@@ -175,8 +175,8 @@ class TestGap2GeneralFunctionsRegistered:
     def test_query_entity_callable_from_registry(self) -> None:
         """query_entity should be callable from the registry."""
         import layerkg.agent.tools  # noqa: F401
-        from layerkg.action_types import ActionContext
-        from layerkg.functions.registry import get_function
+        from layerkg.execution.action_types import ActionContext
+        from layerkg.execution.functions.registry import get_function
 
         fn = get_function("query_entity")
         assert fn is not None
@@ -191,8 +191,8 @@ class TestGap2GeneralFunctionsRegistered:
     def test_check_condition_callable_from_registry(self) -> None:
         """check_condition should be callable from the registry."""
         import layerkg.agent.tools  # noqa: F401
-        from layerkg.action_types import ActionContext
-        from layerkg.functions.registry import get_function
+        from layerkg.execution.action_types import ActionContext
+        from layerkg.execution.functions.registry import get_function
 
         fn = get_function("check_condition")
         assert fn is not None

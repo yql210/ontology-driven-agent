@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-from layerkg.change_detector import ChangeType
+from layerkg.pipeline.change_detector import ChangeType
 
 
 class TestImpactAnalysisIntegration:

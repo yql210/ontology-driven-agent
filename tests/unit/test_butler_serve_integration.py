@@ -14,7 +14,7 @@ from layerkg.butler.event_bus import ButlerEvent
 from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
 from layerkg.butler.watchers.git_watcher import GitWatcher
 from layerkg.config import LayerKGConfig
-from layerkg.incremental_updater import UpdateReport
+from layerkg.pipeline.incremental_updater import UpdateReport
 
 
 @pytest.fixture
@@ -50,7 +50,7 @@ async def test_serve_detects_git_commit(isolated_config, git_repo: Path):
     engine = ButlerEngine(isolated_config)
 
     # Patch IncrementalUpdater to avoid real Neo4j calls
-    with patch("layerkg.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_report = UpdateReport(
             changes_detected=1,
             nodes_added=1,
@@ -143,7 +143,7 @@ async def test_dispatch_event_no_cascade(isolated_config):
         elapsed_ms=50.0,
     )
 
-    with patch("layerkg.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(return_value=mock_report)
         mock_updater.close = MagicMock()
@@ -233,7 +233,7 @@ async def test_serve_graceful_shutdown(isolated_config, git_repo: Path):
         elapsed_ms=0,
     )
 
-    with patch("layerkg.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(return_value=mock_report)
         mock_updater.close = MagicMock()
@@ -283,7 +283,7 @@ async def test_submit_event_vs_dispatch_event_cascade_difference(isolated_config
         elapsed_ms=50.0,
     )
 
-    with patch("layerkg.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(return_value=mock_report)
         mock_updater.close = MagicMock()

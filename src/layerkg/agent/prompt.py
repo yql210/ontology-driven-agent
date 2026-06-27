@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from layerkg.intent_router import build_intent_map, build_intent_prompt
+from layerkg.execution.intent_router import build_intent_map, build_intent_prompt
 
-_yaml_path = Path(__file__).parent.parent / "ontology_actions.yaml"
+_yaml_path = Path(__file__).parent.parent / "pipeline" / "ontology_actions.yaml"
 _intent_map = build_intent_map(_yaml_path)
 INTENT_SECTION = build_intent_prompt(_intent_map)
 

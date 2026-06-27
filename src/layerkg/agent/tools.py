@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.tools import tool
 
 if TYPE_CHECKING:
-    from layerkg.action_executor import ActionExecutor
+    from layerkg.execution.action_executor import ActionExecutor
 
-import layerkg.functions.general  # noqa: F401
+import layerkg.execution.functions.general  # noqa: F401
 from layerkg.agent._helpers import (
     get_aligner,
     get_chroma,
@@ -19,7 +19,7 @@ from layerkg.agent._helpers import (
     get_impact_propagator,
     get_neo4j,
 )
-from layerkg.change_detector import ChangeType
+from layerkg.pipeline.change_detector import ChangeType
 
 
 @tool
@@ -401,7 +401,7 @@ def _get_function_runner() -> Any:
     """获取全局 FunctionRunner 单例（lazy init）。"""
     global _function_runner
     if _function_runner is None:
-        from layerkg.function_runner import FunctionRunner
+        from layerkg.execution.function_runner import FunctionRunner
 
         _function_runner = FunctionRunner()
     return _function_runner
@@ -411,7 +411,7 @@ def _get_action_executor(graph_store: object) -> ActionExecutor:
     """获取或初始化 ActionExecutor 单例。"""
     global _action_executor
     if _action_executor is None:
-        from layerkg.action_executor import ActionExecutor
+        from layerkg.execution.action_executor import ActionExecutor
 
         _action_executor = ActionExecutor(graph_store, function_runner=_get_function_runner())
     return _action_executor

@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from layerkg.builder import LayerKGBuilder
 from layerkg.config import LayerKGConfig
-from layerkg.extractor.semantic import SemanticRelation
-from layerkg.schema import CodeEntity, ConceptEntity, DocEntity
+from layerkg.domain.schema import CodeEntity, ConceptEntity, DocEntity
+from layerkg.parsing.extractor.semantic import SemanticRelation
+from layerkg.pipeline.builder import LayerKGBuilder
 
 
 class TestNormalizePath:
@@ -272,7 +272,7 @@ class TestBuildResult:
 
     def test_to_dict(self) -> None:
         """to_dict 返回所有字段。"""
-        from layerkg.builder import BuildResult
+        from layerkg.pipeline.builder import BuildResult
 
         result = BuildResult(
             files_scanned=10,
@@ -301,7 +301,7 @@ class TestBuildResult:
 
     def test_defaults(self) -> None:
         """测试新字段的默认值。"""
-        from layerkg.builder import BuildResult
+        from layerkg.pipeline.builder import BuildResult
 
         result = BuildResult(
             files_scanned=1,

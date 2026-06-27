@@ -13,7 +13,7 @@ def test_ask_without_args_shows_hint() -> None:
 
     # Mock run_query 避免 async 运行
     with patch("layerkg.agent.graph.run_query", new=AsyncMock(return_value="test answer")):
-        from layerkg.cli import main
+        from layerkg.api.cli import main
 
         result = runner.invoke(main, ["ask"])
 
@@ -26,7 +26,7 @@ def test_ask_without_question_shows_hint() -> None:
     runner = CliRunner()
 
     with patch("layerkg.agent.graph.run_query", new=AsyncMock(return_value="test answer")):
-        from layerkg.cli import main
+        from layerkg.api.cli import main
 
         result = runner.invoke(main, ["ask"])
 
@@ -38,7 +38,7 @@ def test_ask_help_shows_usage() -> None:
     """ask --help 显示帮助信息"""
     runner = CliRunner()
 
-    from layerkg.cli import main
+    from layerkg.api.cli import main
 
     result = runner.invoke(main, ["ask", "--help"])
 
@@ -55,7 +55,7 @@ def test_ask_with_question_runs_query() -> None:
 
     # Mock run_query
     with patch("layerkg.agent.graph.run_query", new=AsyncMock(return_value="这是答案")):
-        from layerkg.cli import main
+        from layerkg.api.cli import main
 
         result = runner.invoke(main, ["ask", "测试问题"])
 
@@ -69,7 +69,7 @@ def test_ask_with_interactive_shows_prompt() -> None:
 
     # 模拟用户输入 "quit" 退出
     with patch("layerkg.agent.graph.run_query", new=AsyncMock(return_value="test answer")):
-        from layerkg.cli import main
+        from layerkg.api.cli import main
 
         result = runner.invoke(main, ["ask", "-i"], input="quit\n")
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from layerkg.change_detector import (
+from layerkg.pipeline.change_detector import (
     ChangedFile,
     ChangeType,
     GitChangeDetector,

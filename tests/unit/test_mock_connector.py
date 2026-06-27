@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from layerkg.connectors.mock_connector import MockConnector
+from layerkg.execution.connectors.mock_connector import MockConnector
 
 
 class TestMockConnector:

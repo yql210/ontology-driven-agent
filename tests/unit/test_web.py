@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from layerkg.web.app import create_app
+from layerkg.api.web.app import create_app
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ class TestCORS:
     def test_cors_custom_origins(self):
         """Custom origins from env should be respected."""
         # Re-create app with patched env
-        from layerkg.web.app import create_app
+        from layerkg.api.web.app import create_app
 
         app = create_app()
         test_client = TestClient(app)
@@ -47,7 +47,7 @@ class TestCORS:
     @patch.dict("os.environ", {"CORS_ORIGINS": "http://localhost:5173"})
     def test_cors_wildcard_blocked(self):
         """With explicit origins, wildcard should NOT be used."""
-        from layerkg.web.app import create_app
+        from layerkg.api.web.app import create_app
 
         app = create_app()
         test_client = TestClient(app)
@@ -62,7 +62,7 @@ class TestCORS:
 
 
 class TestChatSync:
-    @patch("layerkg.web.router.chat.run_query", new_callable=AsyncMock)
+    @patch("layerkg.api.web.router.chat.run_query", new_callable=AsyncMock)
     def test_chat_sync_returns_answer(self, mock_run, client):
         mock_run.return_value = "ConceptAligner 在 aligner.py"
         resp = client.post("/api/chat", json={"message": "ConceptAligner在哪"})
@@ -76,7 +76,7 @@ class TestChatSync:
         resp = client.post("/api/chat", json={"message": "  "})
         assert resp.status_code == 422
 
-    @patch("layerkg.web.router.chat.run_query", new_callable=AsyncMock)
+    @patch("layerkg.api.web.router.chat.run_query", new_callable=AsyncMock)
     def test_chat_sync_with_thread_id(self, mock_run, client):
         mock_run.return_value = "ok"
         resp = client.post("/api/chat", json={"message": "test", "thread_id": "my-thread"})
@@ -247,10 +247,10 @@ def graph_client():
     mock_store = MockGraphStore()
 
     with (
-        patch("layerkg.neo4j_store.GraphDatabase"),
-        patch("layerkg.web.app.Neo4jGraphStore", return_value=mock_store),
+        patch("layerkg.store.neo4j_store.GraphDatabase"),
+        patch("layerkg.api.web.app.Neo4jGraphStore", return_value=mock_store),
     ):
-        from layerkg.web.app import create_app
+        from layerkg.api.web.app import create_app
 
         app = create_app()
         # Override the graph_store with mock
@@ -281,10 +281,10 @@ class TestGraphStats:
         mock_store.query = empty_query
 
         with (
-            patch("layerkg.neo4j_store.GraphDatabase"),
-            patch("layerkg.web.app.Neo4jGraphStore", return_value=mock_store),
+            patch("layerkg.store.neo4j_store.GraphDatabase"),
+            patch("layerkg.api.web.app.Neo4jGraphStore", return_value=mock_store),
         ):
-            from layerkg.web.app import create_app
+            from layerkg.api.web.app import create_app
 
             app = create_app()
             app.state.graph_store = mock_store
@@ -332,10 +332,10 @@ class TestGetGraph:
         mock_store.query = filtered_query
 
         with (
-            patch("layerkg.neo4j_store.GraphDatabase"),
-            patch("layerkg.web.app.Neo4jGraphStore", return_value=mock_store),
+            patch("layerkg.store.neo4j_store.GraphDatabase"),
+            patch("layerkg.api.web.app.Neo4jGraphStore", return_value=mock_store),
         ):
-            from layerkg.web.app import create_app
+            from layerkg.api.web.app import create_app
 
             app = create_app()
             app.state.graph_store = mock_store
@@ -369,10 +369,10 @@ class TestGetGraph:
         mock_store.query = empty_center_query
 
         with (
-            patch("layerkg.neo4j_store.GraphDatabase"),
-            patch("layerkg.web.app.Neo4jGraphStore", return_value=mock_store),
+            patch("layerkg.store.neo4j_store.GraphDatabase"),
+            patch("layerkg.api.web.app.Neo4jGraphStore", return_value=mock_store),
         ):
-            from layerkg.web.app import create_app
+            from layerkg.api.web.app import create_app
 
             app = create_app()
             app.state.graph_store = mock_store

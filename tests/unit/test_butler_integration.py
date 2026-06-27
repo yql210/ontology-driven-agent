@@ -215,7 +215,7 @@ async def test_eventbus_scheduler_get_status_integration():
 async def test_code_changed_triggers_knowledge_update_and_audit(isolated_config):
     """Publish code.changed → KnowledgeUpdateHandler triggered → audit logged."""
     from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
-    from layerkg.incremental_updater import UpdateReport
+    from layerkg.pipeline.incremental_updater import UpdateReport
 
     engine = ButlerEngine(isolated_config)
 
@@ -235,7 +235,7 @@ async def test_code_changed_triggers_knowledge_update_and_audit(isolated_config)
         elapsed_ms=100.0,
     )
 
-    with patch("layerkg.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(return_value=mock_report)
         mock_updater.close = MagicMock()
@@ -273,7 +273,7 @@ async def test_handler_completed_triggers_reflection_and_skill_creation(isolated
     """Publish handler.completed → ReflectionHandler triggered → skill created."""
     from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
     from layerkg.butler.handlers.reflection import ReflectionHandler
-    from layerkg.incremental_updater import UpdateReport
+    from layerkg.pipeline.incremental_updater import UpdateReport
 
     engine = ButlerEngine(isolated_config)
 
@@ -296,7 +296,7 @@ async def test_handler_completed_triggers_reflection_and_skill_creation(isolated
         elapsed_ms=50.0,
     )
 
-    with patch("layerkg.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(return_value=mock_report)
         mock_updater.close = MagicMock()
@@ -352,7 +352,7 @@ async def test_unknown_event_type_no_handler_responds(isolated_config):
     mock_report = MagicMock()
     mock_report.to_dict.return_value = {}
 
-    with patch("layerkg.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(return_value=mock_report)
         mock_updater.close = MagicMock()
@@ -382,7 +382,7 @@ async def test_code_changed_to_handler_completed_flow(isolated_config):
     """Test full flow: code.changed → handler.completed → ReflectionHandler."""
     from layerkg.butler.handlers.knowledge_update import KnowledgeUpdateHandler
     from layerkg.butler.handlers.reflection import ReflectionHandler
-    from layerkg.incremental_updater import UpdateReport
+    from layerkg.pipeline.incremental_updater import UpdateReport
 
     engine = ButlerEngine(isolated_config)
 
@@ -402,7 +402,7 @@ async def test_code_changed_to_handler_completed_flow(isolated_config):
         elapsed_ms=50.0,
     )
 
-    with patch("layerkg.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(return_value=mock_report)
         mock_updater.close = MagicMock()
@@ -446,7 +446,7 @@ async def test_multiple_handlers_same_event_type(isolated_config):
     mock_report = MagicMock()
     mock_report.to_dict.return_value = {}
 
-    with patch("layerkg.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(return_value=mock_report)
         mock_updater.close = MagicMock()
@@ -498,7 +498,7 @@ async def test_handler_failure_publishes_failed_event(isolated_config):
 
     engine.register_handler(KnowledgeUpdateHandler())
 
-    with patch("layerkg.incremental_updater.IncrementalUpdater") as mock_updater_cls:
+    with patch("layerkg.pipeline.incremental_updater.IncrementalUpdater") as mock_updater_cls:
         mock_updater = MagicMock()
         mock_updater.update = MagicMock(side_effect=RuntimeError("Connection failed"))
         mock_updater.close = MagicMock()

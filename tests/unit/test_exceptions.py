@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from layerkg.exceptions import (
+from layerkg.domain.exceptions import (
     EmbeddingError,
     ExtractionError,
     LayerKGError,

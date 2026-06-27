@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from layerkg.butler.consistency.guard import ConsistencyGuard
     from layerkg.butler.skills.store import SkillStore
     from layerkg.config import LayerKGConfig
-    from layerkg.graph_store import GraphStore
+    from layerkg.store.graph_store import GraphStore
 
 
 @dataclass
@@ -25,7 +25,7 @@ class HandlerContext:
     def get_graph_store(self) -> GraphStore:
         """Lazy-init GraphStore (Neo4j)。"""
         if self._graph_store is None:
-            from layerkg.neo4j_store import Neo4jGraphStore
+            from layerkg.store.neo4j_store import Neo4jGraphStore
 
             self._graph_store = Neo4jGraphStore(
                 uri=self.config.neo4j_uri,

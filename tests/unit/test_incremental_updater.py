@@ -5,12 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from layerkg.change_detector import ChangedFile, ChangeType, GitStatus
 from layerkg.config import LayerKGConfig
-from layerkg.impact_propagator import ImpactedNode, ImpactReport, ImpactSeverity, PropagationDirection
-from layerkg.incremental_updater import IncrementalUpdater, UpdateReport
-from layerkg.parser.base import ParseResult
-from layerkg.schema import CodeEntity, Relation
+from layerkg.domain.schema import CodeEntity, Relation
+from layerkg.parsing.parser.base import ParseResult
+from layerkg.pipeline.change_detector import ChangedFile, ChangeType, GitStatus
+from layerkg.pipeline.impact_propagator import ImpactedNode, ImpactReport, ImpactSeverity, PropagationDirection
+from layerkg.pipeline.incremental_updater import IncrementalUpdater, UpdateReport
 
 
 class TestUpdateReport:
@@ -1288,7 +1288,7 @@ class TestCLIUpdate:
 
         from click.testing import CliRunner
 
-        from layerkg.cli import main
+        from layerkg.api.cli import main
 
         runner = CliRunner()
 
@@ -1297,8 +1297,8 @@ class TestCLIUpdate:
         repo_dir.mkdir()
 
         with (
-            patch("layerkg.cli.IncrementalUpdater") as mock_updater_class,
-            patch("layerkg.cli.LayerKGConfig") as mock_config_class,
+            patch("layerkg.api.cli.IncrementalUpdater") as mock_updater_class,
+            patch("layerkg.api.cli.LayerKGConfig") as mock_config_class,
         ):
             # Setup mocks
             mock_config = MagicMock()
@@ -1323,7 +1323,7 @@ class TestCLIUpdate:
 
         from click.testing import CliRunner
 
-        from layerkg.cli import main
+        from layerkg.api.cli import main
 
         runner = CliRunner()
 
@@ -1331,8 +1331,8 @@ class TestCLIUpdate:
         repo_dir.mkdir()
 
         with (
-            patch("layerkg.cli.IncrementalUpdater") as mock_updater_class,
-            patch("layerkg.cli.LayerKGConfig") as mock_config_class,
+            patch("layerkg.api.cli.IncrementalUpdater") as mock_updater_class,
+            patch("layerkg.api.cli.LayerKGConfig") as mock_config_class,
         ):
             mock_config = MagicMock()
             mock_config_class.from_env.return_value = mock_config
@@ -1356,7 +1356,7 @@ class TestCLIUpdate:
 
         from click.testing import CliRunner
 
-        from layerkg.cli import main
+        from layerkg.api.cli import main
 
         runner = CliRunner()
 
@@ -1364,8 +1364,8 @@ class TestCLIUpdate:
         repo_dir.mkdir()
 
         with (
-            patch("layerkg.cli.IncrementalUpdater") as mock_updater_class,
-            patch("layerkg.cli.LayerKGConfig") as mock_config_class,
+            patch("layerkg.api.cli.IncrementalUpdater") as mock_updater_class,
+            patch("layerkg.api.cli.LayerKGConfig") as mock_config_class,
         ):
             mock_config = MagicMock()
             mock_config_class.from_env.return_value = mock_config
@@ -1389,7 +1389,7 @@ class TestCLIUpdate:
 
         from click.testing import CliRunner
 
-        from layerkg.cli import main
+        from layerkg.api.cli import main
 
         runner = CliRunner()
 
@@ -1397,8 +1397,8 @@ class TestCLIUpdate:
         repo_dir.mkdir()
 
         with (
-            patch("layerkg.cli.IncrementalUpdater") as mock_updater_class,
-            patch("layerkg.cli.LayerKGConfig") as mock_config_class,
+            patch("layerkg.api.cli.IncrementalUpdater") as mock_updater_class,
+            patch("layerkg.api.cli.LayerKGConfig") as mock_config_class,
         ):
             mock_config = MagicMock()
             mock_config_class.from_env.return_value = mock_config

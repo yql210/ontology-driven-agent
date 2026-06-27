@@ -4,8 +4,8 @@ import dataclasses
 
 import pytest
 
-from layerkg.exceptions import ConstraintViolationError
-from layerkg.schema import (
+from layerkg.domain.exceptions import ConstraintViolationError
+from layerkg.domain.schema import (
     RELATION_CONSTRAINTS,
     VALID_RELATION_TYPES,
     RelationConstraint,

@@ -10,11 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from layerkg.action_executor import ActionExecutor
-from layerkg.action_types import ActionContext
-from layerkg.connectors.base import ConnectorRegistry
-from layerkg.connectors.mock_connector import MockConnector
-from layerkg.functions import registry as fn_registry
+from layerkg.execution.action_executor import ActionExecutor
+from layerkg.execution.action_types import ActionContext
+from layerkg.execution.connectors.base import ConnectorRegistry
+from layerkg.execution.connectors.mock_connector import MockConnector
+from layerkg.execution.functions import registry as fn_registry
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -51,8 +51,8 @@ class MockGraphStore:
 def _reset_registry() -> None:
     """Clear and re-register all functions before each test."""
     fn_registry.clear_registry()
-    from layerkg.functions.builtin import register_all as register_builtins
-    from layerkg.functions.general import register_all as register_general
+    from layerkg.execution.functions.builtin import register_all as register_builtins
+    from layerkg.execution.functions.general import register_all as register_general
 
     register_builtins()
     register_general()
@@ -73,7 +73,7 @@ ENTITIES = {
 
 def _make_executor(entities: dict[str, dict] | None = None) -> ActionExecutor:
     store = MockGraphStore(entities or ENTITIES)
-    yaml_path = Path(__file__).parent.parent.parent / "src" / "layerkg" / "ontology_actions.yaml"
+    yaml_path = Path(__file__).parent.parent.parent / "src" / "layerkg" / "pipeline" / "ontology_actions.yaml"
     return ActionExecutor(store, yaml_path=yaml_path)
 
 

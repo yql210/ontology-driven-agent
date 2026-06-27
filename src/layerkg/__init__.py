@@ -1,23 +1,8 @@
 from __future__ import annotations
 
-# LayerKG - 基于本体驱动的可更新知识图谱引擎
-from layerkg.aligner import NO_MATCH, AlignResult, ConceptAligner
-from layerkg.builder import BuildResult, LayerKGBuilder
-from layerkg.change_detector import ChangedFile, ChangeType, GitChangeDetector, GitStatus, SHA256Cache
-from layerkg.chroma_store import ChromaStore, OllamaEmbeddingFunction
 from layerkg.config import LayerKGConfig
-from layerkg.exceptions import EmbeddingError, LayerKGError, SchemaValidationError, StoreError
-from layerkg.graph_store import GraphStore
-from layerkg.impact_propagator import (
-    DEFAULT_DECAY_SCHEDULE,
-    DEFAULT_WEIGHT_MATRIX,
-    ImpactedNode,
-    ImpactPropagator,
-    ImpactReport,
-    ImpactSeverity,
-    PropagationDirection,
-)
-from layerkg.schema import (
+from layerkg.domain.exceptions import EmbeddingError, LayerKGError, SchemaValidationError, StoreError
+from layerkg.domain.schema import (
     RELATION_TYPE_TO_NEO4J,
     VALID_RELATION_TYPES,
     ChangeSetEntity,
@@ -28,6 +13,22 @@ from layerkg.schema import (
     Relation,
     ResourceEntity,
 )
+
+# LayerKG - 基于本体驱动的可更新知识图谱引擎
+from layerkg.pipeline.aligner import NO_MATCH, AlignResult, ConceptAligner
+from layerkg.pipeline.builder import BuildResult, LayerKGBuilder
+from layerkg.pipeline.change_detector import ChangedFile, ChangeType, GitChangeDetector, GitStatus, SHA256Cache
+from layerkg.pipeline.impact_propagator import (
+    DEFAULT_DECAY_SCHEDULE,
+    DEFAULT_WEIGHT_MATRIX,
+    ImpactedNode,
+    ImpactPropagator,
+    ImpactReport,
+    ImpactSeverity,
+    PropagationDirection,
+)
+from layerkg.store.chroma_store import ChromaStore, OllamaEmbeddingFunction
+from layerkg.store.graph_store import GraphStore
 
 __all__ = [
     # config

@@ -2,8 +2,8 @@
 
 from unittest.mock import MagicMock
 
-from layerkg.exceptions import SchemaMigrationError
-from layerkg.schema_version import (
+from layerkg.domain.exceptions import SchemaMigrationError
+from layerkg.store.schema_version import (
     CURRENT_SCHEMA_VERSION,
     SchemaStatus,
     check_schema_version,
@@ -87,7 +87,7 @@ class TestCheckSchemaVersion:
 
 class TestSchemaMigrationError:
     def test_is_layerkg_error(self):
-        from layerkg.exceptions import LayerKGError
+        from layerkg.domain.exceptions import LayerKGError
 
         err = SchemaMigrationError("test")
         assert isinstance(err, LayerKGError)

@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from layerkg.builder import LayerKGBuilder
 from layerkg.config import LayerKGConfig
-from layerkg.schema import CodeEntity, Relation
+from layerkg.domain.schema import CodeEntity, Relation
+from layerkg.pipeline.builder import LayerKGBuilder
 
 
 @pytest.fixture

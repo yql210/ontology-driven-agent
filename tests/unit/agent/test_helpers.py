@@ -59,7 +59,7 @@ def test_get_config_singleton() -> None:
 
 def test_get_neo4j_returns_store() -> None:
     """get_neo4j() 返回 Neo4jGraphStore 实例"""
-    with patch("layerkg.neo4j_store.Neo4jGraphStore") as mock_neo4j_class:
+    with patch("layerkg.store.neo4j_store.Neo4jGraphStore") as mock_neo4j_class:
         mock_store = MagicMock()
         mock_neo4j_class.return_value = mock_store
 
@@ -78,7 +78,7 @@ def test_get_neo4j_returns_store() -> None:
 
 def test_get_neo4j_singleton() -> None:
     """get_neo4j() 多次调用返回同一实例"""
-    with patch("layerkg.neo4j_store.Neo4jGraphStore") as mock_neo4j_class:
+    with patch("layerkg.store.neo4j_store.Neo4jGraphStore") as mock_neo4j_class:
         mock_store = MagicMock()
         mock_neo4j_class.return_value = mock_store
 
@@ -100,7 +100,7 @@ def test_get_neo4j_singleton() -> None:
 
 def test_get_chroma_returns_store() -> None:
     """get_chroma() 返回 ChromaStore 实例"""
-    with patch("layerkg.chroma_store.ChromaStore") as mock_chroma_class:
+    with patch("layerkg.store.chroma_store.ChromaStore") as mock_chroma_class:
         mock_store = MagicMock()
         mock_chroma_class.return_value = mock_store
 
@@ -119,7 +119,7 @@ def test_get_chroma_returns_store() -> None:
 
 def test_get_chroma_singleton() -> None:
     """get_chroma() 多次调用返回同一实例"""
-    with patch("layerkg.chroma_store.ChromaStore") as mock_chroma_class:
+    with patch("layerkg.store.chroma_store.ChromaStore") as mock_chroma_class:
         mock_store = MagicMock()
         mock_chroma_class.return_value = mock_store
 

@@ -4,8 +4,8 @@ import uuid
 
 import pytest
 
-from layerkg.exceptions import SchemaValidationError
-from layerkg.schema import (
+from layerkg.domain.exceptions import SchemaValidationError
+from layerkg.domain.schema import (
     RELATION_CONSTRAINTS,
     VALID_RELATION_TYPES,
     AlertEntity,

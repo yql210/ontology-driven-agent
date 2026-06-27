@@ -27,7 +27,7 @@ class KnowledgeUpdateHandler(BaseHandler):
         Returns:
             HandlerResult，包含 UpdateReport 数据或错误信息。
         """
-        from layerkg.incremental_updater import IncrementalUpdater
+        from layerkg.pipeline.incremental_updater import IncrementalUpdater
 
         payload = event.payload
         since = payload.get("since", "HEAD~1")
@@ -92,7 +92,7 @@ class FullBuildHandler(BaseHandler):
         Returns:
             HandlerResult，包含 BuildResult 数据或错误信息。
         """
-        from layerkg.builder import LayerKGBuilder
+        from layerkg.pipeline.builder import LayerKGBuilder
 
         payload = event.payload
         repo_path_str = payload.get("repo_path", "")

@@ -4,9 +4,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from layerkg.module_clustering import ModuleCluster, ModuleClustering
-from layerkg.neo4j_store import Neo4jGraphStore
-from layerkg.schema import ModuleEntity
+from layerkg.domain.schema import ModuleEntity
+from layerkg.pipeline.module_clustering import ModuleCluster, ModuleClustering
+from layerkg.store.neo4j_store import Neo4jGraphStore
 
 # =============================================================================
 # Task 1: ModuleCluster dataclass (2 tests)

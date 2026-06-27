@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from layerkg.parser.base import BaseParser, ExtractedRelation, ParseResult
-from layerkg.schema import CodeEntity
+from layerkg.domain.schema import CodeEntity
+from layerkg.parsing.parser.base import BaseParser, ExtractedRelation, ParseResult
 
 
 def test_parse_result_creation_with_code_entities():

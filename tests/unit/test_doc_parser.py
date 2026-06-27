@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from layerkg.builder import LayerKGBuilder
-from layerkg.parser.doc_parser import DocParser, DocParseResult
-from layerkg.schema import DocEntity
+from layerkg.domain.schema import DocEntity
+from layerkg.parsing.parser.doc_parser import DocParser, DocParseResult
+from layerkg.pipeline.builder import LayerKGBuilder
 
 
 class TestDocParseResult:

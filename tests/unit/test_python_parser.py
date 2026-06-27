@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from layerkg.parser.python_parser import PythonParser
+from layerkg.parsing.parser.python_parser import PythonParser
 
 # Test code snippets
 SIMPLE_CODE = b"""
@@ -431,9 +431,9 @@ import os.system
 
 
 def test_import_from_extracts_last_segment(parser: PythonParser) -> None:
-    """测试 from layerkg.schema import X 提取最后一段 schema。"""
+    """测试 from layerkg.domain.schema import X 提取最后一段 schema。"""
     code = b"""
-from layerkg.schema import CodeEntity
+from layerkg.domain.schema import CodeEntity
 from collections.abc import Mapping
 """
     result = parser.parse_source(code, "test.py")

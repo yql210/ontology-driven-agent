@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from layerkg.action_types import ActionContext
-from layerkg.functions.registry import clear_registry, get_function
+from layerkg.execution.action_types import ActionContext
+from layerkg.execution.functions.registry import clear_registry, get_function
 
 
 class MockGraphStore:
@@ -22,7 +22,7 @@ class MockGraphStore:
 
 def _register_builtins():
     """Import + register builtin functions (works after clear_registry)."""
-    from layerkg.functions.builtin import register_all
+    from layerkg.execution.functions.builtin import register_all
 
     register_all()
 
@@ -149,7 +149,7 @@ def test_extract_interface_success():
 def test_all_builtins_registered():
     clear_registry()
     _register_builtins()
-    from layerkg.functions.registry import list_functions
+    from layerkg.execution.functions.registry import list_functions
 
     names = list_functions()
     assert "check_refactor_eligibility" in names

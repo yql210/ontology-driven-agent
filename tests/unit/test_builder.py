@@ -5,10 +5,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from layerkg.builder import BuildResult, LayerKGBuilder
 from layerkg.config import LayerKGConfig
-from layerkg.schema import CodeEntity
-from layerkg.schema_version import SchemaStatus
+from layerkg.domain.schema import CodeEntity
+from layerkg.pipeline.builder import BuildResult, LayerKGBuilder
+from layerkg.store.schema_version import SchemaStatus
 
 
 @pytest.fixture
@@ -165,7 +165,7 @@ class TestDocTruncation:
     def test_doc_entity_truncation_respects_config(self, builder: LayerKGBuilder) -> None:
         """验证 build_doc_max_length 配置生效。"""
         # Arrange
-        from layerkg.schema import DocEntity
+        from layerkg.domain.schema import DocEntity
 
         long_content = "x" * 5000
         doc = DocEntity(
@@ -301,7 +301,7 @@ class TestBuilderBuild:
         mock_chroma = MagicMock()
 
         with (
-            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -319,7 +319,7 @@ class TestBuilderBuild:
         mock_chroma = MagicMock()
 
         with (
-            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -335,7 +335,7 @@ class TestBuilderBuild:
         mock_chroma = MagicMock()
 
         with (
-            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -351,7 +351,7 @@ class TestBuilderBuild:
         mock_chroma = MagicMock()
 
         with (
-            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -369,7 +369,7 @@ class TestBuilderBuild:
         mock_chroma = MagicMock()
 
         with (
-            patch("layerkg.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch("layerkg.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
             patch.object(builder, "_get_graph_store", return_value=mock_graph),
             patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
         ):
@@ -455,8 +455,8 @@ class TestContextManager:
     def test_context_manager_closes_stores(self, mock_config: LayerKGConfig) -> None:
         # Arrange
         with (
-            patch("layerkg.builder.Neo4jGraphStore") as mock_graph_cls,
-            patch("layerkg.builder.ChromaStore") as mock_chroma_cls,
+            patch("layerkg.pipeline.builder.Neo4jGraphStore") as mock_graph_cls,
+            patch("layerkg.pipeline.builder.ChromaStore") as mock_chroma_cls,
         ):
             mock_graph = MagicMock()
             mock_chroma = MagicMock()
@@ -607,7 +607,7 @@ class TestMultiLanguageParsers:
 
     def test_get_parser_python(self, builder: LayerKGBuilder) -> None:
         """验证 .py 文件路由到 PythonParser。"""
-        from layerkg.parser.python_parser import PythonParser
+        from layerkg.parsing.parser.python_parser import PythonParser
 
         parser = builder._get_parser(Path("foo.py"))
         assert parser is not None
@@ -616,7 +616,7 @@ class TestMultiLanguageParsers:
 
     def test_get_parser_java(self, builder: LayerKGBuilder) -> None:
         """验证 .java 文件路由到 JavaParser。"""
-        from layerkg.parser.java_parser import JavaParser
+        from layerkg.parsing.parser.java_parser import JavaParser
 
         parser = builder._get_parser(Path("Foo.java"))
         assert parser is not None
