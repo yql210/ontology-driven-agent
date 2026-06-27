@@ -36,8 +36,15 @@ class CodeEntity:
     docstring: str | None = None
     parameters: str | None = None
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    entry_category: str | None = None
+    entry_metadata: str | None = None
+    business_process: str | None = None
+    business_priority: str | None = None
+    business_lifecycle: str | None = None
+    business_owner: str | None = None
 
     VALID_ENTITY_TYPES = {"function", "class", "interface", "module", "file", "enum", "record", "field"}
+    VALID_ENTRY_CATEGORIES = frozenset({"http_api", "rpc_service", "scheduled", "mq_consumer", "event_handler"})
 
     def __post_init__(self) -> None:
         """校验字段。"""
@@ -46,6 +53,10 @@ class CodeEntity:
         if self.entity_type not in self.VALID_ENTITY_TYPES:
             raise SchemaValidationError(
                 f"CodeEntity.entity_type must be one of {self.VALID_ENTITY_TYPES}, got '{self.entity_type}'"
+            )
+        if self.entry_category is not None and self.entry_category not in self.VALID_ENTRY_CATEGORIES:
+            raise SchemaValidationError(
+                f"CodeEntity.entry_category must be one of {self.VALID_ENTRY_CATEGORIES}, got '{self.entry_category}'"
             )
 
 
