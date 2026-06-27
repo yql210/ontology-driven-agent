@@ -30,6 +30,7 @@ CONCEPT_ENTITY_TYPES = frozenset(
         "api_contract",
         "data_model",
         "process",
+        "message_topic",
     }
 )
 
