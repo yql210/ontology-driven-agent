@@ -8,7 +8,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ontoagent.domain.schema import CodeEntity, DocEntity
+from ontoagent.domain.schema import CodeEntity, ComplianceItem, DataAsset, DocEntity
 
 # 路径边界字符（用于防止子串误匹配）
 BOUNDARY_CHARS = " ./\\-_"
@@ -170,3 +170,45 @@ def scan_files(
                 doc_files.append(p)
 
     return sorted(code_files), sorted(doc_files)
+
+
+def data_asset_to_dict(entity: DataAsset) -> dict[str, object]:
+    """将 DataAsset 转为 Neo4j 属性字典。
+
+    Args:
+        entity: 数据资产实体。
+
+    Returns:
+        属性字典，仅包含非空字段。
+    """
+    d: dict[str, object] = {
+        "id": entity.id,
+        "name": entity.name,
+        "description": entity.description,
+        "sensitivity": entity.sensitivity,
+        "data_type": entity.data_type,
+        "created_at": entity.created_at,
+    }
+    if entity.aliases:
+        d["aliases"] = entity.aliases
+    return d
+
+
+def compliance_item_to_dict(entity: ComplianceItem) -> dict[str, object]:
+    """将 ComplianceItem 转为 Neo4j 属性字典。
+
+    Args:
+        entity: 合规要求实体。
+
+    Returns:
+        属性字典，仅包含非空字段。
+    """
+    return {
+        "id": entity.id,
+        "name": entity.name,
+        "description": entity.description,
+        "regulation": entity.regulation,
+        "severity": entity.severity,
+        "requirement": entity.requirement,
+        "created_at": entity.created_at,
+    }

@@ -22,6 +22,8 @@ ENTITY_LABELS = [
     "ResourceEntity",
     "ModuleEntity",
     "ChangeSetEntity",
+    "DataAsset",
+    "ComplianceItem",
 ]
 
 
