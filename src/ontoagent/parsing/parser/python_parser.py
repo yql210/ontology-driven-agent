@@ -205,6 +205,7 @@ class PythonParser(BaseParser):
             )
 
             from ontoagent.parsing.extractor.external_calls import extract_external_calls_python
+
             external_rels = extract_external_calls_python(root_node, source, module_name, file_path)
             relations.extend(external_rels)
 
@@ -252,13 +253,25 @@ class PythonParser(BaseParser):
             for child in node.children:
                 if child.type == "function_definition":
                     self._extract_function(
-                        child, source, file_path, entities, relations,
-                        module_name, parent_class_name, decorators=decorators
+                        child,
+                        source,
+                        file_path,
+                        entities,
+                        relations,
+                        module_name,
+                        parent_class_name,
+                        decorators=decorators,
                     )
                 elif child.type == "class_definition":
                     self._extract_class(
-                        child, source, file_path, entities, relations,
-                        module_name, parent_class_name, decorators=decorators
+                        child,
+                        source,
+                        file_path,
+                        entities,
+                        relations,
+                        module_name,
+                        parent_class_name,
+                        decorators=decorators,
                     )
             # 不继续递归子节点，避免重复提取
             return
@@ -764,8 +777,7 @@ class PythonParser(BaseParser):
                 # 去掉引号
                 text = text.strip()
                 if len(text) >= 2 and (
-                    (text.startswith('"') and text.endswith('"'))
-                    or (text.startswith("'") and text.endswith("'"))
+                    (text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'"))
                 ):
                     text = text[1:-1]
                 # 去三重引号

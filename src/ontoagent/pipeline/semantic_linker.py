@@ -96,16 +96,21 @@ def link_docs_to_code(
 
                 # 文件名匹配：检查 doc.content 是否包含文件 basename
                 filename = os.path.basename(file_path)
-                if filename and filename != file_path and filename in doc_content and _is_boundary_match(doc_content, filename):
-                        describes_rels.append(
-                            Relation(
-                                source_id=doc.id,
-                                target_id=entity_ids[0],
-                                relation_type="describes",
-                            )
+                if (
+                    filename
+                    and filename != file_path
+                    and filename in doc_content
+                    and _is_boundary_match(doc_content, filename)
+                ):
+                    describes_rels.append(
+                        Relation(
+                            source_id=doc.id,
+                            target_id=entity_ids[0],
+                            relation_type="describes",
                         )
-                        count += 1
-                        continue
+                    )
+                    count += 1
+                    continue
 
             # 函数名匹配：从代码块提取标识符（不依赖 file_path）
             if name in builder_utils.extract_identifiers_from_code(content) and len(name) > 3:
@@ -135,10 +140,7 @@ def _is_boundary_match(text: str, needle: str) -> bool:
     if doc_idx < 0:
         return False
     left_ok = doc_idx == 0 or text[doc_idx - 1] in builder_utils.BOUNDARY_CHARS
-    right_ok = (
-        doc_idx + len(needle) >= len(text)
-        or text[doc_idx + len(needle)] in builder_utils.BOUNDARY_CHARS
-    )
+    right_ok = doc_idx + len(needle) >= len(text) or text[doc_idx + len(needle)] in builder_utils.BOUNDARY_CHARS
     return left_ok and right_ok
 
 

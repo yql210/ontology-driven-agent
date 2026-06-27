@@ -1508,6 +1508,7 @@ class TestAnnotationExtraction:
         assert list_users.entry_category == "http_api"
         assert list_users.entry_metadata is not None
         import json
+
         meta = json.loads(list_users.entry_metadata)
         assert meta["route"] == "/users"
         assert meta["method"] == "GET"
@@ -1519,6 +1520,7 @@ class TestAnnotationExtraction:
         create_user = methods["Controller.createUser()"]
         assert create_user.entry_category == "http_api"
         import json
+
         meta = json.loads(create_user.entry_metadata)
         assert meta["route"] == "/users"
         assert meta["method"] == "POST"
@@ -1530,6 +1532,7 @@ class TestAnnotationExtraction:
         health = methods["Controller.health()"]
         assert health.entry_category == "http_api"
         import json
+
         meta = json.loads(health.entry_metadata)
         assert meta["route"] == "/health"
         assert meta["method"] == "REQUEST"
@@ -1541,6 +1544,7 @@ class TestAnnotationExtraction:
         hourly = methods["Scheduler.hourlyJob()"]
         assert hourly.entry_category == "scheduled"
         import json
+
         meta = json.loads(hourly.entry_metadata)
         assert meta["cron"] == "0 0 * * * *"
 
@@ -1551,6 +1555,7 @@ class TestAnnotationExtraction:
         handle = methods["Consumer.handle(String)"]
         assert handle.entry_category == "mq_consumer"
         import json
+
         meta = json.loads(handle.entry_metadata)
         assert meta["topic"] == "my-topic"
 
@@ -1561,6 +1566,7 @@ class TestAnnotationExtraction:
         on_message = methods["Consumer.onMessage(String)"]
         assert on_message.entry_category == "mq_consumer"
         import json
+
         meta = json.loads(on_message.entry_metadata)
         # RabbitListener 使用 queues 参数，不是 topics
         assert meta["topic"] == "my-queue"

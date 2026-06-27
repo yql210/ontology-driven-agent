@@ -95,8 +95,7 @@ class TestBusinessOntologyLoading:
             # Assert - DataAsset 和 ComplianceItem 被写入 Neo4j
             # 收集所有 merge_nodes_batch 调用中的 label 参数
             merge_nodes_labels = [
-                call.kwargs.get("label") or call.args[0]
-                for call in mock_graph.merge_nodes_batch.call_args_list
+                call.kwargs.get("label") or call.args[0] for call in mock_graph.merge_nodes_batch.call_args_list
             ]
 
             assert "DataAsset" in merge_nodes_labels, (
@@ -129,13 +128,9 @@ class TestBusinessOntologyLoading:
                 for rel in rel_data:
                     rel_types.append(rel.get("rel_type", ""))
 
-            assert "processes_data" in rel_types, (
-                f"Expected 'processes_data' in relation types, got {rel_types}"
-            )
+            assert "processes_data" in rel_types, f"Expected 'processes_data' in relation types, got {rel_types}"
 
-    def test_yaml_missing_skips_gracefully(
-        self, builder: OntoAgentBuilder, tmp_path: Path
-    ) -> None:
+    def test_yaml_missing_skips_gracefully(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         """验证 ontoagent.yaml 不存在时，正常跳过不报错。"""
         # Arrange
         (tmp_path / "module1.py").write_text("def foo():\n    pass\n")
@@ -157,8 +152,7 @@ class TestBusinessOntologyLoading:
 
             # Assert - DataAsset/ComplianceItem 标签未被使用
             merge_nodes_labels = [
-                call.kwargs.get("label") or call.args[0]
-                for call in mock_graph.merge_nodes_batch.call_args_list
+                call.kwargs.get("label") or call.args[0] for call in mock_graph.merge_nodes_batch.call_args_list
             ]
             assert "DataAsset" not in merge_nodes_labels
             assert "ComplianceItem" not in merge_nodes_labels

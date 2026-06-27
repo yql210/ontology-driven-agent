@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from ontoagent.domain.schema import ComplianceItem, DataAsset
 from ontoagent.pipeline.business_loader import load_business_ontology
 
@@ -98,7 +96,9 @@ compliance_items:
 
     def test_loads_real_config_file(self) -> None:
         """Should successfully load the real business_ontology.yaml shipped with the project."""
-        yaml_path = Path(__file__).parent.parent.parent.parent / "src" / "ontoagent" / "pipeline" / "business_ontology.yaml"
+        yaml_path = (
+            Path(__file__).parent.parent.parent.parent / "src" / "ontoagent" / "pipeline" / "business_ontology.yaml"
+        )
 
         assets, items = load_business_ontology(yaml_path)
 

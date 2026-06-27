@@ -2,11 +2,8 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from ontoagent.parsing.parser.java_parser import JavaParser
 from ontoagent.parsing.parser.python_parser import PythonParser
-
 
 # ── Python Integration Tests ────────────────────────────────────────────
 

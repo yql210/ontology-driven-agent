@@ -11,8 +11,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from ontoagent.domain.schema import CodeEntity, ComplianceItem, DataAsset, Relation, ServiceEntity
 from ontoagent.parsing.extractor.external_calls import extract_external_calls_python
 from ontoagent.parsing.parser.base import ExtractedRelation
@@ -21,7 +19,6 @@ from ontoagent.pipeline.business_loader import load_business_ontology
 from ontoagent.pipeline.data_mapper import map_code_to_data_assets
 from ontoagent.pipeline.service_linker import build_service_relations
 from ontoagent.pipeline.topic_linker import build_topic_relations
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Test 1: PythonParser → HTTP calls → calls_service 端到端

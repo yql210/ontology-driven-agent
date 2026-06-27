@@ -1,20 +1,9 @@
 from __future__ import annotations
 
 from ontoagent.parsing.extractor.entry_point_rules import (
-    JAVA_EVENT_ANNOTATIONS,
-    JAVA_HTTP_ANNOTATIONS,
-    JAVA_MQ_ANNOTATIONS,
-    JAVA_RPC_ANNOTATIONS,
-    JAVA_SCHEDULE_ANNOTATIONS,
-    PY_EVENT_NAMES,
-    PY_FRAMEWORK_HTTP_PATTERNS,
-    PY_MQ_NAMES,
-    PY_SCHEDULE_NAMES,
-    PY_STANDALONE_HTTP,
     classify_java_annotation,
     classify_python_decorator,
 )
-
 
 # ── Python classification tests ────────────────────────────────────────
 

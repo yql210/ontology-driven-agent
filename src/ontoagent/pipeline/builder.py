@@ -593,8 +593,7 @@ class OntoAgentBuilder:
             # 写入 ServiceEntity 节点
             if service_entities:
                 svc_dicts = [
-                    add_provenance(service_entity_to_dict(se), extracted_at=batch_time)
-                    for se in service_entities
+                    add_provenance(service_entity_to_dict(se), extracted_at=batch_time) for se in service_entities
                 ]
                 graph_store.merge_nodes_batch("ServiceEntity", svc_dicts, batch_size=200)
                 service_entity_count = len(service_entities)
@@ -708,8 +707,7 @@ class OntoAgentBuilder:
                 # Write DataAsset entities
                 if data_assets:
                     asset_dicts = [
-                        add_provenance(data_asset_to_dict(asset), extracted_at=batch_time)
-                        for asset in data_assets
+                        add_provenance(data_asset_to_dict(asset), extracted_at=batch_time) for asset in data_assets
                     ]
                     graph_store.merge_nodes_batch("DataAsset", asset_dicts, batch_size=200)
                     data_asset_count = len(data_assets)
@@ -731,19 +729,21 @@ class OntoAgentBuilder:
                     if asset_pairs:
                         pd_rel_data = []
                         for code_id, asset_id in asset_pairs:
-                            pd_rel_data.append({
-                                "source_id": code_id,
-                                "target_id": asset_id,
-                                "rel_type": "processes_data",
-                                "source_label": "CodeEntity",
-                                "target_label": "DataAsset",
-                                "properties": add_provenance(
-                                    {},
-                                    source="manual",
-                                    confidence=1.0,
-                                    extracted_at=batch_time,
-                                ),
-                            })
+                            pd_rel_data.append(
+                                {
+                                    "source_id": code_id,
+                                    "target_id": asset_id,
+                                    "rel_type": "processes_data",
+                                    "source_label": "CodeEntity",
+                                    "target_label": "DataAsset",
+                                    "properties": add_provenance(
+                                        {},
+                                        source="manual",
+                                        confidence=1.0,
+                                        extracted_at=batch_time,
+                                    ),
+                                }
+                            )
                         processes_data_count = graph_store.merge_relations_batch(pd_rel_data, batch_size=200)
                         self._logger.info("[Neo4j] Wrote %d processes_data relations", processes_data_count)
                     else:
@@ -803,8 +803,16 @@ class OntoAgentBuilder:
         elapsed = (time.monotonic() - t0) * 1000
         return BuildResult(
             files_scanned=files_scanned,
-            entities_created=len(all_entities) + len(doc_entities) + ext_entity_count + service_entity_count + topic_entity_count,
-            relations_created=len(relations) + len(describes_rels) + ext_rel_count + service_rel_count + topic_rel_count,
+            entities_created=len(all_entities)
+            + len(doc_entities)
+            + ext_entity_count
+            + service_entity_count
+            + topic_entity_count,
+            relations_created=len(relations)
+            + len(describes_rels)
+            + ext_rel_count
+            + service_rel_count
+            + topic_rel_count,
             concepts_created=concepts_created,
             semantic_relations_created=semantic_rels_created,
             modules_created=clusters_count,

@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from ontoagent.domain.schema import CodeEntity, ComplianceItem, DataAsset
 from ontoagent.pipeline.business_loader import load_business_ontology
 from ontoagent.pipeline.data_mapper import map_code_to_data_assets
@@ -94,10 +92,7 @@ def test_data_asset_validation_chain(tmp_path: Path) -> None:
     non-empty aliases.
     """
     # ── Arrange: use the real config file ──
-    yaml_path = (
-        Path(__file__).parent.parent.parent
-        / "src" / "ontoagent" / "pipeline" / "business_ontology.yaml"
-    )
+    yaml_path = Path(__file__).parent.parent.parent / "src" / "ontoagent" / "pipeline" / "business_ontology.yaml"
     assets, items = load_business_ontology(yaml_path)
 
     # ── Assert: DataAsset validation ──
@@ -109,9 +104,7 @@ def test_data_asset_validation_chain(tmp_path: Path) -> None:
         assert asset.sensitivity in DataAsset.VALID_SENSITIVITIES, (
             f"asset[{i}] sensitivity '{asset.sensitivity}' invalid"
         )
-        assert asset.data_type in DataAsset.VALID_DATA_TYPES, (
-            f"asset[{i}] data_type '{asset.data_type}' invalid"
-        )
+        assert asset.data_type in DataAsset.VALID_DATA_TYPES, f"asset[{i}] data_type '{asset.data_type}' invalid"
         assert asset.id is not None, f"asset[{i}] id is None"
 
     # ── Assert: ComplianceItem validation ──
@@ -119,9 +112,7 @@ def test_data_asset_validation_chain(tmp_path: Path) -> None:
     for i, item in enumerate(items, start=1):
         assert isinstance(item, ComplianceItem), f"item[{i}] is not ComplianceItem"
         assert item.name, f"item[{i}] name is empty"
-        assert item.severity in ComplianceItem.VALID_SEVERITIES, (
-            f"item[{i}] severity '{item.severity}' invalid"
-        )
+        assert item.severity in ComplianceItem.VALID_SEVERITIES, f"item[{i}] severity '{item.severity}' invalid"
         assert item.id is not None, f"item[{i}] id is None"
 
     # ── Assert: all 3 DataAssets have non-empty aliases ──

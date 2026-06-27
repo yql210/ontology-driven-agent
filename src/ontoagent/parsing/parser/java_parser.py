@@ -157,6 +157,7 @@ class JavaParser(BaseParser):
             )
 
             from ontoagent.parsing.extractor.external_calls import extract_external_calls_java
+
             external_rels = extract_external_calls_java(root_node, source, file_path)
             relations.extend(external_rels)
 
@@ -881,7 +882,9 @@ class JavaParser(BaseParser):
                 elif category == "scheduled":
                     entity.entry_metadata = json.dumps({"cron": args.get("cron")})
                 elif category == "mq_consumer":
-                    entity.entry_metadata = json.dumps({"topic": args.get("topics") or args.get("queues") or args.get("_value")})
+                    entity.entry_metadata = json.dumps(
+                        {"topic": args.get("topics") or args.get("queues") or args.get("_value")}
+                    )
                 break  # 仅第一个匹配注解决定分类
 
         entities.append(entity)
