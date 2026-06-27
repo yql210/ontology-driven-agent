@@ -39,3 +39,23 @@ actions:
     functions:
       - extract_interface
     requires_approval: false
+
+  compliance_check:
+    intent_type: compliance_check
+    trigger_hint: "用户要求检查合规、审计数据、GDPR、数据安全、PCI-DSS"
+    bind_to: code_entity
+    submission_criteria:
+      - "entity exists"
+    functions:
+      - check_compliance
+    requires_approval: false
+
+  business_impact_analysis:
+    intent_type: business_impact_analysis
+    trigger_hint: "用户要求分析业务影响、变更风险、上线前评估、影响范围"
+    bind_to: code_entity
+    submission_criteria:
+      - "entity exists"
+    functions:
+      - trace_business_impact
+    requires_approval: false
