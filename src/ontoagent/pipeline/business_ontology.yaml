@@ -1,0 +1,49 @@
+# Business Ontology Configuration — 业务本体配置
+# Declarative definitions for data assets and compliance items.
+# Loaded by business_loader.py and consumed by the pipeline / butler layers.
+
+data_assets:
+  - name: "用户个人信息"
+    description: "用户的个人身份信息，包括姓名、手机号、邮箱、身份证号等"
+    sensitivity: "confidential"
+    data_type: "pii"
+    aliases:
+      - "PII"
+      - "用户数据"
+      - "个人信息"
+
+  - name: "支付交易记录"
+    description: "用户支付及交易流水记录，包含金额、银行卡号、交易时间等"
+    sensitivity: "restricted"
+    data_type: "financial"
+    aliases:
+      - "交易流水"
+      - "支付数据"
+
+  - name: "系统运行日志"
+    description: "应用和基础设施的运行日志、审计日志、访问日志"
+    sensitivity: "internal"
+    data_type: "operational"
+    aliases:
+      - "logs"
+      - "运行日志"
+      - "审计日志"
+
+compliance_items:
+  - name: "GDPR-17-删除权"
+    description: "数据主体有权要求控制者在合理期限内删除其个人数据"
+    regulation: "GDPR"
+    severity: "critical"
+    requirement: "必须在收到请求后30天内完成数据删除，并通知所有下游数据接收方"
+
+  - name: "SOX-302-审计追踪"
+    description: "财务报告相关的IT系统必须保留完整的操作审计记录"
+    regulation: "SOX"
+    severity: "high"
+    requirement: "所有财务数据访问和修改操作必须记录不可篡改的审计日志，保留至少7年"
+
+  - name: "PCI-DSS-3.4-数据加密"
+    description: "存储的持卡人数据必须通过强加密进行保护"
+    regulation: "PCI-DSS"
+    severity: "critical"
+    requirement: "存储的PAN（主账号）必须使用AES-256或同等强度的加密算法进行不可逆加密"
