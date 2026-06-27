@@ -79,7 +79,7 @@ class TestMigrationRegistry:
         assert path[0].version_to == "1.0.0"
 
     def test_get_migration_path_chain(self):
-        reg = MigrationRegistry()
+        reg = MigrationRegistry(load_builtins=False)
         m1 = DummyMigration("0.0.0", "1.0.0")
         m2 = DummyMigration("1.0.0", "1.1.0")
         m3 = DummyMigration("1.1.0", "2.0.0")
@@ -91,7 +91,7 @@ class TestMigrationRegistry:
         assert [m.version_to for m in path] == ["1.0.0", "1.1.0", "2.0.0"]
 
     def test_get_migration_path_partial(self):
-        reg = MigrationRegistry()
+        reg = MigrationRegistry(load_builtins=False)
         m1 = DummyMigration("0.0.0", "1.0.0")
         m2 = DummyMigration("1.0.0", "1.1.0")
         m3 = DummyMigration("1.1.0", "2.0.0")
@@ -120,9 +120,9 @@ class TestMigrationRegistry:
 
     def test_get_latest_version(self):
         reg = MigrationRegistry()
-        # builtin migration 1.0.0→1.1.0 is auto-loaded
-        assert reg.get_latest_version() == "1.1.0"
-        reg.register(DummyMigration("1.1.0", "2.0.0"))
+        # builtin migrations (1.0.0→1.1.0, 1.1.0→1.2.0) are auto-loaded
+        assert reg.get_latest_version() == "1.2.0"
+        reg.register(DummyMigration("1.2.0", "2.0.0"))
         assert reg.get_latest_version() == "2.0.0"
 
 

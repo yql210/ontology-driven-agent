@@ -44,9 +44,10 @@ def _load_migration(version: str) -> MigrationBase:
 class MigrationRegistry:
     """迁移注册表。按版本顺序维护所有迁移。"""
 
-    def __init__(self) -> None:
+    def __init__(self, load_builtins: bool = True) -> None:
         self._migrations: list[MigrationBase] = []
-        self._load_builtin()
+        if load_builtins:
+            self._load_builtin()
 
     def _load_builtin(self) -> None:
         """加载所有内置迁移。"""
