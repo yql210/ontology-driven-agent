@@ -108,20 +108,22 @@ class TestMigrationRegistry:
         assert path == []
 
     def test_get_migration_path_gap(self):
-        """不连续的版本链应返回空路径。"""
+        """内置迁移填补了空隙后，路径应完整返回。"""
         reg = MigrationRegistry()
         m1 = DummyMigration("0.0.0", "1.0.0")
-        m3 = DummyMigration("1.1.0", "2.0.0")  # gap: no 1.0.0→1.1.0
+        m3 = DummyMigration("1.1.0", "2.0.0")  # gap 1.0.0→1.1.0 filled by builtin
         reg.register(m1)
         reg.register(m3)
         path = reg.get_migration_path("0.0.0", "2.0.0")
-        assert len(path) == 1  # only first step
+        # builtin 1.0.0→1.1.0 + m1 0.0.0→1.0.0 + m3 1.1.0→2.0.0 = 3 steps
+        assert len(path) == 3
 
     def test_get_latest_version(self):
         reg = MigrationRegistry()
-        assert reg.get_latest_version() == "0.0.0"
-        reg.register(DummyMigration("0.0.0", "1.0.0"))
-        assert reg.get_latest_version() == "1.0.0"
+        # builtin migration 1.0.0→1.1.0 is auto-loaded
+        assert reg.get_latest_version() == "1.1.0"
+        reg.register(DummyMigration("1.1.0", "2.0.0"))
+        assert reg.get_latest_version() == "2.0.0"
 
 
 def _make_store(version: str | None = None):
