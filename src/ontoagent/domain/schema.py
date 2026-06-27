@@ -99,6 +99,45 @@ class ConceptEntity:
 
 
 @dataclass
+class DataAsset:
+    """数据资产实体：敏感数据、合规数据等。
+
+    Attributes:
+        name: 资产名称（非空）。
+        description: 资产描述。
+        sensitivity: 敏感级别，必须是 public/internal/confidential/restricted 之一。
+        data_type: 数据类型，必须是 pii/financial/operational/credentials 之一。
+        aliases: 别名列表（可选）。
+        id: UUID v4 标识符，自动生成。
+        created_at: ISO 8601 格式的时间戳，自动生成。
+    """
+
+    name: str
+    description: str
+    sensitivity: str
+    data_type: str
+    aliases: list[str] = field(default_factory=list)
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    VALID_SENSITIVITIES = {"public", "internal", "confidential", "restricted"}
+    VALID_DATA_TYPES = {"pii", "financial", "operational", "credentials"}
+
+    def __post_init__(self) -> None:
+        """校验字段。"""
+        if not self.name or not self.name.strip():
+            raise SchemaValidationError("DataAsset.name cannot be empty")
+        if self.sensitivity not in self.VALID_SENSITIVITIES:
+            raise SchemaValidationError(
+                f"DataAsset.sensitivity must be one of {self.VALID_SENSITIVITIES}, got '{self.sensitivity}'"
+            )
+        if self.data_type not in self.VALID_DATA_TYPES:
+            raise SchemaValidationError(
+                f"DataAsset.data_type must be one of {self.VALID_DATA_TYPES}, got '{self.data_type}'"
+            )
+
+
+@dataclass
 class DocEntity:
     """文档实体：README、模块文档、API文档、注释、Wiki或架构文档。
 
@@ -341,6 +380,40 @@ class ServiceEntity:
         if self.status not in self.VALID_STATUSES:
             raise SchemaValidationError(
                 f"ServiceEntity.status must be one of {self.VALID_STATUSES}, got '{self.status}'"
+            )
+
+
+@dataclass
+class ComplianceItem:
+    """合规要求实体：GDPR、SOX、PCI-DSS 等法规要求。
+
+    Attributes:
+        name: 合规要求标识（非空）。
+        description: 合规要求描述（非空）。
+        regulation: 适用法规/标准。
+        severity: 严重程度，必须是 critical/high/medium/low 之一。
+        requirement: 具体要求内容。
+        id: UUID v4 标识符，自动生成。
+        created_at: ISO 8601 格式的时间戳，自动生成。
+    """
+
+    name: str
+    description: str
+    regulation: str
+    severity: str
+    requirement: str
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    VALID_SEVERITIES = {"critical", "high", "medium", "low"}
+
+    def __post_init__(self) -> None:
+        """校验字段。"""
+        if not self.name or not self.name.strip():
+            raise SchemaValidationError("ComplianceItem.name cannot be empty")
+        if self.severity not in self.VALID_SEVERITIES:
+            raise SchemaValidationError(
+                f"ComplianceItem.severity must be one of {self.VALID_SEVERITIES}, got '{self.severity}'"
             )
 
 
