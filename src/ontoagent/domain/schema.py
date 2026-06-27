@@ -355,8 +355,11 @@ VALID_ENTITY_LABELS: frozenset[str] = frozenset(
         "LogEntity",
         "AlertEntity",
         "ServiceEntity",
+        "DataAsset",
+        "ComplianceItem",
     }
 )
+
 
 VALID_RELATION_TYPES = frozenset(
     {
@@ -375,6 +378,9 @@ VALID_RELATION_TYPES = frozenset(
         "logs_from",
         "runs_as",
         "service_depends_on",
+        "processes_data",
+        "subject_to",
+        "governed_by",
     }
 )
 
@@ -394,6 +400,9 @@ RELATION_TYPE_TO_NEO4J: dict[str, str] = {
     "logs_from": "LOGS_FROM",
     "runs_as": "RUNS_AS",
     "service_depends_on": "SERVICE_DEPENDS_ON",
+    "processes_data": "PROCESSES_DATA",
+    "subject_to": "SUBJECT_TO",
+    "governed_by": "GOVERNED_BY",
 }
 
 
@@ -517,6 +526,21 @@ RELATION_CONSTRAINTS: dict[str, RelationConstraint] = {
         domain="ServiceEntity",
         range="ServiceEntity",
         description="服务间依赖",
+    ),
+    "processes_data": RelationConstraint(
+        domain="CodeEntity",
+        range="DataAsset",
+        description="代码处理了数据资产",
+    ),
+    "subject_to": RelationConstraint(
+        domain="CodeEntity",
+        range="ComplianceItem",
+        description="代码受合规要求约束",
+    ),
+    "governed_by": RelationConstraint(
+        domain="DataAsset",
+        range="ComplianceItem",
+        description="数据资产受合规要求约束",
     ),
 }
 
