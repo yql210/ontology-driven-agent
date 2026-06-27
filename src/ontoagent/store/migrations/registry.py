@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 # 添加新迁移时在此列表末尾追加。
 _BUILTIN_MIGRATIONS: list[str] = [
     "1.1.0",
+    "1.2.0",
 ]
 
 
@@ -31,6 +32,12 @@ def _load_migration(version: str) -> MigrationBase:
         )
 
         return DataAssetAndComplianceItemMigration()
+    if version == "1.2.0":
+        from ontoagent.store.migrations.v1_2_0_add_cross_service_relations import (
+            CrossServiceRelationsMigration,
+        )
+
+        return CrossServiceRelationsMigration()
     raise ValueError(f"Unknown migration version: {version}")
 
 
