@@ -30,7 +30,7 @@ class ActionExecutor:
     def intent_map(self) -> dict[str, ActionConfig]:
         return self._intent_map
 
-    def execute(self, intent_type: str, params: dict[str, Any]) -> ActionResult:
+    def execute(self, intent_type: str, params: dict[str, Any], bypass_guard: bool = False) -> ActionResult:
         """Execute an action: intent routing → criteria check → function chain."""
         # 1. Intent routing
         config = self._intent_map.get(intent_type)
@@ -51,19 +51,20 @@ class ActionExecutor:
                 error=f"未找到实体 '{target}'",
             )
 
-        # 3. Guard pipeline check — uses pluggable guards if available, else auto-pipeline
-        pipeline = self._guard_pipeline
-        if pipeline is None:
-            pipeline = ActionGuardPipeline([EntityExistsGuard(), EntityPropertyGuard()])
+        # 3. Guard pipeline check — SKIP if bypass_guard=True
+        if not bypass_guard:
+            pipeline = self._guard_pipeline
+            if pipeline is None:
+                pipeline = ActionGuardPipeline([EntityExistsGuard(), EntityPropertyGuard()])
 
-        block_reason, warnings = pipeline.check(config, entity, self._graph_store)
-        if block_reason:
-            return ActionResult(
-                success=False,
-                action_name=config.name,
-                error=block_reason,
-                warnings=warnings,
-            )
+            block_reason, warnings = pipeline.check(config, entity, self._graph_store)
+            if block_reason:
+                return ActionResult(
+                    success=False,
+                    action_name=config.name,
+                    error=block_reason,
+                    warnings=warnings,
+                )
 
         # 4. Build ActionContext
         ctx = ActionContext(

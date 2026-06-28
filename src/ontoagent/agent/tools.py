@@ -519,7 +519,7 @@ def express_intent(
                 )
 
         # --- Execute ---
-        result = executor.execute(intent_type, {**(params or {}), "target": target})
+        result = executor.execute(intent_type, {**(params or {}), "target": target}, bypass_guard=skip_approval)
         return json.dumps(result.to_dict(), ensure_ascii=False, default=str)
 
     except Exception as e:
