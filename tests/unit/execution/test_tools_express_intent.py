@@ -19,12 +19,21 @@ def test_express_intent_refactor() -> None:
         summary="操作 'refactor' 执行成功",
     )
 
+    mock_entity = {"name": "Cache", "id": "e1"}
+    mock_config = MagicMock()
+    mock_pipeline = MagicMock()
+    mock_pipeline.check.return_value = (None, [])
+
     mock_executor = MagicMock()
     mock_executor.execute.return_value = mock_result
+    mock_executor._resolve_entity.return_value = mock_entity
+    mock_executor.intent_map.get.return_value = mock_config
+    mock_executor._guard_pipeline = mock_pipeline
 
     with (
         patch("ontoagent.agent.tools._get_action_executor", return_value=mock_executor),
         patch("ontoagent.agent.tools.get_neo4j"),
+        patch("ontoagent.agent.tools._get_approval_gate", return_value=None),
     ):
         raw = express_intent.invoke({"intent_type": "refactor", "target": "Cache", "params": None})
         parsed = json.loads(raw)
@@ -45,17 +54,25 @@ def test_express_intent_unknown_type() -> None:
         error="未知操作类型: unknown_action",
     )
 
+    mock_entity = {"name": "Cache", "id": "e1"}
+    mock_pipeline = MagicMock()
+    mock_pipeline.check.return_value = (None, [])
+
     mock_executor = MagicMock()
     mock_executor.execute.return_value = mock_result
+    mock_executor._resolve_entity.return_value = mock_entity
+    mock_executor.intent_map.get.return_value = None  # intent not found
+    mock_executor._guard_pipeline = mock_pipeline
 
     with (
         patch("ontoagent.agent.tools._get_action_executor", return_value=mock_executor),
         patch("ontoagent.agent.tools.get_neo4j"),
+        patch("ontoagent.agent.tools._get_approval_gate", return_value=None),
     ):
         raw = express_intent.invoke({"intent_type": "unknown_action", "target": "Cache", "params": None})
         parsed = json.loads(raw)
 
-    assert parsed["success"] is False
+    assert parsed["status"] == "error"
     assert "未知操作类型" in parsed["error"]
 
 
@@ -69,11 +86,12 @@ def test_express_intent_exception_handling() -> None:
     with (
         patch("ontoagent.agent.tools._get_action_executor", return_value=mock_executor),
         patch("ontoagent.agent.tools.get_neo4j"),
+        patch("ontoagent.agent.tools._get_approval_gate", return_value=None),
     ):
         raw = express_intent.invoke({"intent_type": "refactor", "target": "Cache", "params": None})
         parsed = json.loads(raw)
 
-    assert "error" in parsed
+    assert parsed["status"] == "error"
     assert "boom" in parsed["error"]
 
 
@@ -92,9 +110,13 @@ def test_action_executor_singleton() -> None:
 
     # Reset singleton
     tools_mod._action_executor = None
+    tools_mod._APPROVAL_GATE = None
 
     mock_store = MagicMock()
-    with patch("ontoagent.execution.action_executor.ActionExecutor") as mock_executor_cls:
+    with (
+        patch("ontoagent.execution.action_executor.ActionExecutor") as mock_executor_cls,
+        patch("ontoagent.agent.tools._get_approval_gate", return_value=MagicMock()),
+    ):
         instance = MagicMock()
         mock_executor_cls.return_value = instance
 
@@ -109,6 +131,7 @@ def test_action_executor_singleton() -> None:
 
     # Cleanup
     tools_mod._action_executor = None
+    tools_mod._APPROVAL_GATE = None
 
 
 class TestGap1FunctionRunnerInjection:
@@ -119,16 +142,19 @@ class TestGap1FunctionRunnerInjection:
         import ontoagent.agent.tools as tools_mod
 
         tools_mod._action_executor = None
+        tools_mod._APPROVAL_GATE = None
         mock_store = MagicMock()
 
         try:
-            executor = tools_mod._get_action_executor(mock_store)
-            assert executor._function_runner is not None, (
-                "ActionExecutor was created without a FunctionRunner — "
-                "functions will bypass retry/circuit-breaker/fallback"
-            )
+            with patch("ontoagent.agent.tools._get_approval_gate", return_value=MagicMock()):
+                executor = tools_mod._get_action_executor(mock_store)
+                assert executor._function_runner is not None, (
+                    "ActionExecutor was created without a FunctionRunner — "
+                    "functions will bypass retry/circuit-breaker/fallback"
+                )
         finally:
             tools_mod._action_executor = None
+            tools_mod._APPROVAL_GATE = None
 
     def test_function_runner_is_shared_singleton(self) -> None:
         """Repeated _get_action_executor calls share the same FunctionRunner."""
@@ -137,17 +163,20 @@ class TestGap1FunctionRunnerInjection:
         mock_store = MagicMock()
 
         tools_mod._action_executor = None
+        tools_mod._APPROVAL_GATE = None
         try:
-            executor1 = tools_mod._get_action_executor(mock_store)
-            runner1 = executor1._function_runner
+            with patch("ontoagent.agent.tools._get_approval_gate", return_value=MagicMock()):
+                executor1 = tools_mod._get_action_executor(mock_store)
+                runner1 = executor1._function_runner
 
-            tools_mod._action_executor = None
-            executor2 = tools_mod._get_action_executor(mock_store)
-            runner2 = executor2._function_runner
+                tools_mod._action_executor = None
+                executor2 = tools_mod._get_action_executor(mock_store)
+                runner2 = executor2._function_runner
 
-            assert runner1 is runner2, "FunctionRunner should be a shared singleton"
+                assert runner1 is runner2, "FunctionRunner should be a shared singleton"
         finally:
             tools_mod._action_executor = None
+            tools_mod._APPROVAL_GATE = None
 
 
 class TestGap2GeneralFunctionsRegistered:

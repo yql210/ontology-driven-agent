@@ -62,6 +62,12 @@ def graph_query(cypher: str) -> str:
     Returns:
         查询结果的 JSON 格式字符串
     """
+    from ontoagent.agent.tool_gateway import validate_graph_query
+
+    allowed, reason = validate_graph_query(cypher)
+    if not allowed:
+        return json.dumps({"error": reason}, ensure_ascii=False)
+
     neo4j = get_neo4j()
     try:
         results = neo4j.query(cypher)
@@ -373,24 +379,135 @@ def export_graph(limit: int = 100) -> str:
 
 
 @tool
-def express_intent(intent_type: str, target: str, params: dict | None = None) -> str:
-    """当你识别到用户有操作意图时调用此工具。可用操作类型会在系统提示中列出。
+def express_intent(
+    intent_type: str = "",
+    target: str = "",
+    params: dict | None = None,
+    approval_id: str = "",
+    approved: bool = False,
+) -> str:
+    """执行操作意图，或在需要审批时返回审批单。
+
+    两种调用模式：
+    1. 正常模式：express_intent(intent_type="refactor", target="func_name")
+       → 自动检查约束和审批策略 → 返回执行结果或审批单
+
+    2. 审批回执模式：express_intent(approval_id="abc123", approved=true)
+       → 验证令牌 → 执行之前挂起的操作
 
     Args:
-        intent_type: 操作类型（如 refactor, document, analyze_impact）
+        intent_type: 操作类型（正常模式必填）
         target: 目标实体名称
-        params: 可选参数（dict）
+        params: 额外参数
+        approval_id: 审批令牌（审批回执模式）
+        approved: 是否批准（审批回执模式）
 
     Returns:
-        执行结果的 JSON 格式字符串
+        JSON 字符串。正常执行完成返回 {"status": "completed", ...}
+        需要审批返回 {"status": "approval_required", "approval_id": "...", "checks": [...]}
     """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     try:
         neo4j = get_neo4j()
         executor = _get_action_executor(neo4j)
-        result = executor.execute(intent_type, {"target": target, **(params or {})})
-        return json.dumps(result.to_dict(), ensure_ascii=False, indent=2)
+        approval_gate = _get_approval_gate()
+
+        # --- 审批回执模式 ---
+        if approval_id:
+            if not approval_gate:
+                return json.dumps({"status": "error", "error": "审批系统未启用"}, ensure_ascii=False)
+
+            ctx = approval_gate.resolve(approval_id, approved)
+            if ctx is None:
+                return json.dumps(
+                    {"status": "error", "error": "审批令牌无效、已过期或已被使用"},
+                    ensure_ascii=False,
+                )
+
+            if not approved:
+                return json.dumps(
+                    {"status": "rejected", "message": f"操作 '{ctx.intent_type}' 已被拒绝"},
+                    ensure_ascii=False,
+                )
+
+            # Resume execution with the stored context
+            params = ctx.params
+            intent_type = ctx.intent_type
+            target = ctx.target
+
+        # --- 正常模式 ---
+        if not intent_type or not target:
+            return json.dumps({"status": "error", "error": "intent_type 和 target 不能为空"}, ensure_ascii=False)
+
+        # Resolve entity
+        entity = executor._resolve_entity(target)
+        if entity is None:
+            return json.dumps({"status": "error", "error": f"未找到实体 '{target}'"}, ensure_ascii=False)
+
+        # Get action config
+        config = executor.intent_map.get(intent_type)
+        if config is None:
+            return json.dumps({"status": "error", "error": f"未知操作类型: {intent_type}"}, ensure_ascii=False)
+
+        # --- Approval gate check ---
+        if approval_gate:
+            from ontoagent.domain.approval import ApprovalContext, DecisionLevel
+
+            # Run guard pipeline to collect checks
+            pipeline = executor._guard_pipeline
+            _block_reason, _warnings = pipeline.check(config, entity, neo4j) if pipeline else (None, [])
+
+            # Build guard results for context
+            guard_checks = []
+            if pipeline:
+                for guard in pipeline.guards:
+                    decision = guard.evaluate(config, entity, neo4j)
+                    guard_checks.append({
+                        "guard": type(guard).__name__,
+                        "level": decision.level.value,
+                        "reason": decision.reason,
+                    })
+
+            approval_ctx = ApprovalContext(
+                intent_type=intent_type,
+                target=target,
+                params=params or {},
+                entity=entity,
+                guard_checks=guard_checks,
+                session_id="",
+            )
+
+            decision = approval_gate.check(
+                approval_ctx,
+                config=config,
+                graph_store=neo4j,
+            )
+
+            if decision.level == DecisionLevel.DENIED:
+                return json.dumps({
+                    "status": "blocked",
+                    "checks": [{"policy": r.policy_name, "level": r.level.value, "reason": r.reason} for r in decision.results],
+                }, ensure_ascii=False)
+
+            if decision.level == DecisionLevel.PENDING:
+                return json.dumps({
+                    "status": "approval_required",
+                    "approval_id": decision.token,
+                    "level": "action",
+                    "checks": guard_checks,
+                    "policies": [{"policy": r.policy_name, "level": r.level.value, "reason": r.reason} for r in decision.results],
+                }, ensure_ascii=False)
+
+        # --- Execute ---
+        result = executor.execute(intent_type, {**(params or {}), "target": target})
+        return json.dumps(result.to_dict(), ensure_ascii=False, default=str)
+
     except Exception as e:
-        return json.dumps({"error": f"操作执行失败: {e!s}"}, ensure_ascii=False)
+        logger.exception("express_intent failed")
+        return json.dumps({"status": "error", "error": str(e)}, ensure_ascii=False)
 
 
 @tool
@@ -472,6 +589,35 @@ def check_operation(intent_type: str, target: str) -> str:
 
 _action_executor: ActionExecutor | None = None
 _function_runner: Any | None = None
+_APPROVAL_GATE: object | None = None
+
+
+def _get_approval_gate() -> object:
+    """获取或初始化 ApprovalGate 单例。
+
+    GuardResultPolicy 的 pipeline 将通过 set_pipeline() 延迟注入，
+    由 _get_action_executor 在创建 guard pipeline 后完成。
+    """
+    global _APPROVAL_GATE
+    if _APPROVAL_GATE is None:
+        from ontoagent.execution.constraints import (
+            ActionApprovalPolicy,
+            ApprovalGate,
+            FunctionDangerPolicy,
+            GuardResultPolicy,
+        )
+        from ontoagent.execution.functions.registry import _meta as function_meta
+
+        _APPROVAL_GATE = ApprovalGate([
+            GuardResultPolicy(
+                pipeline=None,  # 延迟注入：_get_action_executor 创建 pipeline 后 set_pipeline()
+                on_block="require_approval",
+                on_warn="require_approval",
+            ),
+            ActionApprovalPolicy(),
+            FunctionDangerPolicy(function_meta),
+        ])
+    return _APPROVAL_GATE
 
 
 def _get_function_runner() -> Any:
@@ -535,6 +681,12 @@ def _get_action_executor(graph_store: object) -> ActionExecutor:
                 OntologyPropagationGuard(propagator, rules=prop_rules),
             ]
         )
+
+        # Wire pipeline into GuardResultPolicy for approval gate (deferred injection)
+        approval_gate = _get_approval_gate()
+        for policy in approval_gate.policies:
+            if hasattr(policy, "set_pipeline"):
+                policy.set_pipeline(guard_pipeline)
 
         _action_executor = ActionExecutor(
             graph_store,

@@ -27,17 +27,23 @@ class GuardResultPolicy(ApprovalPolicy):
         approval_policy:
           on_block: "require_approval" | "auto_reject"
           on_warn: "require_approval" | "auto_allow"
+
+    Pipeline 可以通过 set_pipeline() 延迟注入，解决 _get_action_executor 的时序问题。
     """
 
     def __init__(
         self,
-        pipeline: ActionGuardPipeline,
+        pipeline: ActionGuardPipeline | None = None,
         on_block: str = "require_approval",
         on_warn: str = "require_approval",
     ) -> None:
         self._pipeline = pipeline
         self._on_block = on_block
         self._on_warn = on_warn
+
+    def set_pipeline(self, pipeline: ActionGuardPipeline) -> None:
+        """延迟注入 GuardPipeline（解决 ApprovalGate 与 ActionExecutor 的初始化时序）。"""
+        self._pipeline = pipeline
 
     @property
     def name(self) -> str:
@@ -51,6 +57,14 @@ class GuardResultPolicy(ApprovalPolicy):
                 policy_name=self.name,
                 level=DecisionLevel.APPROVED,
                 reason="no config or graph_store",
+            )
+
+        # Guard against missing pipeline (not yet wired)
+        if self._pipeline is None:
+            return PolicyResult(
+                policy_name=self.name,
+                level=DecisionLevel.APPROVED,
+                reason="pipeline not yet wired",
             )
 
         block_reason, warnings = self._pipeline.check(config, context.entity, graph_store)
