@@ -35,6 +35,27 @@ class ChatResponse(BaseModel):
     duration_ms: int
 
 
+class ApprovalRequest(BaseModel):
+    approval_id: str
+    approved: bool
+    thread_id: str | None = None
+
+    @field_validator("approval_id")
+    @classmethod
+    def approval_id_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            msg = "approval_id cannot be empty"
+            raise ValueError(msg)
+        return v
+
+
+class ApprovalResponse(BaseModel):
+    success: bool
+    status: str  # "completed" | "rejected" | "error"
+    message: str
+    result: dict | None = None
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_sync(req: ChatRequest) -> ChatResponse:
     start = time.time()
@@ -95,3 +116,69 @@ async def chat_stream(req: ChatRequest):
                     pass
 
     return EventSourceResponse(event_generator())
+
+
+@router.post("/chat/approval", response_model=ApprovalResponse)
+async def chat_approval(req: ApprovalRequest) -> ApprovalResponse:
+    """处理审批决策。前端点击批准/拒绝按钮后调用。
+
+    直接调用 express_intent 工具，传入 approval_id + approved 参数，
+    跳过完整的 Agent 循环。返回执行结果。
+    """
+    try:
+        from ontoagent.agent.tools import _get_approval_gate
+
+        # 验证审批令牌
+        gate = _get_approval_gate()
+        if gate is None:
+            return ApprovalResponse(
+                success=False,
+                status="error",
+                message="审批系统未启用",
+            )
+
+        ctx = gate.resolve(req.approval_id, req.approved)
+        if ctx is None:
+            if not req.approved:
+                return ApprovalResponse(
+                    success=True,
+                    status="rejected",
+                    message="操作已被拒绝",
+                )
+            return ApprovalResponse(
+                success=False,
+                status="error",
+                message="审批令牌无效、已过期或已被使用",
+            )
+
+        # 继续执行
+        import os
+
+        from ontoagent.agent.tools import _get_action_executor
+        from ontoagent.store.neo4j_store import Neo4jGraphStore
+
+        uri = os.environ.get("ONTOAGENT_NEO4J_URI", "bolt://localhost:7687")
+        user = os.environ.get("ONTOAGENT_NEO4J_USER", "neo4j")
+        password = os.environ.get("ONTOAGENT_NEO4J_PASSWORD", "")
+
+        graph_store = Neo4jGraphStore(uri=uri, user=user, password=password)
+        executor = _get_action_executor(graph_store)
+
+        result = executor.execute(ctx.intent_type, {**ctx.params, "target": ctx.target})
+
+        return ApprovalResponse(
+            success=result.success,
+            status="completed",
+            message=result.summary or f"操作 '{ctx.intent_type}' 执行完成",
+            result=result.to_dict(),
+        )
+
+    except Exception as e:
+        import logging
+
+        logging.getLogger(__name__).exception("chat_approval failed")
+        return ApprovalResponse(
+            success=False,
+            status="error",
+            message=str(e),
+        )
