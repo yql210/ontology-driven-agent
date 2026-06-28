@@ -519,8 +519,32 @@ def express_intent(
                 )
 
         # --- Execute ---
-        result = executor.execute(intent_type, {**(params or {}), "target": target}, bypass_guard=skip_approval)
-        return json.dumps(result.to_dict(), ensure_ascii=False, default=str)
+        bypass_fn_approval = skip_approval  # If approval was already granted, bypass function-level approval too
+        result = executor.execute(
+            intent_type,
+            {**(params or {}), "target": target},
+            bypass_guard=skip_approval,
+            bypass_function_approval=bypass_fn_approval,
+        )
+        result_dict = result.to_dict()
+
+        # Check for function-level approval in results
+        for r in result_dict.get("results", []):
+            data = r.get("data", {})
+            if data.get("approval_required"):
+                return json.dumps(
+                    {
+                        "status": "approval_required",
+                        "level": "function",
+                        "approval_id": data.get("approval_token", ""),
+                        "function_name": data.get("function_name", ""),
+                        "checks": [],
+                        "policies": [],
+                    },
+                    ensure_ascii=False,
+                )
+
+        return json.dumps(result_dict, ensure_ascii=False, default=str)
 
     except Exception as e:
         logger.exception("express_intent failed")
@@ -671,6 +695,13 @@ def _get_approval_gate() -> object:
                 policies.append(fp)
 
         _APPROVAL_GATE = ApprovalGate(policies)
+
+        # Apply token configuration from YAML
+        token_config = config.get("token", {})
+        if token_config:
+            _APPROVAL_GATE._ttl = token_config.get("ttl", 600)
+            _APPROVAL_GATE._max_pending = token_config.get("max_pending", 10)
+
     return _APPROVAL_GATE
 
 

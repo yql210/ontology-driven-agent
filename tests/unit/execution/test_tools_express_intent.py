@@ -41,7 +41,9 @@ def test_express_intent_refactor() -> None:
     assert parsed["success"] is True
     assert parsed["action_name"] == "refactor"
     assert parsed["summary"] == "操作 'refactor' 执行成功"
-    mock_executor.execute.assert_called_once_with("refactor", {"target": "Cache"}, bypass_guard=False)
+    mock_executor.execute.assert_called_once_with(
+        "refactor", {"target": "Cache"}, bypass_guard=False, bypass_function_approval=False
+    )
 
 
 def test_express_intent_unknown_type() -> None:

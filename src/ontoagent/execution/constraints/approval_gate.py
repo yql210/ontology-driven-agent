@@ -19,10 +19,12 @@ logger = logging.getLogger(__name__)
 class ApprovalGate:
     """集中审批引擎 — 策略链 → 决策 → 令牌管理 → 审批解析。"""
 
-    def __init__(self, policies: list[ApprovalPolicy] | None = None) -> None:
+    def __init__(self, policies: list[ApprovalPolicy] | None = None, ttl: int = 600, max_pending: int = 10) -> None:
         self._policies: list[ApprovalPolicy] = policies or []
         self._pending: dict[str, PendingApproval] = {}
         self._audit_log: list[dict[str, Any]] = []
+        self._ttl = ttl
+        self._max_pending = max_pending
 
     @property
     def policies(self) -> list[ApprovalPolicy]:
@@ -55,8 +57,16 @@ class ApprovalGate:
         # Check for PENDING
         pending = [r for r in results if r.level == DecisionLevel.PENDING]
         if pending:
+            # Check max_pending limit
+            if len(self._pending) >= self._max_pending:
+                self.cleanup_expired()
+                if len(self._pending) >= self._max_pending:
+                    return ApprovalDecision(
+                        level=DecisionLevel.DENIED,
+                        results=results,
+                    )
             token = generate_token(context.intent_type, context.target, context.session_id)
-            self._pending[token] = PendingApproval(token=token, context=context)
+            self._pending[token] = PendingApproval(token=token, context=context, ttl=self._ttl)
             self._audit("pending", context, results, token=token)
             return ApprovalDecision(level=DecisionLevel.PENDING, token=token, results=results)
 

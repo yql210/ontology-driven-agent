@@ -151,6 +151,25 @@ export const useChatStore = defineStore('chat', () => {
                   pendingApprovals.value.set(approvalData.approval_id, approvalData)
                 }
               }
+              // 检测 check_operation 返回约束检查结果
+              if (matchedToolName === 'check_operation' && event.result) {
+                try {
+                  const data = JSON.parse(event.result)
+                  if (data.checks && data.checks.length > 0) {
+                    lastMsg.blocks!.push({
+                      type: 'constraint_check',
+                      checkResult: {
+                        pass: data.pass ?? true,
+                        checks: data.checks,
+                        target: data.target,
+                        block_reason: data.block_reason,
+                      },
+                    })
+                  }
+                } catch {
+                  // 解析失败，忽略
+                }
+              }
               break
             }
             case 'error':

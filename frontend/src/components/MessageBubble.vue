@@ -3,6 +3,7 @@ import type { Message } from '../api/types'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import ToolCallBlock from './ToolCallBlock.vue'
 import ApprovalCard from './ApprovalCard.vue'
+import ConstraintCheckCard from './ConstraintCheckCard.vue'
 
 defineProps<{ message: Message; threadId?: string | null }>()
 const emit = defineEmits<{ approve: [approvalId: string]; reject: [approvalId: string] }>()
@@ -21,6 +22,10 @@ const emit = defineEmits<{ approve: [approvalId: string]; reject: [approvalId: s
             :approval="block.approval"
             @approve="(id: string) => emit('approve', id)"
             @reject="(id: string) => emit('reject', id)"
+          />
+          <ConstraintCheckCard
+            v-if="block.type === 'constraint_check'"
+            :check-result="block.checkResult"
           />
         </template>
       </template>

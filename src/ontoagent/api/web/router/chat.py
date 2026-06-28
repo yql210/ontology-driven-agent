@@ -164,7 +164,32 @@ async def chat_approval(req: ApprovalRequest) -> ApprovalResponse:
         graph_store = Neo4jGraphStore(uri=uri, user=user, password=password)
         executor = _get_action_executor(graph_store)
 
-        result = executor.execute(ctx.intent_type, {**ctx.params, "target": ctx.target})
+        # 记录 trace: 审批开始
+        from ontoagent.api.web.router.trace import collector as trace_collector
+
+        if trace_collector and req.thread_id:
+            await trace_collector.add_step(
+                req.thread_id,
+                type="approval_resolved",
+                content=f"审批{'通过' if req.approved else '拒绝'}: {ctx.intent_type} → {ctx.target}",
+                tool_name="approval",
+            )
+
+        result = executor.execute(
+            ctx.intent_type,
+            {**ctx.params, "target": ctx.target},
+            bypass_function_approval=True,
+        )
+
+        # 记录 trace: 审批执行结果
+        if trace_collector and req.thread_id:
+            await trace_collector.add_step(
+                req.thread_id,
+                type="tool_result",
+                content=f"审批执行结果: {'成功' if result.success else '失败'}",
+                tool_name="approval",
+                tool_result=f"success={result.success}, summary={result.summary}",
+            )
 
         return ApprovalResponse(
             success=result.success,

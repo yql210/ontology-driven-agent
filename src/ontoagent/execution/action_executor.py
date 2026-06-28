@@ -30,8 +30,16 @@ class ActionExecutor:
     def intent_map(self) -> dict[str, ActionConfig]:
         return self._intent_map
 
-    def execute(self, intent_type: str, params: dict[str, Any], bypass_guard: bool = False) -> ActionResult:
+    def execute(
+        self,
+        intent_type: str,
+        params: dict[str, Any],
+        bypass_guard: bool = False,
+        bypass_function_approval: bool = False,
+    ) -> ActionResult:
         """Execute an action: intent routing → criteria check → function chain."""
+        import json
+
         # 1. Intent routing
         config = self._intent_map.get(intent_type)
         if config is None:
@@ -69,18 +77,27 @@ class ActionExecutor:
         # 4. Build ActionContext
         ctx = ActionContext(
             graph_store=self._graph_store,
-            match_data={**params, "entity": entity, "entity_id": entity.get("id", "")},
+            match_data={**params, "entity": entity, "entity_id": entity.get("id", ""), "intent_type": intent_type},
         )
 
         # 5. Execute function chain sequentially
         results: list[FunctionResult] = []
         for func_name in config.functions:
             if self._function_runner is not None:
-                result = self._function_runner.run(func_name, ctx)
+                result = self._function_runner.run(func_name, ctx, bypass_approval=bypass_function_approval)
             else:
                 result = ctx.call_function(func_name)
             results.append(result)
             if not result.success:
+                # 检测是否为 function 级审批请求（不当作普通错误）
+                if result.data.get("approval_required"):
+                    return ActionResult(
+                        success=False,
+                        action_name=config.name,
+                        results=results,
+                        error=f"Function '{func_name}' 需要审批",
+                        warnings=[json.dumps(result.data, ensure_ascii=False)],
+                    )
                 return ActionResult(
                     success=False,
                     action_name=config.name,

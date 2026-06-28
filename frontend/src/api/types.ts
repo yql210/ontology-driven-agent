@@ -34,6 +34,15 @@ export type MessageBlock =
         summary?: string
       }
     }
+  | {
+      type: 'constraint_check'
+      checkResult: {
+        pass: boolean
+        checks: Array<{ guard: string; level: string; reason: string }>
+        target?: string
+        block_reason?: string
+      }
+    }
 
 export interface Message {
   id: string
