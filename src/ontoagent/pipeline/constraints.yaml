@@ -1,3 +1,5 @@
+# 遍历路径配置 — 仅定义遍历路径
+# value_mapping 由 ONTOLOGY_CONSTRAINT_REGISTRY (schema.py) 自动填充
 traversal_constraints:
   data_sensitivity:
     name: data_sensitivity
@@ -5,25 +7,10 @@ traversal_constraints:
     relation_chain: ["PROCESSES_DATA"]
     target_label: "DataAsset"
     collect_property: "sensitivity"
-    value_mapping:
-      restricted: "block"
-      confidential: "warn"
-      internal: "allow"
-      public: "allow"
     aggregation: "max"
 
-  data_sensitivity_check:
-    name: data_sensitivity_check
-    source_label: "CodeEntity"
-    relation_chain: ["PROCESSES_DATA"]
-    target_label: "DataAsset"
-    collect_property: "sensitivity"
-    value_mapping:
-      restricted: "warn"
-      confidential: "warn"
-      internal: "allow"
-      public: "allow"
-    aggregation: "max"
+# 注：data_sensitivity_check 已删除。如需降级 restricted→warn，
+# 请在 constraint_overrides.yaml 中用 patch 实现。
 
 propagation_rules:
   upstream_risk:
@@ -32,10 +19,5 @@ propagation_rules:
     direction: "backward"
     max_depth: 5
     collect_property: "entryCategory"
-    value_mapping:
-      http_api: "warn"
-      rpc_service: "warn"
-      scheduled: "allow"
-      mq_consumer: "allow"
-      event_handler: "allow"
     aggregation: "exists"
+    # value_mapping 也由 ONTOLOGY_CONSTRAINT_REGISTRY 自动填充

@@ -1,0 +1,28 @@
+# Layer 2 — 约束覆盖配置
+# 覆盖优先级高于本体自动推导（Layer 1）
+
+overrides:
+  # === 类型 1: patch — 局部修改已有约束 ===
+  # - type: patch
+  #   target: data_sensitivity        # 对应 constraints.yaml 中 traversal_constraints 的 key
+  #   modify:                         # 修改已有值的约束级别
+  #     restricted: "warn"            # restricted 从 block → warn
+  #   remove_values: ["confidential"] # 移除 confidential 约束（等同 allow）
+  #   add_values:                     # 新增值的约束
+  #     archived: "block"
+
+  # === 类型 2: allow_all — 单点白名单 ===
+  # - type: allow_all
+  #   target_entity: "CodeEntity:validate_credit_card"  # 格式: {Neo4jLabel}:{entity_name}
+  #   reason: "已脱敏测试数据，安全评审通过"
+  #   expires: "2026-07-15"  # 可选
+
+  # === 类型 3: add_constraint — 追加额外约束 ===
+  # - type: add_constraint
+  #   constraint:
+  #     name: compliance_check
+  #     source_label: "CodeEntity"
+  #     relation_chain: ["SUBJECT_TO"]
+  #     target_label: "ComplianceItem"
+  #     collect_property: "severity"
+  #     aggregation: "max"
