@@ -7,6 +7,7 @@ from ontoagent.execution.constraints.guards import (
     EntityPropertyGuard,
     OntologyPropagationGuard,
     OntologyTraversalGuard,
+    WhitelistGuard,
 )
 from ontoagent.execution.constraints.loader import OntologyConstraintLoader
 from ontoagent.execution.constraints.propagator import ConstraintPropagator, PropagationResult, PropagationRule
@@ -52,5 +53,6 @@ __all__ = [
     "OntologyTraversalGuard",
     "PropagationResult",
     "PropagationRule",
+    "WhitelistGuard",
     "aggregate_levels",
 ]

@@ -35,7 +35,7 @@ class TestOntologyConstraintLoader:
             yaml.dump(yaml_data, f)
             tmp = f.name
         try:
-            traversals, _rules, warnings = loader.load_all(constraints_yaml=tmp)
+            traversals, _rules, warnings, _allow_set = loader.load_all(constraints_yaml=tmp)
             assert traversals[0].value_mapping == {}
             assert any("未在" in w for w in warnings)
         finally:
@@ -63,7 +63,7 @@ class TestOntologyConstraintLoader:
             yaml.dump(yaml_data, f)
             tmp = f.name
         try:
-            traversals, _rules, _warnings = loader.load_all(constraints_yaml=tmp)
+            traversals, _rules, _warnings, _allow_set = loader.load_all(constraints_yaml=tmp)
             assert len(traversals) == 1
             c = traversals[0]
             assert c.value_mapping["restricted"] == GuardLevel.BLOCK
@@ -107,7 +107,7 @@ class TestOntologyConstraintLoader:
             yaml.dump(yaml_data, f)
             tmp = f.name
         try:
-            traversals, _rules, _warnings = loader.load_all(constraints_yaml=tmp)
+            traversals, _rules, _warnings, _allow_set = loader.load_all(constraints_yaml=tmp)
             assert len(traversals) == 2
             assert traversals[0].value_mapping == {1: GuardLevel.BLOCK}
             assert traversals[1].value_mapping == {2: GuardLevel.WARN}
@@ -140,7 +140,7 @@ class TestOntologyConstraintLoader:
             yaml.dump(yaml_data, f)
             tmp = f.name
         try:
-            traversals, _rules, _warnings = loader.load_all(constraints_yaml=tmp)
+            traversals, _rules, _warnings, _allow_set = loader.load_all(constraints_yaml=tmp)
             assert traversals[0].ontology_source == "Target.field"
         finally:
             os.unlink(tmp)
@@ -167,7 +167,7 @@ class TestOntologyConstraintLoader:
             yaml.dump(yaml_data, f)
             tmp = f.name
         try:
-            _traversals, _rules, warnings = loader.load_all(constraints_yaml=tmp)
+            _traversals, _rules, warnings, _allow_set = loader.load_all(constraints_yaml=tmp)
             assert any("WARN" in w for w in warnings)
             assert any("X.y" in w for w in warnings)
         finally:
@@ -179,9 +179,7 @@ class TestOntologyConstraintLoader:
 
         loader = OntologyConstraintLoader(
             registry={
-                "A.x": ConstraintFieldDescriptor(
-                    "x", {"high": GuardLevel.BLOCK, "low": GuardLevel.ALLOW}
-                ),
+                "A.x": ConstraintFieldDescriptor("x", {"high": GuardLevel.BLOCK, "low": GuardLevel.ALLOW}),
             }
         )
         yaml_data = {
@@ -205,7 +203,9 @@ class TestOntologyConstraintLoader:
             yaml.dump(overrides, f)
             tmp_ov = f.name
         try:
-            traversals, _rules, _warnings = loader.load_all(constraints_yaml=tmp_yaml, overrides_yaml=tmp_ov)
+            traversals, _rules, _warnings, _allow_set = loader.load_all(
+                constraints_yaml=tmp_yaml, overrides_yaml=tmp_ov
+            )
             assert traversals[0].value_mapping["high"] == GuardLevel.WARN
             assert traversals[0].value_mapping["low"] == GuardLevel.ALLOW
         finally:
@@ -242,7 +242,9 @@ class TestOntologyConstraintLoader:
             yaml.dump(overrides, f)
             tmp_ov = f.name
         try:
-            traversals, _rules, _warnings = loader.load_all(constraints_yaml=tmp_yaml, overrides_yaml=tmp_ov)
+            traversals, _rules, _warnings, _allow_set = loader.load_all(
+                constraints_yaml=tmp_yaml, overrides_yaml=tmp_ov
+            )
             assert "a" not in traversals[0].value_mapping
             assert "b" in traversals[0].value_mapping
         finally:
@@ -279,7 +281,9 @@ class TestOntologyConstraintLoader:
             yaml.dump(overrides, f)
             tmp_ov = f.name
         try:
-            traversals, _rules, _warnings = loader.load_all(constraints_yaml=tmp_yaml, overrides_yaml=tmp_ov)
+            traversals, _rules, _warnings, _allow_set = loader.load_all(
+                constraints_yaml=tmp_yaml, overrides_yaml=tmp_ov
+            )
             assert traversals[0].value_mapping["new_val"] == GuardLevel.BLOCK
         finally:
             os.unlink(tmp_yaml)
@@ -307,8 +311,9 @@ class TestOntologyConstraintLoader:
             yaml.dump(overrides, f)
             tmp_ov = f.name
         try:
-            _traversals, _rules, warnings = loader.load_all(constraints_yaml=tmp_yaml, overrides_yaml=tmp_ov)
+            _traversals, _rules, warnings, allow_set = loader.load_all(constraints_yaml=tmp_yaml, overrides_yaml=tmp_ov)
             assert any("allow_all" in w for w in warnings)
+            assert "CodeEntity:validate_credit_card" in allow_set
         finally:
             os.unlink(tmp_yaml)
             os.unlink(tmp_ov)
@@ -345,7 +350,9 @@ class TestOntologyConstraintLoader:
             yaml.dump(overrides, f)
             tmp_ov = f.name
         try:
-            traversals, _rules, _warnings = loader.load_all(constraints_yaml=tmp_yaml, overrides_yaml=tmp_ov)
+            traversals, _rules, _warnings, _allow_set = loader.load_all(
+                constraints_yaml=tmp_yaml, overrides_yaml=tmp_ov
+            )
             assert len(traversals) == 1
         finally:
             os.unlink(tmp_yaml)
@@ -381,7 +388,9 @@ class TestOntologyConstraintLoader:
             yaml.dump(overrides, f)
             tmp_ov = f.name
         try:
-            traversals, _rules, _warnings = loader.load_all(constraints_yaml=tmp_yaml, overrides_yaml=tmp_ov)
+            traversals, _rules, _warnings, _allow_set = loader.load_all(
+                constraints_yaml=tmp_yaml, overrides_yaml=tmp_ov
+            )
             assert traversals[0].value_mapping["v"] == GuardLevel.BLOCK
         finally:
             os.unlink(tmp_yaml)
@@ -392,7 +401,7 @@ class TestOntologyConstraintLoader:
         from ontoagent.execution.constraints.loader import OntologyConstraintLoader
 
         loader = OntologyConstraintLoader(registry={})
-        traversals, rules, warnings = loader.load_all()
+        traversals, rules, warnings, _allow_set = loader.load_all()
         assert traversals == []
         assert rules == {}
         assert warnings == []
@@ -431,7 +440,7 @@ class TestOntologyConstraintLoader:
             yaml.dump(yaml_data, f)
             tmp = f.name
         try:
-            traversals, _rules, _warnings = loader.load_all(constraints_yaml=tmp)
+            traversals, _rules, _warnings, _allow_set = loader.load_all(constraints_yaml=tmp)
             assert len(traversals) == 2
         finally:
             os.unlink(tmp)
@@ -465,7 +474,7 @@ class TestOntologyConstraintLoader:
             yaml.dump(yaml_data, f)
             tmp = f.name
         try:
-            _traversals, rules, _warnings = loader.load_all(constraints_yaml=tmp)
+            _traversals, rules, _warnings, _allow_set = loader.load_all(constraints_yaml=tmp)
             assert "upstream_risk" in rules
             rule = rules["upstream_risk"]
             assert rule.value_mapping["http_api"] == "warn"
@@ -496,7 +505,7 @@ class TestOntologyConstraintLoader:
             yaml.dump(yaml_data, f)
             tmp = f.name
         try:
-            _traversals, rules, _warnings = loader.load_all(constraints_yaml=tmp)
+            _traversals, rules, _warnings, _allow_set = loader.load_all(constraints_yaml=tmp)
             assert rules["r"].value_mapping["x"] == "block"
         finally:
             os.unlink(tmp)
@@ -523,7 +532,7 @@ class TestOntologyConstraintLoader:
             yaml.dump(yaml_data, f)
             tmp = f.name
         try:
-            traversals, _rules, _warnings = loader.load_all(constraints_yaml=tmp)
+            traversals, _rules, _warnings, _allow_set = loader.load_all(constraints_yaml=tmp)
             names = [c.name for c in traversals]
             assert "data_sensitivity_check" not in names
         finally:
@@ -554,7 +563,7 @@ class TestOntologyConstraintLoader:
             yaml.dump(yaml_data, f)
             tmp = f.name
         try:
-            traversals, _rules, _warnings = loader.load_all(constraints_yaml=tmp)
+            traversals, _rules, _warnings, _allow_set = loader.load_all(constraints_yaml=tmp)
             engine = ConstraintEngine(MagicMock(), traversals)
             assert engine is not None
             assert len(engine._constraints) == 1

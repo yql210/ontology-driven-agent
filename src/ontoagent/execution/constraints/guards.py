@@ -163,3 +163,33 @@ class OntologyPropagationGuard(ActionGuard):
                                 result.path_count,
                             )
         return GuardDecision(level=GuardLevel.ALLOW, reason="propagation check passed")
+
+
+class WhitelistGuard(ActionGuard):
+    """Guard that short-circuits for allow-listed entities.
+
+    Entity format in allow_set: "{Neo4jLabel}:{entity_name}"
+    e.g. "CodeEntity:validate_credit_card"
+    """
+
+    def __init__(self, allow_set: set[str] | None = None) -> None:
+        self._allow_set = allow_set or set()
+
+    def evaluate(self, config: Any, entity: dict, graph_store: Any) -> GuardDecision:
+        if not self._allow_set:
+            return GuardDecision(level=GuardLevel.ALLOW, reason="白名单为空")
+
+        entity_name = entity.get("name", "")
+        labels = entity.get("labels", [])
+
+        for entry in self._allow_set:
+            # entry format: "label:name"
+            if ":" in entry:
+                label_part, name_part = entry.split(":", 1)
+                if name_part == entity_name and label_part in labels:
+                    return GuardDecision(
+                        level=GuardLevel.ALLOW,
+                        reason=f"实体 '{entity_name}' 在白名单中 (allow_all)",
+                    )
+
+        return GuardDecision(level=GuardLevel.ALLOW, reason="不在白名单中")

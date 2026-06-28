@@ -429,18 +429,15 @@ def _get_action_executor(graph_store: object) -> ActionExecutor:
             EntityPropertyGuard,
             OntologyPropagationGuard,
             OntologyTraversalGuard,
+            WhitelistGuard,
         )
         from ontoagent.execution.constraints.loader import OntologyConstraintLoader
 
-        constraints_yaml = (
-            Path(__file__).parent.parent / "pipeline" / "constraints.yaml"
-        )
-        overrides_yaml = (
-            Path(__file__).parent.parent / "config" / "constraint_overrides.yaml"
-        )
+        constraints_yaml = Path(__file__).parent.parent / "pipeline" / "constraints.yaml"
+        overrides_yaml = Path(__file__).parent.parent / "config" / "constraint_overrides.yaml"
 
         loader = OntologyConstraintLoader(registry=ONTOLOGY_CONSTRAINT_REGISTRY)
-        traversals, prop_rules, warnings = loader.load_all(
+        traversals, prop_rules, warnings, allow_set = loader.load_all(
             constraints_yaml=constraints_yaml,
             overrides_yaml=overrides_yaml,
         )
@@ -454,6 +451,7 @@ def _get_action_executor(graph_store: object) -> ActionExecutor:
         propagator = ConstraintPropagator(graph_store)
         guard_pipeline = ActionGuardPipeline(
             [
+                WhitelistGuard(allow_set),
                 EntityExistsGuard(),
                 EntityPropertyGuard(),
                 OntologyTraversalGuard(engine),

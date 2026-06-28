@@ -35,9 +35,7 @@ def _validate_rel_domain(rel_type_snake: str, expected_domain: str) -> None:
     domain = rc.domain
     allowed = {domain} if isinstance(domain, str) else domain
     if expected_domain not in allowed:
-        raise ConstraintViolationError(
-            f"关系 '{rel_type_snake}' 的源实体必须是 {allowed}，实际为 '{expected_domain}'"
-        )
+        raise ConstraintViolationError(f"关系 '{rel_type_snake}' 的源实体必须是 {allowed}，实际为 '{expected_domain}'")
 
 
 def _validate_rel_range(rel_type_snake: str, expected_range: str) -> None:
@@ -48,9 +46,7 @@ def _validate_rel_range(rel_type_snake: str, expected_range: str) -> None:
     range_val = rc.range
     allowed = {range_val} if isinstance(range_val, str) else range_val
     if expected_range not in allowed:
-        raise ConstraintViolationError(
-            f"关系 '{rel_type_snake}' 的目标实体必须是 {allowed}，实际为 '{expected_range}'"
-        )
+        raise ConstraintViolationError(f"关系 '{rel_type_snake}' 的目标实体必须是 {allowed}，实际为 '{expected_range}'")
 
 
 class ConstraintEngine:
@@ -149,13 +145,11 @@ class ConstraintEngine:
             constraint: 遍历约束。
 
         Returns:
-            GuardDecision 聚合后的决策，details 中包含 collected_values。
+            GuardDecision 聚合后的决策，details 中包含 collected_values 和 ontology_source。
         """
         if not results:
-            return GuardDecision(
-                level=GuardLevel.ALLOW,
-                reason=f"No {constraint.target_label} found via {constraint.relation_chain}",
-            )
+            reason = f"No {constraint.target_label} found via {constraint.relation_chain}"
+            return self._finalize_decision(GuardLevel.ALLOW, reason, constraint, {})
 
         levels: list[GuardLevel] = []
         reasons: list[str] = []
@@ -170,38 +164,35 @@ class ConstraintEngine:
             collected_values.append(val_str)
 
         if not levels:
-            return GuardDecision(
-                level=GuardLevel.ALLOW,
-                reason=f"No {constraint.collect_property} found",
-            )
+            reason = f"No {constraint.collect_property} found"
+            return self._finalize_decision(GuardLevel.ALLOW, reason, constraint, {})
 
         # block > warn > allow
         priority = {GuardLevel.BLOCK: 3, GuardLevel.WARN: 2, GuardLevel.ALLOW: 1}
 
         if constraint.aggregation == "max":
-            max_level = max(levels, key=lambda level_val: priority.get(level_val, 0))
-            return GuardDecision(
-                level=max_level,
-                reason="; ".join(reasons),
-                details={"collected_values": collected_values},
-            )
+            final_level = max(levels, key=lambda lv: priority.get(lv, 0))
         elif constraint.aggregation == "min":
-            min_level = min(levels, key=lambda level_val: priority.get(level_val, 3))
-            return GuardDecision(
-                level=min_level,
-                reason="; ".join(reasons),
-                details={"collected_values": collected_values},
-            )
+            final_level = min(levels, key=lambda lv: priority.get(lv, 3))
         elif constraint.aggregation == "exists":
-            has_issue = any(level_val != GuardLevel.ALLOW for level_val in levels)
-            return GuardDecision(
-                level=GuardLevel.WARN if has_issue else GuardLevel.ALLOW,
-                reason="; ".join(reasons),
-                details={"collected_values": collected_values},
-            )
+            has_issue = any(lv != GuardLevel.ALLOW for lv in levels)
+            final_level = GuardLevel.WARN if has_issue else GuardLevel.ALLOW
+        else:
+            final_level = GuardLevel.ALLOW
 
-        return GuardDecision(
-            level=GuardLevel.ALLOW,
-            reason="; ".join(reasons),
-            details={"collected_values": collected_values},
-        )
+        reason = "; ".join(reasons)
+        details: dict = {"collected_values": collected_values}
+        return self._finalize_decision(final_level, reason, constraint, details)
+
+    @staticmethod
+    def _finalize_decision(
+        level: GuardLevel,
+        reason: str,
+        constraint: TraversalConstraint,
+        details: dict,
+    ) -> GuardDecision:
+        """Append ontology_source to reason and details if present."""
+        if constraint.ontology_source:
+            reason = f"{reason} [来源: {constraint.ontology_source}]"
+            details["ontology_source"] = constraint.ontology_source
+        return GuardDecision(level=level, reason=reason, details=details if details else None)

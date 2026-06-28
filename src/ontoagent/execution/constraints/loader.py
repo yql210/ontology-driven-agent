@@ -17,14 +17,16 @@ class OntologyConstraintLoader:
         self,
         constraints_yaml: str | Path | None = None,
         overrides_yaml: str | Path | None = None,
-    ) -> tuple[list[TraversalConstraint], dict[str, PropagationRule], list[str]]:
-        """一站式加载：返回 (traversals, propagation_rules, warnings)。
+    ) -> tuple[list[TraversalConstraint], dict[str, PropagationRule], list[str], set[str]]:
+        """一站式加载：返回 (traversals, propagation_rules, warnings, allow_set)。
 
         自动从注册表填充 value_mapping，检测缺失，应用覆盖。
+        allow_set: 通过 allow_all override 豁免的实体集合，格式为 "Label:name"。
         """
         traversals: list[TraversalConstraint] = []
         rules: dict[str, PropagationRule] = {}
         warnings: list[str] = []
+        allow_set: set[str] = set()
         yaml_data = self._read_yaml(constraints_yaml)
         overrides_data = self._read_yaml(overrides_yaml) if overrides_yaml else {}
 
@@ -34,8 +36,7 @@ class OntologyConstraintLoader:
             descriptor = self._registry.get(key)
             if descriptor is None:
                 warnings.append(
-                    f"WARN: {key} 未在 ONTOLOGY_CONSTRAINT_REGISTRY 注册"
-                    f" — 约束 '{name}' 将使用空 value_mapping"
+                    f"WARN: {key} 未在 ONTOLOGY_CONSTRAINT_REGISTRY 注册 — 约束 '{name}' 将使用空 value_mapping"
                 )
                 value_mapping: dict[str, GuardLevel] = {}
             else:
@@ -59,8 +60,9 @@ class OntologyConstraintLoader:
             # If collect_property corresponds to a registered field, prefer registry
             # (propagation rules don't have target_label, so we search by field_name or neo4j_property)
             for reg_key, desc in self._registry.items():
-                if (reg_key.endswith(f".{cfg['collect_property']}") or
-                    (desc.neo4j_property and desc.neo4j_property == cfg['collect_property'])):
+                if reg_key.endswith(f".{cfg['collect_property']}") or (
+                    desc.neo4j_property and desc.neo4j_property == cfg["collect_property"]
+                ):
                     raw_mapping = {k: v.value for k, v in desc.value_mapping.items()}
                     break
             rules[name] = PropagationRule(
@@ -74,12 +76,12 @@ class OntologyConstraintLoader:
             )
 
         # Apply overrides
-        for override in (overrides_data.get("overrides") or []):
+        for override in overrides_data.get("overrides") or []:
             ov_type = override.get("type")
             if ov_type == "patch":
                 self._apply_patch(traversals, override)
             elif ov_type == "allow_all":
-                self._apply_allow_all(traversals, override, warnings)
+                self._apply_allow_all(traversals, override, warnings, allow_set)
             elif ov_type == "add_constraint":
                 self._apply_add_constraint(traversals, override)
 
@@ -94,7 +96,7 @@ class OntologyConstraintLoader:
                     f" — constraints for this path may be incomplete"
                 )
 
-        return traversals, rules, warnings
+        return traversals, rules, warnings, allow_set
 
     def _apply_patch(self, traversals: list[TraversalConstraint], override: dict) -> None:
         target_name = override["target"]
@@ -112,25 +114,24 @@ class OntologyConstraintLoader:
                 break
 
     def _apply_allow_all(
-        self, traversals: list[TraversalConstraint], override: dict, warnings: list[str]
+        self,
+        traversals: list[TraversalConstraint],
+        override: dict,
+        warnings: list[str],
+        allow_set: set[str],
     ) -> None:
         target_entity = override["target_entity"]
-        warnings.append(
-            f"INFO: allow_all for {target_entity}: {override.get('reason', 'no reason')}"
-        )
+        allow_set.add(target_entity)
+        warnings.append(f"INFO: allow_all for {target_entity}: {override.get('reason', 'no reason')}")
 
-    def _apply_add_constraint(
-        self, traversals: list[TraversalConstraint], override: dict
-    ) -> None:
+    def _apply_add_constraint(self, traversals: list[TraversalConstraint], override: dict) -> None:
         cfg = override["constraint"]
         key = f"{cfg['target_label']}.{cfg['collect_property']}"
         descriptor = self._registry.get(key)
         if descriptor is not None:
             value_mapping: dict[str, GuardLevel] = descriptor.value_mapping
         else:
-            value_mapping = {
-                k: GuardLevel(v) for k, v in cfg.get("value_mapping", {}).items()
-            }
+            value_mapping = {k: GuardLevel(v) for k, v in cfg.get("value_mapping", {}).items()}
         traversals.append(
             TraversalConstraint(
                 name=cfg["name"],
