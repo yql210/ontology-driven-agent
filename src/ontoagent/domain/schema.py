@@ -4,10 +4,9 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from ontoagent.domain.exceptions import ConstraintViolationError, SchemaValidationError
-
 # Backward-compatible re-exports: constraint types moved to domain/constraints.py
 from ontoagent.domain.constraints import GuardDecision, GuardLevel, TraversalConstraint  # noqa: F401
+from ontoagent.domain.exceptions import ConstraintViolationError, SchemaValidationError
 
 
 @dataclass
@@ -682,3 +681,42 @@ def validate_relation_constraint(
         raise ConstraintViolationError(
             f"关系 '{relation_type}' 的目标实体必须是 {allowed_range}，实际为 '{target_label}'"
         )
+
+
+# ============================================================
+# Ontology Constraint Registry — Layer 1 auto-derivation source
+# ============================================================
+# 格式: "{EntityLabel}.{field_name}" → ConstraintFieldDescriptor
+
+from ontoagent.domain.ontology_constraints import ConstraintFieldDescriptor  # noqa: E402
+
+ONTOLOGY_CONSTRAINT_REGISTRY: dict[str, ConstraintFieldDescriptor] = {
+    "DataAsset.sensitivity": ConstraintFieldDescriptor(
+        field_name="sensitivity",
+        value_mapping={
+            "restricted": GuardLevel.BLOCK,
+            "confidential": GuardLevel.WARN,
+            "internal": GuardLevel.ALLOW,
+            "public": GuardLevel.ALLOW,
+        },
+    ),
+    "ComplianceItem.severity": ConstraintFieldDescriptor(
+        field_name="severity",
+        value_mapping={
+            "critical": GuardLevel.BLOCK,
+            "high": GuardLevel.WARN,
+            "medium": GuardLevel.ALLOW,
+            "low": GuardLevel.ALLOW,
+        },
+    ),
+    "CodeEntity.entry_category": ConstraintFieldDescriptor(
+        field_name="entry_category",
+        value_mapping={
+            "http_api": GuardLevel.WARN,
+            "rpc_service": GuardLevel.WARN,
+            "scheduled": GuardLevel.ALLOW,
+            "mq_consumer": GuardLevel.ALLOW,
+            "event_handler": GuardLevel.ALLOW,
+        },
+    ),
+}

@@ -35,3 +35,4 @@ class TraversalConstraint:
     collect_property: str  # 收集的属性名 (e.g. "sensitivity")
     value_mapping: dict[str, GuardLevel]  # 属性值→约束级别映射
     aggregation: Literal["max", "min", "exists"] = "max"  # 多路径聚合
+    ontology_source: str = ""  # 溯源信息: "DataAsset.sensitivity"
