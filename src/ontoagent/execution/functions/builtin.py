@@ -204,13 +204,13 @@ def _extract_interface(ctx: ActionContext) -> FunctionResult:
 def register_all() -> None:
     """Register all builtin functions (idempotent)."""
     if get_function("check_refactor_eligibility") is None:
-        register_function("check_refactor_eligibility")(_check_refactor_eligibility)
+        register_function("check_refactor_eligibility", danger_level="read")(_check_refactor_eligibility)
     if get_function("trace_call_chain") is None:
-        register_function("trace_call_chain")(_trace_call_chain)
+        register_function("trace_call_chain", danger_level="read")(_trace_call_chain)
     if get_function("generate_api_doc") is None:
-        register_function("generate_api_doc")(_generate_api_doc)
+        register_function("generate_api_doc", danger_level="write")(_generate_api_doc)
     if get_function("extract_interface") is None:
-        register_function("extract_interface")(_extract_interface)
+        register_function("extract_interface", danger_level="write")(_extract_interface)
 
 
 register_all()

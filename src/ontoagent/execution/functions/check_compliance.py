@@ -47,7 +47,7 @@ def _check_compliance(ctx: ActionContext) -> FunctionResult:
 def register_all() -> None:
     """Register compliance check function (idempotent)."""
     if get_function("check_compliance") is None:
-        register_function("check_compliance")(_check_compliance)
+        register_function("check_compliance", danger_level="read")(_check_compliance)
 
 
 register_all()

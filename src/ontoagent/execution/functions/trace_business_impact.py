@@ -58,7 +58,7 @@ def _trace_business_impact(ctx: ActionContext) -> FunctionResult:
 def register_all() -> None:
     """Register business impact tracing function (idempotent)."""
     if get_function("trace_business_impact") is None:
-        register_function("trace_business_impact")(_trace_business_impact)
+        register_function("trace_business_impact", danger_level="read_sensitive")(_trace_business_impact)
 
 
 register_all()

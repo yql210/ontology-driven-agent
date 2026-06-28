@@ -97,12 +97,22 @@ _GENERAL_FUNCTIONS = {
     "send_notification": send_notification,
 }
 
+_GENERAL_DANGER_LEVELS = {
+    "query_entity": "read",
+    "update_entity": "write",
+    "create_entity": "admin",
+    "create_relation": "write",
+    "check_condition": "read",
+    "send_notification": "write",
+}
+
 
 def register_all() -> None:
     """Register all general functions (idempotent, safe after clear_registry)."""
     for name, fn in _GENERAL_FUNCTIONS.items():
         if get_function(name) is None:
-            register_function(name)(fn)
+            _danger = _GENERAL_DANGER_LEVELS.get(name, "read")
+            register_function(name, danger_level=_danger)(fn)
 
 
 register_all()
