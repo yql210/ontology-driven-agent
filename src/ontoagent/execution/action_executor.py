@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ontoagent.execution.action_types import ActionConfig, ActionContext, ActionResult, FunctionResult
+from ontoagent.execution.constraints.guard_pipeline import ActionGuardPipeline
 from ontoagent.execution.intent_router import build_intent_map
 
 
@@ -15,9 +16,11 @@ class ActionExecutor:
         graph_store: Any,
         yaml_path: Path | None = None,
         function_runner: Any | None = None,
+        guard_pipeline: ActionGuardPipeline | None = None,
     ) -> None:
         self._graph_store = graph_store
         self._function_runner = function_runner
+        self._guard_pipeline = guard_pipeline
         if yaml_path is None:
             yaml_path = Path(__file__).parent.parent / "pipeline" / "ontology_actions.yaml"
         self._intent_map = build_intent_map(yaml_path)
@@ -47,13 +50,16 @@ class ActionExecutor:
                 error=f"未找到实体 '{target}'",
             )
 
-        # 3. Submission criteria check
-        criteria_error = self._check_criteria(config, entity)
-        if criteria_error:
+        # 3. Guard pipeline check — uses pluggable guards if available, else legacy criteria
+        if self._guard_pipeline is not None:
+            guard_error = self._guard_pipeline.check(config, entity, self._graph_store)
+        else:
+            guard_error = self._check_criteria(config, entity)
+        if guard_error:
             return ActionResult(
                 success=False,
                 action_name=config.name,
-                error=criteria_error,
+                error=guard_error,
             )
 
         # 4. Build ActionContext

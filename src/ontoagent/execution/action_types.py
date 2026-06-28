@@ -62,3 +62,4 @@ class ActionConfig:
     submission_criteria: list[str] = field(default_factory=list)
     functions: list[str] = field(default_factory=list)
     requires_approval: bool = False
+    guard_configs: list[dict] = field(default_factory=list)

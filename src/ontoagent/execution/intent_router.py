@@ -24,6 +24,7 @@ def build_intent_map(yaml_path: Path) -> dict[str, ActionConfig]:
             submission_criteria=action_data.get("submission_criteria", []),
             functions=action_data.get("functions", []),
             requires_approval=action_data.get("requires_approval", False),
+            guard_configs=action_data.get("guard_configs", []),
         )
         if config.intent_type in intent_map:
             raise ValueError(f"Duplicate intent_type: {config.intent_type}")
