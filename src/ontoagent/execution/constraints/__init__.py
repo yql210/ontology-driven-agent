@@ -8,6 +8,7 @@ from ontoagent.execution.constraints.guards import (
     OntologyPropagationGuard,
     OntologyTraversalGuard,
 )
+from ontoagent.execution.constraints.loader import OntologyConstraintLoader
 from ontoagent.execution.constraints.propagator import ConstraintPropagator, PropagationResult, PropagationRule
 
 # Shared aggregation utility used by both ConstraintEngine and ConstraintPropagator
@@ -46,6 +47,7 @@ __all__ = [
     "ConstraintPropagator",
     "EntityExistsGuard",
     "EntityPropertyGuard",
+    "OntologyConstraintLoader",
     "OntologyPropagationGuard",
     "OntologyTraversalGuard",
     "PropagationResult",

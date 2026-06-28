@@ -410,16 +410,16 @@ def _get_function_runner() -> Any:
 def _get_action_executor(graph_store: object) -> ActionExecutor:
     """获取或初始化 ActionExecutor 单例。
 
-    Wires the full guard pipeline with traversal and propagation constraints
-    loaded from src/ontoagent/pipeline/constraints.yaml.
+    Uses OntologyConstraintLoader for three-layer constraint loading:
+    Layer 1: auto-derive value_mapping from ONTOLOGY_CONSTRAINT_REGISTRY
+    Layer 2: apply overrides from constraint_overrides.yaml
     """
     global _action_executor
     if _action_executor is None:
+        import logging
         from pathlib import Path
 
-        import yaml
-
-        from ontoagent.domain.constraints import GuardLevel, TraversalConstraint
+        from ontoagent.domain.schema import ONTOLOGY_CONSTRAINT_REGISTRY
         from ontoagent.execution.action_executor import ActionExecutor
         from ontoagent.execution.constraints import (
             ActionGuardPipeline,
@@ -429,58 +429,35 @@ def _get_action_executor(graph_store: object) -> ActionExecutor:
             EntityPropertyGuard,
             OntologyPropagationGuard,
             OntologyTraversalGuard,
-            PropagationRule,
         )
+        from ontoagent.execution.constraints.loader import OntologyConstraintLoader
 
         constraints_yaml = (
             Path(__file__).parent.parent / "pipeline" / "constraints.yaml"
         )
+        overrides_yaml = (
+            Path(__file__).parent.parent / "config" / "constraint_overrides.yaml"
+        )
 
-        # Load traversal constraints
-        traversal_constraints: list[TraversalConstraint] = []
-        propagation_rules: dict[str, PropagationRule] = {}
+        loader = OntologyConstraintLoader(registry=ONTOLOGY_CONSTRAINT_REGISTRY)
+        traversals, prop_rules, warnings = loader.load_all(
+            constraints_yaml=constraints_yaml,
+            overrides_yaml=overrides_yaml,
+        )
 
-        if constraints_yaml.exists():
-            with open(constraints_yaml) as f:
-                data = yaml.safe_load(f) or {}
+        # Log startup warnings/notices from the loader
+        log = logging.getLogger(__name__)
+        for w in warnings:
+            log.warning(w)
 
-            for name, cfg in data.get("traversal_constraints", {}).items():
-                raw_mapping: dict[str, str] = cfg.get("value_mapping", {})
-                value_mapping: dict[str, GuardLevel] = {
-                    k: GuardLevel(v) for k, v in raw_mapping.items()
-                }
-                traversal_constraints.append(
-                    TraversalConstraint(
-                        name=cfg.get("name", name),
-                        source_label=cfg.get("source_label", ""),
-                        relation_chain=cfg.get("relation_chain", []),
-                        target_label=cfg.get("target_label", ""),
-                        collect_property=cfg.get("collect_property", ""),
-                        value_mapping=value_mapping,
-                        aggregation=cfg.get("aggregation", "max"),
-                    )
-                )
-
-            for name, cfg in data.get("propagation_rules", {}).items():
-                propagation_rules[name] = PropagationRule(
-                    name=cfg.get("name", name),
-                    along=cfg.get("along", []),
-                    direction=cfg.get("direction", "forward"),
-                    max_depth=cfg.get("max_depth", 5),
-                    collect_property=cfg.get("collect_property", ""),
-                    value_mapping=cfg.get("value_mapping", {}),
-                    aggregation=cfg.get("aggregation", "max"),
-                )
-
-        # Build constraint engine and guard pipeline
-        engine = ConstraintEngine(graph_store, traversal_constraints)
+        engine = ConstraintEngine(graph_store, traversals)
         propagator = ConstraintPropagator(graph_store)
         guard_pipeline = ActionGuardPipeline(
             [
                 EntityExistsGuard(),
                 EntityPropertyGuard(),
                 OntologyTraversalGuard(engine),
-                OntologyPropagationGuard(propagator, rules=propagation_rules),
+                OntologyPropagationGuard(propagator, rules=prop_rules),
             ]
         )
 

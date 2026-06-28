@@ -73,7 +73,7 @@ class OntologyConstraintLoader:
             )
 
         # Apply overrides
-        for override in overrides_data.get("overrides", []):
+        for override in (overrides_data.get("overrides") or []):
             ov_type = override.get("type")
             if ov_type == "patch":
                 self._apply_patch(traversals, override)
