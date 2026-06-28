@@ -1,6 +1,6 @@
-# Phase 5 v3：三层本体约束架构实施计划
+# Phase 5 v3：三层本体约束架构实施计划（v2 修订版）
 
-> **For Hermes:** 使用 subagent-driven-development skill 逐个任务实施。代码由 delegate_task 子代理执行（Claude Code API 限额未重置）。
+> **修订记录：** 基于架构评审 + 产品评审共 6 个必须修复项 + 3 个建议改进项。
 
 **目标：** 将约束规则从"手工 YAML"升级为"本体定义 + YAML 覆盖"三层架构，让本体定义成为约束的单一事实源。
 
@@ -10,406 +10,439 @@
 
 ---
 
-## 核心设计
+## 评审修复对照表
 
-### 现状：两层分离
-
-```
-手工 YAML (value_mapping 完整配置) → ConstraintEngine → Guard 拦截
-schema.py (DataAsset.sensitivity) — 定义存在但完全未被约束消费
-```
-
-### 目标：本体即约束源
-
-```
-schema.py (DataAsset.OntoConstraints.constraint_fields)
-  │                              ↓
-  │                YAML (仅遍历路径，无 value_mapping)
-  │                     ↓
-  └────→ ConstraintLoader.merge() → ConstraintEngine → Guard 拦截
-                           ↑
-              constraint_overrides.yaml (patch/allow_all)
-```
-
-**变更实质：** `value_mapping` 从 YAML 搬到 `schema.py` 的 `OntoConstraints` 类属性中。YAML 只保留遍历路径配置。
-
-### 三层优先级（越上层越权威）
-
-| 层 | 来源 | 语义 | 示例 |
-|----|------|------|------|
-| L1 自动推导 | `schema.py` OntoConstraints | 本体定义的默认约束 | `sensitivity=restricted → block` |
-| L2 覆盖 | `constraint_overrides.yaml` | 人工微调 | 某函数白名单允许操作 restricted 数据 |
-| L3 运行时 | Agent + 用户确认 | 临时放行 | 本次会话允许某操作 |
-
-合并逻辑：
-```
-最终约束 = L1自动推导 ∪ L2覆盖补丁
-```
-- `patch`: 局部修改（add/remove/modify）
-- `allow_all`: 完全放行（白名单）
-- `add_constraint`: 叠加额外约束
+| # | 问题 | 来源 | 严重性 | 修复方案 |
+|---|------|------|--------|---------|
+| 1 | patch YAML 语法非法（dict 内混列表项） | 架构+产品 | 🔴 | 改用扁平字段 `modify` / `remove_values` / `add_values` |
+| 2 | propagation_rules 未接入三层架构 | 架构+产品 | 🔴 | Loader 也处理 propagation value_mapping，统一从 OntoConstraints 自动填充 |
+| 3 | data_sensitivity / data_sensitivity_check 重复 | 架构 | 🔴 | 删除 data_sensitivity_check，改为 L2 override |
+| 4 | BLOCK 溯源信息未实现 | 产品 | 🔴 | TraversalConstraint 加 `ontology_source` 字段；GuardDecision.reason 引用之 |
+| 5 | Loader 接口编排泄漏到 tools.py | 架构 | 🔴 | 封装 `load_all(path)` 高层入口，tools.py 一行调用 |
+| 6 | 缺失 OntoConstraints 时静默失效 | 产品 | 🟡 | Loader 启动时 WARN 日志 + 统计 |
+| 7 | allow_all target 格式不明 | 产品 | 🟡 | 明确为 `{Neo4jLabel}:{entity_name}` |
+| 8 | OntoConstraints 放 dataclass 反模式 | 产品 | 🟡 | 改用 `ONTOLOGY_CONSTRAINTS` 外部注册表 |
+| 9 | _ConstraintPath 死代码 | 架构+产品 | 🟡 | 删除，Loader 直接构造 TraversalConstraint |
 
 ---
 
-## 文件变更清单
+## 修订后核心设计
+
+### 约束注册表（外部注册，非 dataclass 内嵌）
+
+```python
+# schema.py 底部 — 外部注册表，不侵入 dataclass
+ONTOLOGY_CONSTRAINT_REGISTRY: dict[str, ConstraintFieldDescriptor] = {
+    # entity_label.field_name → descriptor
+    "DataAsset.sensitivity": ConstraintFieldDescriptor(
+        field_name="sensitivity",
+        value_mapping={
+            "restricted": GuardLevel.BLOCK,
+            "confidential": GuardLevel.WARN,
+            "internal": GuardLevel.ALLOW,
+            "public": GuardLevel.ALLOW,
+        },
+    ),
+    "ComplianceItem.severity": ConstraintFieldDescriptor(
+        field_name="severity",
+        value_mapping={
+            "critical": GuardLevel.BLOCK,
+            "high": GuardLevel.WARN,
+            "medium": GuardLevel.ALLOW,
+            "low": GuardLevel.ALLOW,
+        },
+    ),
+    "CodeEntity.entry_category": ConstraintFieldDescriptor(
+        field_name="entry_category",
+        value_mapping={
+            "http_api": GuardLevel.WARN,
+            "rpc_service": GuardLevel.WARN,
+            "scheduled": GuardLevel.ALLOW,
+            "mq_consumer": GuardLevel.ALLOW,
+            "event_handler": GuardLevel.ALLOW,
+        },
+    ),
+}
+```
+
+### TraversalConstraint 新增溯源字段
+
+```python
+@dataclass
+class TraversalConstraint:
+    # ... existing fields ...
+    ontology_source: str = ""  # 新增 — "DataAsset.sensitivity"
+```
+
+### BLOCK 原因示例
+
+```
+BLOCKED: DataAsset.sensitivity→restricted=BLOCK
+  约束来源: DataAsset.sensitivity (本体定义)
+  操作: refactor, 目标: payment_db.credit_cards
+```
+
+### Loader 高层入口
+
+```python
+loader = OntologyConstraintLoader(registry=ONTOLOGY_CONSTRAINT_REGISTRY)
+traversals, rules, warnings = loader.load_all(constraints_yaml=path, overrides_yaml=path)
+# 一站式：warnings 包含缺失 OntoConstraints 等启动告警
+```
+
+### 覆盖 YAML 语法（修正后）
+
+```yaml
+# constraint_overrides.yaml
+overrides:
+  # 类型 1: patch — 局部修改约束的值映射
+  - type: patch
+    target: data_sensitivity          # 对应 constraints.yaml 的 traversal_constraints key
+    modify:                           # 修改已有值
+      restricted: "warn"
+    remove_values: ["confidential"]   # 移除某些值的约束
+    add_values:                       # 新增值的约束
+      archived: "block"
+
+  # 类型 2: allow_all — 单点白名单
+  - type: allow_all
+    target_entity: "CodeEntity:validate_credit_card"  # {Neo4jLabel}:{entity_name}
+    reason: "已脱敏测试数据，安全评审通过"
+    expires: "2026-07-15"  # 可选
+
+  # 类型 3: add_constraint — 追加额外遍历约束
+  - type: add_constraint
+    constraint:
+      name: compliance_check
+      source_label: "CodeEntity"
+      relation_chain: ["SUBJECT_TO"]
+      target_label: "ComplianceItem"
+      collect_property: "severity"
+      aggregation: "max"
+```
+
+### data_sensitivity_check 处理
+
+删除 `constraints.yaml` 中的 `data_sensitivity_check`，如需降级 `restricted → warn`，在 `constraint_overrides.yaml` 中通过 `patch` 实现：
+
+```yaml
+# constraint_overrides.yaml — data_sensitivity_check → L2 override
+overrides:
+  - type: patch
+    target: data_sensitivity
+    modify:
+      restricted: "warn"
+```
+
+---
+
+## 修订后文件变更清单
 
 | 操作 | 文件 | 变更量 |
 |------|------|--------|
-| **修改** | `domain/schema.py` | +40 行：给 DataAsset、ComplianceItem、CodeEntity 加 `OntoConstraints` |
-| **新建** | `domain/ontology_constraints.py` | ~80 行：`ConstraintFieldDescriptor` + `OntoConstraints` + `derive_constraint()` |
-| **新建** | `execution/constraints/loader.py` | ~100 行：`OntologyConstraintLoader` 加载本体 + YAML 遍历 + 合并 |
-| **修改** | `pipeline/constraints.yaml` | -30 行：移除 `value_mapping` 字段，保留遍历路径 |
-| **新建** | `config/constraint_overrides.yaml` | ~30 行：覆盖配置模板（含注释示例） |
-| **修改** | `agent/tools.py:_get_action_executor()` | -40/+20 行：用 `OntologyConstraintLoader` 替代手工 YAML 解析 |
-| **修改** | `execution/constraints/__init__.py` | +3 行：导出 `OntologyConstraintLoader` |
-| **新建** | `tests/unit/test_ontology_constraint_loader.py` | ~120 行：15 个测试 |
-| **修改** | `tests/unit/test_constraint_engine.py` | ±20 行：适配新 loader |
-| **修改** | `tests/integration/test_constraint_integration.py` | ±10 行：适配 |
+| **新建** | `domain/ontology_constraints.py` | ~50 行：`ConstraintFieldDescriptor` |
+| **修改** | `domain/constraints.py` | +2 行：`TraversalConstraint.ontology_source` 字段 |
+| **修改** | `domain/schema.py` | +35 行：`ONTOLOGY_CONSTRAINT_REGISTRY` 外部注册表 |
+| **新建** | `execution/constraints/loader.py` | ~120 行：`OntologyConstraintLoader`（含 `load_all()` + 覆盖合并 + 缺失检测） |
+| **修改** | `pipeline/constraints.yaml` | -25 行：删除所有 value_mapping + 删除 data_sensitivity_check |
+| **新建** | `config/constraint_overrides.yaml` | ~35 行：覆盖配置模板（修正语法） |
+| **修改** | `agent/tools.py` | -35/+15 行：简化为一行 `load_all()` 调用 |
+| **修改** | `execution/constraints/__init__.py` | +2 行 |
+| **新建** | `tests/unit/test_ontology_constraint_loader.py` | ~140 行：18 个测试 |
+| **修改** | `tests/unit/test_constraint_engine.py` | ±5 行 |
+| **修改** | `tests/integration/test_constraint_integration.py` | ±5 行 |
 
-**总计：** 5 新建 + 5 修改，~400 行新增代码，~70 行删除
+**总计：** 3 新建 + 8 修改，~350 行新增，~70 行删除
 
 ---
 
-## 任务分解
+## 修订后任务分解
 
-### Task 1: 创建 `domain/ontology_constraints.py` — 约束字段描述符
+### Task 1: 创建 `domain/ontology_constraints.py`
 
-**目标：** 定义 `ConstraintFieldDescriptor` 和 `OntoConstraints` 基类，提供 `derive_constraint()` 工厂函数。
-
-**文件：** 
-- 创建：`src/ontoagent/domain/ontology_constraints.py`
-- 修改：`tests/unit/test_ontology_constraint_loader.py`（Task 3 中写测试）
-
-**实现：**
+**文件：** 创建 `src/ontoagent/domain/ontology_constraints.py`
 
 ```python
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
-from ontoagent.domain.constraints import GuardLevel, TraversalConstraint
+from ontoagent.domain.constraints import GuardLevel
 
 
 @dataclass
 class ConstraintFieldDescriptor:
-    """描述实体字段上的约束语义。
+    """描述实体字段上的约束语义。由 ONTOLOGY_CONSTRAINT_REGISTRY 注册。
 
     Attributes:
         field_name: 字段名 (e.g. "sensitivity")
         value_mapping: 字段值 → 约束级别的映射
     """
     field_name: str
-    value_mapping: dict[str, GuardLevel]
-
-    def derive_traversals(
-        self,
-        entity_label: str,
-        paths: list[_ConstraintPath],
-    ) -> list[TraversalConstraint]:
-        """从本体字段定义 + 遍历路径生成完整 TraversalConstraint 列表。"""
-        constraints: list[TraversalConstraint] = []
-        for path in paths:
-            constraints.append(
-                TraversalConstraint(
-                    name=path.name,
-                    source_label=path.source_label,
-                    relation_chain=path.relation_chain,
-                    target_label=entity_label,
-                    collect_property=self.field_name,
-                    value_mapping=self.value_mapping,
-                    aggregation=path.aggregation,
-                )
-            )
-        return constraints
-
-
-@dataclass
-class _ConstraintPath:
-    """遍历路径定义 — 约束引擎需要知道从哪里开始沿什么关系走到目标实体。
-
-    Attributes:
-        name: 约束名称
-        source_label: 起始实体标签
-        relation_chain: 关系链
-        aggregation: 聚合策略
-    """
-    name: str
-    source_label: str
-    relation_chain: list[str]
-    aggregation: str = "max"
-
-
-@dataclass
-class OntoConstraints:
-    """实体类上的约束声明。放在 dataclass 内部作为类属性。
-
-    Usage:
-        @dataclass
-        class DataAsset:
-            ...
-            OntoConstraints = OntoConstraints(
-                entity_label="DataAsset",
-                constraint_fields=[
-                    ConstraintFieldDescriptor(
-                        field_name="sensitivity",
-                        value_mapping={
-                            "restricted": GuardLevel.BLOCK,
-                            "confidential": GuardLevel.WARN,
-                            "internal": GuardLevel.ALLOW,
-                            "public": GuardLevel.ALLOW,
-                        },
-                    )
-                ],
-            )
-    """
-    entity_label: str
-    constraint_fields: list[ConstraintFieldDescriptor] = field(default_factory=list)
-
-    def all_constraint_fields(self) -> dict[str, ConstraintFieldDescriptor]:
-        """返回 {field_name: ConstraintFieldDescriptor} 映射。"""
-        return {cf.field_name: cf for cf in self.constraint_fields}
-```
-
-**验证方式：** 
-```bash
-uv run pytest tests/unit/test_ontology_constraint_loader.py -v  # Task 3 中创建
+    value_mapping: dict[str, GuardLevel] = field(default_factory=dict)
 ```
 
 **提交：**
 ```bash
 git add src/ontoagent/domain/ontology_constraints.py
-git commit -m "feat: add ontology constraint descriptors (ConstraintFieldDescriptor, OntoConstraints)"
+git commit -m "feat: add ConstraintFieldDescriptor for ontology constraint registration"
 ```
 
 ---
 
-### Task 2: 给 schema.py 的实体类添加 OntoConstraints
+### Task 2: 给 `domain/constraints.py` 加 `ontology_source` 字段
 
-**目标：** 在 DataAsset、ComplianceItem、CodeEntity 三个实体类上添加 `OntoConstraints` 类属性。
+**文件：** 修改 `src/ontoagent/domain/constraints.py`
+
+在 `TraversalConstraint` 中新增字段：
+```python
+@dataclass
+class TraversalConstraint:
+    name: str
+    source_label: str
+    relation_chain: list[str]
+    target_label: str
+    collect_property: str
+    value_mapping: dict[str, GuardLevel]
+    aggregation: Literal["max", "min", "exists"] = "max"
+    ontology_source: str = ""  # NEW — "DataAsset.sensitivity" for traceability
+```
+
+**提交：**
+```bash
+git add src/ontoagent/domain/constraints.py
+git commit -m "feat: add ontology_source field to TraversalConstraint for BLOCK traceability"
+```
+
+---
+
+### Task 3: 在 `schema.py` 添加 `ONTOLOGY_CONSTRAINT_REGISTRY`
 
 **文件：** 修改 `src/ontoagent/domain/schema.py`
 
-**修改：**
-
-给 DataAsset 类（在 `class DataAsset:` 内部，`VALID_DATA_TYPES` 之后，`__post_init__` 之前）：
+在文件末尾（`VALID_RELATION_TYPES` 等注册表之后）追加：
 
 ```python
-    from ontoagent.domain.constraints import GuardLevel
-    from ontoagent.domain.ontology_constraints import ConstraintFieldDescriptor, OntoConstraints
+# ============================================================
+# Ontology Constraint Registry — Layer 1 auto-derivation source
+# ============================================================
+# 格式: "{EntityLabel}.{field_name}" → ConstraintFieldDescriptor
+# 当 constraints.yaml 引用某个 target_label + collect_property 时，
+# Loader 从此注册表自动获取 value_mapping，无需在 YAML 中重复定义。
 
-    OntoConstraints = OntoConstraints(
-        entity_label="DataAsset",
-        constraint_fields=[
-            ConstraintFieldDescriptor(
-                field_name="sensitivity",
-                value_mapping={
-                    "restricted": GuardLevel.BLOCK,
-                    "confidential": GuardLevel.WARN,
-                    "internal": GuardLevel.ALLOW,
-                    "public": GuardLevel.ALLOW,
-                },
-            )
-        ],
-    )
-```
+from ontoagent.domain.constraints import GuardLevel
+from ontoagent.domain.ontology_constraints import ConstraintFieldDescriptor
 
-给 ComplianceItem 类：
-
-```python
-    from ontoagent.domain.constraints import GuardLevel
-    from ontoagent.domain.ontology_constraints import ConstraintFieldDescriptor, OntoConstraints
-
-    OntoConstraints = OntoConstraints(
-        entity_label="ComplianceItem",
-        constraint_fields=[
-            ConstraintFieldDescriptor(
-                field_name="severity",
-                value_mapping={
-                    "critical": GuardLevel.BLOCK,
-                    "high": GuardLevel.WARN,
-                    "medium": GuardLevel.ALLOW,
-                    "low": GuardLevel.ALLOW,
-                },
-            )
-        ],
-    )
-```
-
-给 CodeEntity 类：
-
-```python
-    from ontoagent.domain.constraints import GuardLevel
-    from ontoagent.domain.ontology_constraints import ConstraintFieldDescriptor, OntoConstraints
-
-    OntoConstraints = OntoConstraints(
-        entity_label="CodeEntity",
-        constraint_fields=[
-            ConstraintFieldDescriptor(
-                field_name="entry_category",
-                value_mapping={
-                    "http_api": GuardLevel.WARN,
-                    "rpc_service": GuardLevel.WARN,
-                    "scheduled": GuardLevel.ALLOW,
-                    "mq_consumer": GuardLevel.ALLOW,
-                    "event_handler": GuardLevel.ALLOW,
-                },
-            )
-        ],
-    )
-```
-
-注意：由于这些类在 `__post_init__` 中引用 `VALID_*` 常量，`OntoConstraints` 必须放在类体内但在 `__post_init__` 之前（或之后，只要不干扰 dataclass 字段）。`OntoConstraints` 不是 dataclass 字段（是裸类属性），放在 `VALID_*` 常量旁边即可。
-
-**验证方式：**
-```bash
-uv run python -c "
-from ontoagent.domain.schema import DataAsset, ComplianceItem, CodeEntity
-assert hasattr(DataAsset, 'OntoConstraints')
-assert DataAsset.OntoConstraints.constraint_fields[0].field_name == 'sensitivity'
-assert DataAsset.OntoConstraints.constraint_fields[0].value_mapping['restricted'].value == 'block'
-print('OK')
-"
+ONTOLOGY_CONSTRAINT_REGISTRY: dict[str, ConstraintFieldDescriptor] = {
+    "DataAsset.sensitivity": ConstraintFieldDescriptor(
+        field_name="sensitivity",
+        value_mapping={
+            "restricted": GuardLevel.BLOCK,
+            "confidential": GuardLevel.WARN,
+            "internal": GuardLevel.ALLOW,
+            "public": GuardLevel.ALLOW,
+        },
+    ),
+    "ComplianceItem.severity": ConstraintFieldDescriptor(
+        field_name="severity",
+        value_mapping={
+            "critical": GuardLevel.BLOCK,
+            "high": GuardLevel.WARN,
+            "medium": GuardLevel.ALLOW,
+            "low": GuardLevel.ALLOW,
+        },
+    ),
+    "CodeEntity.entry_category": ConstraintFieldDescriptor(
+        field_name="entry_category",
+        value_mapping={
+            "http_api": GuardLevel.WARN,
+            "rpc_service": GuardLevel.WARN,
+            "scheduled": GuardLevel.ALLOW,
+            "mq_consumer": GuardLevel.ALLOW,
+            "event_handler": GuardLevel.ALLOW,
+        },
+    ),
+}
 ```
 
 **提交：**
 ```bash
 git add src/ontoagent/domain/schema.py
-git commit -m "feat: add OntoConstraints to DataAsset, ComplianceItem, CodeEntity"
+git commit -m "feat: add ONTOLOGY_CONSTRAINT_REGISTRY — auto-derivation source for Layer 1"
 ```
 
 ---
 
-### Task 3: 创建 `execution/constraints/loader.py` — 本体约束加载器
+### Task 4: 创建 `execution/constraints/loader.py`
 
-**目标：** 创建 `OntologyConstraintLoader`，从本体内省 + YAML 遍历路径 + 覆盖文件，生成最终 `TraversalConstraint` 列表。
+**文件：** 创建 `src/ontoagent/execution/constraints/loader.py`
 
-**文件：** 
-- 创建：`src/ontoagent/execution/constraints/loader.py`
-- 创建：`tests/unit/test_ontology_constraint_loader.py`
-
-**核心接口：**
+核心接口：
 
 ```python
 class OntologyConstraintLoader:
-    """三层约束加载器：本体推导 + YAML 遍历 + 覆盖合并。"""
+    """三层约束加载器：本体注册表 + YAML 遍历路径 + 覆盖合并。"""
 
-    def __init__(self, entity_classes: list[type]) -> None:
-        """从本体内省加载所有约束字段定义。
+    def __init__(self, registry: dict[str, ConstraintFieldDescriptor]) -> None:
+        self._registry = registry
 
-        Args:
-            entity_classes: 带有 OntoConstraints 属性的 dataclass 列表。
-        """
-        # 内省所有 entity_classes，收集 {entity_label: OntoConstraints}
-        self._ontologies: dict[str, OntoConstraints] = {}
-        for cls in entity_classes:
-            oc = getattr(cls, "OntoConstraints", None)
-            if oc is not None and isinstance(oc, OntoConstraints):
-                self._ontologies[oc.entity_label] = oc
-
-    def load_traversals(
+    def load_all(
         self,
-        traversal_configs: list[dict],
-    ) -> list[TraversalConstraint]:
-        """从 YAML 遍历路径 + 本体约束字段 生成完整 TraversalConstraint 列表。
+        constraints_yaml: str | Path | None = None,
+        overrides_yaml: str | Path | None = None,
+    ) -> tuple[list[TraversalConstraint], dict[str, PropagationRule], list[str]]:
+        """一站式加载：返回 (traversals, propagation_rules, warnings)。
 
-        traversal_configs 格式（YAML 中去掉 value_mapping 后的剩余）:
-            [{"name": "data_sensitivity", "source_label": "CodeEntity",
-              "relation_chain": ["PROCESSES_DATA"], "target_label": "DataAsset",
-              "collect_property": "sensitivity", "aggregation": "max"}, ...]
+        自动从注册表填充 value_mapping，检测缺失，应用覆盖。
         """
-        constraints: list[TraversalConstraint] = []
-        for cfg in traversal_configs:
-            target_label = cfg["target_label"]
-            ontology = self._ontologies.get(target_label)
-            if ontology is None:
-                continue  # 未注册实体，跳过
-            field_name = cfg["collect_property"]
-            field_descriptor = ontology.all_constraint_fields().get(field_name)
-            if field_descriptor is None:
-                continue  # 字段未声明约束语义，跳过
-            constraints.append(
-                TraversalConstraint(
-                    name=cfg["name"],
-                    source_label=cfg["source_label"],
-                    relation_chain=cfg["relation_chain"],
-                    target_label=target_label,
-                    collect_property=field_name,
-                    value_mapping=field_descriptor.value_mapping,
-                    aggregation=cfg.get("aggregation", "max"),
-                )
+        traversals = []
+        rules = {}
+        warnings = []
+        yaml_data = self._read_yaml(constraints_yaml)
+        overrides_data = self._read_yaml(overrides_yaml) if overrides_yaml else {}
+
+        # Traversal constraints
+        for name, cfg in yaml_data.get("traversal_constraints", {}).items():
+            key = f"{cfg['target_label']}.{cfg['collect_property']}"
+            descriptor = self._registry.get(key)
+            if descriptor is None:
+                warnings.append(f"WARN: {key} 未在 ONTOLOGY_CONSTRAINT_REGISTRY 注册 — 约束 '{name}' 将使用空 value_mapping")
+                value_mapping = {}
+            else:
+                value_mapping = descriptor.value_mapping
+            traversals.append(TraversalConstraint(
+                name=name,
+                source_label=cfg["source_label"],
+                relation_chain=cfg["relation_chain"],
+                target_label=cfg["target_label"],
+                collect_property=cfg["collect_property"],
+                value_mapping=value_mapping,
+                aggregation=cfg.get("aggregation", "max"),
+                ontology_source=key if descriptor else "",
+            ))
+
+        # Propagation rules — also auto-fill from registry
+        for name, cfg in yaml_data.get("propagation_rules", {}).items():
+            raw_mapping = cfg.get("value_mapping", {})
+            # If collect_property corresponds to a registered field, prefer registry
+            # (propagation rules don't have target_label, so we search by field_name)
+            for reg_key, desc in self._registry.items():
+                if reg_key.endswith(f".{cfg['collect_property']}"):
+                    raw_mapping = {k: v.value for k, v in desc.value_mapping.items()}
+                    break
+            rules[name] = PropagationRule(
+                name=name,
+                along=cfg.get("along", []),
+                direction=cfg.get("direction", "forward"),
+                max_depth=cfg.get("max_depth", 5),
+                collect_property=cfg.get("collect_property", ""),
+                value_mapping=raw_mapping,
+                aggregation=cfg.get("aggregation", "max"),
             )
-        return constraints
 
-    def apply_overrides(
-        self,
-        constraints: list[TraversalConstraint],
-        overrides: list[dict],
-    ) -> list[TraversalConstraint]:
-        """对现有约束应用 Layer 2 覆盖。
+        # Apply overrides
+        for override in overrides_data.get("overrides", []):
+            ov_type = override.get("type")
+            if ov_type == "patch":
+                self._apply_patch(traversals, override)
+            elif ov_type == "allow_all":
+                self._apply_allow_all(traversals, override, warnings)
+            elif ov_type == "add_constraint":
+                self._apply_add_constraint(traversals, override)
 
-        覆盖类型：
-        - {"type": "patch", "target": "data_sensitivity", "patch": {"value_mapping": {"restricted": "warn"}}}
-        - {"type": "allow_all", "target": "CodeEntity:validate_credit_card", "reason": "..."}
-        - {"type": "add_constraint", "constraint": {...}}
+        # Missing registry check
+        referenced = {(c.target_label, c.collect_property) for c in traversals}
+        for label, prop in referenced:
+            key = f"{label}.{prop}"
+            if key not in self._registry:
+                warnings.append(f"WARN: '{label}.{prop}' referenced in constraints.yaml but missing from ONTOLOGY_CONSTRAINT_REGISTRY — constraints for this path may be incomplete")
 
-        allow_all 和 add_constraint 返回带标记的约束，由上层处理。
-        """
-        ...
+        return traversals, rules, warnings
+
+    def _apply_patch(self, traversals: list[TraversalConstraint], override: dict) -> None:
+        target_name = override["target"]
+        for c in traversals:
+            if c.name == target_name:
+                # modify
+                for val, level_str in override.get("modify", {}).items():
+                    c.value_mapping[val] = GuardLevel(level_str)
+                # remove_values
+                for val in override.get("remove_values", []):
+                    c.value_mapping.pop(val, None)
+                # add_values
+                for val, level_str in override.get("add_values", {}).items():
+                    c.value_mapping[val] = GuardLevel(level_str)
+                break
+
+    def _apply_allow_all(self, traversals, override, warnings):
+        # Record whitelist entry: {label}:{name} → exempt from all constraints
+        target_entity = override["target_entity"]  # "CodeEntity:validate_credit_card"
+        warnings.append(f"INFO: allow_all for {target_entity}: {override.get('reason', 'no reason')}")
+
+    def _apply_add_constraint(self, traversals, override):
+        cfg = override["constraint"]
+        traversals.append(TraversalConstraint(
+            name=cfg["name"],
+            source_label=cfg["source_label"],
+            relation_chain=cfg["relation_chain"],
+            target_label=cfg["target_label"],
+            collect_property=cfg["collect_property"],
+            value_mapping={k: GuardLevel(v) for k, v in cfg.get("value_mapping", {}).items()},
+            aggregation=cfg.get("aggregation", "max"),
+        ))
+
+    def _read_yaml(self, path):
+        if path is None:
+            return {}
+        import yaml
+        p = Path(path) if isinstance(path, str) else path
+        if p.exists():
+            with open(p) as f:
+                return yaml.safe_load(f) or {}
+        return {}
+
+    @property
+    def registry(self):
+        return self._registry
 ```
 
-**合并逻辑：**
+**同时创建测试文件：** `tests/unit/test_ontology_constraint_loader.py`（~140 行，18 个测试）
 
-```python
-# 优先级顺序处理
-for override in overrides:
-    if override["type"] == "patch":
-        # 找到对应约束，局部修改 value_mapping
-        ...
-    elif override["type"] == "allow_all":
-        # 记录到白名单，后续检查时跳过
-        ...
-    elif override["type"] == "add_constraint":
-        # 直接追加
-        ...
-```
-
-**测试覆盖：**
-1. 空本体内省 → 空约束列表
-2. 单实体单字段 → 生成正确 TraversalConstraint
-3. 多实体多字段 → 各自独立
-4. YAML 引用未注册实体/字段 → 静默跳过
-5. patch override → value_mapping 被修改
-6. patch 覆盖单个值 → 其他值不变
-7. allow_all → 白名单记录
-8. add_constraint → 约束列表追加
-9. 空覆盖 → 约束不变
-10. 多层覆盖顺序 → 后覆盖先生效
-11. value_mapping from ontology matches YAML-less config
-12. CodeEntity.entry_category → correct mapping
-13. ComplianceItem.severity → correct mapping
-14. 不存在的覆盖目标 → 不报错
-15. 全管道集成：loader → engine → guard → 正常执行
+测试清单：
+1. 空注册表 → 空返回 + warnings "未注册"
+2. 单约束自动填充 → value_mapping 来自注册表
+3. 多约束独立填充 → 各自正确
+4. propagation value_mapping 从注册表自动填充
+5. propagation 无注册表匹配 → 使用 YAML 中的 value_mapping
+6. patch modify → 值变更
+7. patch remove → 值删除
+8. patch add → 值新增
+9. allow_all → warnings 记录
+10. add_constraint → 约束列表追加
+11. 空覆盖 → 约束不变
+12. 覆盖顺序 → last-write-wins
+13. ontology_source 字段正确填充
+14. 缺失注册表 → WARN 输出
+15. 全管道：loader → engine → guard
+16. 无 YAML 文件 → 空结果
+17. 重复约束名 → 各自独立处理
+18. data_sensitivity_check 删除 → 不出现
 
 **提交：**
 ```bash
 git add src/ontoagent/execution/constraints/loader.py tests/unit/test_ontology_constraint_loader.py
-git commit -m "feat: add OntologyConstraintLoader (L1 auto-derive + L2 overrides)"
+git commit -m "feat: add OntologyConstraintLoader with load_all() — auto-derive + overrides + warnings"
 ```
 
 ---
 
-### Task 4: 更新 `constraints.yaml` — 移除 value_mapping
-
-**目标：** 从 `constraints.yaml` 移除 `value_mapping` 字段，保留遍历路径配置。
+### Task 5: 更新 `constraints.yaml`
 
 **文件：** 修改 `src/ontoagent/pipeline/constraints.yaml`
 
-**修改后内容：**
-
 ```yaml
-# 遍历路径配置 — 仅定义"从哪里沿什么关系找什么字段"
-# value_mapping 由本体类定义自动提供（schema.py 中的 OntoConstraints）
+# 遍历路径配置 — 仅定义遍历路径
+# value_mapping 由 ONTOLOGY_CONSTRAINT_REGISTRY (schema.py) 自动填充
 traversal_constraints:
   data_sensitivity:
     name: data_sensitivity
@@ -418,16 +451,9 @@ traversal_constraints:
     target_label: "DataAsset"
     collect_property: "sensitivity"
     aggregation: "max"
-    # value_mapping 移除此字段 — 从 DataAsset.OntoConstraints 自动加载
 
-  data_sensitivity_check:
-    name: data_sensitivity_check
-    source_label: "CodeEntity"
-    relation_chain: ["PROCESSES_DATA"]
-    target_label: "DataAsset"
-    collect_property: "sensitivity"
-    aggregation: "max"
-    # value_mapping 移除此字段
+# 注：data_sensitivity_check 已删除。如需降级 restricted→warn，
+# 请在 constraint_overrides.yaml 中用 patch 实现。
 
 propagation_rules:
   upstream_risk:
@@ -436,97 +462,73 @@ propagation_rules:
     direction: "backward"
     max_depth: 5
     collect_property: "entryCategory"
-    value_mapping:
-      http_api: "warn"
-      rpc_service: "warn"
-      scheduled: "allow"
-      mq_consumer: "allow"
-      event_handler: "allow"
     aggregation: "exists"
+    # value_mapping 也由 ONTOLOGY_CONSTRAINT_REGISTRY 自动填充
 ```
 
 **提交：**
 ```bash
 git add src/ontoagent/pipeline/constraints.yaml
-git commit -m "refactor: remove value_mapping from constraints.yaml — auto-derived from ontology"
+git commit -m "refactor: remove all value_mapping from constraints.yaml — auto-derived from ontology registry"
 ```
 
 ---
 
-### Task 5: 创建 `constraint_overrides.yaml` — Layer 2 覆盖模板
-
-**目标：** 创建覆盖配置文件，初始为空（含注释示例）。
+### Task 6: 创建 `constraint_overrides.yaml`
 
 **文件：** 创建 `src/ontoagent/config/constraint_overrides.yaml`
 
 ```yaml
 # Layer 2 — 约束覆盖配置
 # 覆盖优先级高于本体自动推导（Layer 1）
-# 三种覆盖类型：
 
-# 1. patch: 局部修改某个约束的值映射
-# overrides:
-#   - type: patch
-#     target: data_sensitivity
-#     patch:
-#       value_mapping:
-#         restricted: "warn"  # 降级：restricted 从 block → warn
-#         - remove: ["confidential"]  # 移除 confidential 约束
-#         - add: {"archived": "block"}  # 新增 archived 值的约束
+overrides:
+  # === 类型 1: patch — 局部修改已有约束 ===
+  # - type: patch
+  #   target: data_sensitivity        # 对应 constraints.yaml 中 traversal_constraints 的 key
+  #   modify:                         # 修改已有值的约束级别
+  #     restricted: "warn"            # restricted 从 block → warn
+  #   remove_values: ["confidential"] # 移除 confidential 约束（等同 allow）
+  #   add_values:                     # 新增值的约束
+  #     archived: "block"
 
-# 2. allow_all: 单点白名单 — 指定实体完全豁免约束
-#   - type: allow_all
-#     target: CodeEntity:validate_credit_card
-#     reason: "已脱敏测试数据，安全评审通过"
-#     expires: "2026-07-15"  # 可选：过期时间
+  # === 类型 2: allow_all — 单点白名单 ===
+  # - type: allow_all
+  #   target_entity: "CodeEntity:validate_credit_card"  # 格式: {Neo4jLabel}:{entity_name}
+  #   reason: "已脱敏测试数据，安全评审通过"
+  #   expires: "2026-07-15"  # 可选
 
-# 3. add_constraint: 追加额外约束
-#   - type: add_constraint
-#     constraint:
-#       name: compliance_check
-#       source_label: CodeEntity
-#       target_label: ComplianceItem
-#       relation_chain: ["SUBJECT_TO"]
-#       collect_property: "severity"
-#       value_mapping:
-#         critical: "block"
-#         high: "warn"
-#       aggregation: "max"
-
-overrides: []
-allow_all: []
+  # === 类型 3: add_constraint — 追加额外约束 ===
+  # - type: add_constraint
+  #   constraint:
+  #     name: compliance_check
+  #     source_label: "CodeEntity"
+  #     relation_chain: ["SUBJECT_TO"]
+  #     target_label: "ComplianceItem"
+  #     collect_property: "severity"
+  #     aggregation: "max"
 ```
-
-**注意：** 由于 coverage 配置文件不在 `pipeline/` 下，需要在 loader 或 tools.py 中引用此路径。
 
 **提交：**
 ```bash
 git add src/ontoagent/config/constraint_overrides.yaml
-git commit -m "feat: add constraint_overrides.yaml template (Layer 2)"
+git commit -m "feat: add constraint_overrides.yaml with corrected patch/allow_all/add_constraint syntax"
 ```
 
 ---
 
-### Task 6: 更新 `agent/tools.py:_get_action_executor()` — 使用新 Loader
-
-**目标：** 用 `OntologyConstraintLoader` 替代手工 YAML 解析。
+### Task 7: 简化 `agent/tools.py:_get_action_executor()`
 
 **文件：** 修改 `src/ontoagent/agent/tools.py`
 
-**修改范围：** `_get_action_executor()` 函数（第 410-492 行）
-
-**核心变更：**
+核心变更：将 80 行手工解析替换为 ~10 行 Loader 调用。
 
 ```python
 def _get_action_executor(graph_store: object) -> ActionExecutor:
     global _action_executor
     if _action_executor is None:
         from pathlib import Path
-        
-        import yaml
-        
-        from ontoagent.domain.schema import CodeEntity, ComplianceItem, DataAsset
-        from ontoagent.domain.ontology_constraints import OntoConstraints
+        from ontoagent.domain.schema import ONTOLOGY_CONSTRAINT_REGISTRY
         from ontoagent.execution.action_executor import ActionExecutor
         from ontoagent.execution.constraints import (
             ActionGuardPipeline,
@@ -536,72 +538,31 @@ def _get_action_executor(graph_store: object) -> ActionExecutor:
             EntityPropertyGuard,
             OntologyPropagationGuard,
             OntologyTraversalGuard,
-            PropagationRule,
         )
         from ontoagent.execution.constraints.loader import OntologyConstraintLoader
 
-        constraints_yaml = (
-            Path(__file__).parent.parent / "pipeline" / "constraints.yaml"
+        constraints_yaml = Path(__file__).parent.parent / "pipeline" / "constraints.yaml"
+        overrides_yaml = Path(__file__).parent.parent / "config" / "constraint_overrides.yaml"
+
+        loader = OntologyConstraintLoader(registry=ONTOLOGY_CONSTRAINT_REGISTRY)
+        traversals, prop_rules, warnings = loader.load_all(
+            constraints_yaml=constraints_yaml,
+            overrides_yaml=overrides_yaml,
         )
-        overrides_yaml = (
-            Path(__file__).parent.parent / "config" / "constraint_overrides.yaml"
-        )
-        
-        # Layer 1: Auto-derive from ontology
-        loader = OntologyConstraintLoader([DataAsset, ComplianceItem, CodeEntity])
-        
-        traversal_constraints: list = []
-        propagation_rules: dict[str, PropagationRule] = {}
-        
-        if constraints_yaml.exists():
-            with open(constraints_yaml) as f:
-                data = yaml.safe_load(f) or {}
-            
-            # 从 YAML 加载遍历路径配置（无 value_mapping）
-            traversal_configs = [
-                {
-                    "name": cfg.get("name", name),
-                    "source_label": cfg["source_label"],
-                    "relation_chain": cfg["relation_chain"],
-                    "target_label": cfg["target_label"],
-                    "collect_property": cfg["collect_property"],
-                    "aggregation": cfg.get("aggregation", "max"),
-                }
-                for name, cfg in data.get("traversal_constraints", {}).items()
-            ]
-            # 本体自动填充 value_mapping
-            traversal_constraints = loader.load_traversals(traversal_configs)
-            
-            # Propagation rules 保持不变（与 traverse 无关）
-            for name, cfg in data.get("propagation_rules", {}).items():
-                propagation_rules[name] = PropagationRule(
-                    name=cfg.get("name", name),
-                    along=cfg.get("along", []),
-                    direction=cfg.get("direction", "forward"),
-                    max_depth=cfg.get("max_depth", 5),
-                    collect_property=cfg.get("collect_property", ""),
-                    value_mapping=cfg.get("value_mapping", {}),
-                    aggregation=cfg.get("aggregation", "max"),
-                )
-        
-        # Layer 2: Apply overrides
-        if overrides_yaml.exists():
-            with open(overrides_yaml) as f:
-                overrides_data = yaml.safe_load(f) or {}
-            overrides_list = overrides_data.get("overrides", [])
-            if overrides_list:
-                traversal_constraints = loader.apply_overrides(traversal_constraints, overrides_list)
-        
-        # Build pipeline (unchanged)
-        engine = ConstraintEngine(graph_store, traversal_constraints)
+
+        # Log startup warnings
+        for w in warnings:
+            logging.getLogger(__name__).warning(w)
+
+        engine = ConstraintEngine(graph_store, traversals)
         propagator = ConstraintPropagator(graph_store)
         guard_pipeline = ActionGuardPipeline([
             EntityExistsGuard(),
             EntityPropertyGuard(),
             OntologyTraversalGuard(engine),
-            OntologyPropagationGuard(propagator, rules=propagation_rules),
+            OntologyPropagationGuard(propagator, rules=prop_rules),
         ])
-        
+
         _action_executor = ActionExecutor(
             graph_store,
             function_runner=_get_function_runner(),
@@ -610,154 +571,73 @@ def _get_action_executor(graph_store: object) -> ActionExecutor:
     return _action_executor
 ```
 
-**验证方式：**
-```bash
-uv run pytest tests/unit/test_ontology_constraint_loader.py -v
-uv run pytest tests/unit/test_constraint_engine.py -v
-uv run pytest tests/unit/test_guard_pipeline.py -v
-```
-
 **提交：**
 ```bash
 git add src/ontoagent/agent/tools.py
-git commit -m "refactor: use OntologyConstraintLoader in _get_action_executor()"
+git commit -m "refactor: simplify _get_action_executor() with OntologyConstraintLoader.load_all()"
 ```
 
 ---
 
-### Task 7: 更新 `__init__.py` 及其他适配
+### Task 8: 更新 `constraints/__init__.py`
 
-**目标：** 导出新模块，确保向后兼容。
-
-**文件：** 修改 `src/ontoagent/execution/constraints/__init__.py`
-
-```python
-# 新增导出
-from ontoagent.execution.constraints.loader import OntologyConstraintLoader  # noqa: F401
-
-__all__ = [
-    ...
-    "OntologyConstraintLoader",
-]
-```
-
-**提交：**
 ```bash
 git add src/ontoagent/execution/constraints/__init__.py
-git commit -m "chore: export OntologyConstraintLoader from constraints package"
+git commit -m "chore: export OntologyConstraintLoader"
 ```
 
 ---
 
-### Task 8: 集成测试验证 + 全量回归
-
-**目标：** 确认三层架构完整工作：本体定义 → YAML 遍历路径 → Engine → Guard → BLOCK/WARN/ALLOW。
-
-**验证命令：**
+### Task 9: 集成验证
 
 ```bash
-# 1. 全量测试（核心）
-uv run pytest tests/ -v --tb=short 2>&1 | tail -5
-# 预期：所有测试通过（≥1416），无 failure
+# 全量测试
+uv run pytest tests/ -v --tb=short -q
 
-# 2. 验证约束加载正确
+# 验证 ontology_source 字段
 uv run python -c "
-from ontoagent.domain.schema import DataAsset
-oc = DataAsset.OntoConstraints
-fd = oc.all_constraint_fields()['sensitivity']
-assert fd.value_mapping['restricted'].value == 'block'
-assert fd.value_mapping['public'].value == 'allow'
-print('Ontology constraints OK')
-"
-
-# 3. 验证 Loader 整合
-uv run python -c "
-from ontoagent.domain.schema import DataAsset, CodeEntity, ComplianceItem
 from ontoagent.execution.constraints.loader import OntologyConstraintLoader
-loader = OntologyConstraintLoader([DataAsset, CodeEntity, ComplianceItem])
-traversals = [{'name': 'test', 'source_label': 'CodeEntity',
-               'relation_chain': ['PROCESSES_DATA'], 'target_label': 'DataAsset',
-               'collect_property': 'sensitivity', 'aggregation': 'max'}]
-constraints = loader.load_traversals(traversals)
-assert len(constraints) == 1
-assert constraints[0].value_mapping['restricted'].value == 'block'
-print('Loader integration OK')
+from ontoagent.domain.schema import ONTOLOGY_CONSTRAINT_REGISTRY
+loader = OntologyConstraintLoader(registry=ONTOLOGY_CONSTRAINT_REGISTRY)
 "
 
-# 4. 集成测试（需要 Neo4j）
+# 集成测试
 uv run pytest tests/integration/test_constraint_integration.py -v
-# 预期： validate_credit_card → BLOCKED, daily_reconciliation → ALLOWED
 ```
 
 **提交：**
 ```bash
-git add -A
-git commit -m "test: verify Layer 1-3 constraint pipeline end-to-end"
+git add -A && git commit -m "test: verify v3 constraint pipeline end-to-end"
 ```
 
 ---
 
-### Task 9: 最终清理 — 检查和推送
+### Task 10: 清理推送
 
 ```bash
-# 静态检查
-uv run ruff check src/ tests/
-uv run ruff format src/ tests/
+uv run ruff check src/ tests/ && uv run ruff format src/ tests/
 uv run pyright src/
-
-# 全量测试+覆盖率
-uv run pytest tests/ --cov=ontoagent --cov-report=term-missing -q 2>&1 | tail -20
-
-# 推送
+uv run pytest tests/ -q
 git push
 ```
 
 ---
 
-## 验证检查点
+## 依赖图
 
-| 检查项 | 预期 |
-|--------|------|
-| DataAsset.OntoConstraints 存在 | sensitivity 映射到 BLOCK/WARN/ALLOW |
-| ComplianceItem.OntoConstraints 存在 | severity 映射到 BLOCK/WARN/ALLOW |
-| CodeEntity.OntoConstraints 存在 | entry_category 映射到 WARN/ALLOW |
-| constraints.yaml 无 value_mapping | 遍历路径格式正确 |
-| constraint_overrides.yaml 存在 | overrides: [], allow_all: [] |
-| Loader 生成正确 TraversalConstraint | value_mapping 来自本体 |
-| 空覆盖 → 约束不变 | 全量测试 ≥1416 pass |
-| patch 覆盖 → value_mapping 变更 | 单元测试覆盖 |
-| 集成测试 → BLOCK 生效 | validate_credit_card BLOCKED |
-
----
-
-## 风险
-
-| 风险 | 缓解 |
-|------|------|
-| dataclass 中放 `OntoConstraints` 类属性与 `@dataclass` 冲突 | `OntoConstraints` 是裸属性（无类型注解），`@dataclass` 不会将其视为字段 |
-| 循环导入（schema.py ↔ constraints.py） | schema.py 已经 import constraints.py（GuardDecision, GuardLevel），ontology_constraints.py 也在 domain/ 层，无循环风险 |
-| 现有测试使用硬编码 value_mapping | 现有测试 mock 了 ConstraintEngine，不受影响；只有直接构造 TraversalConstraint 的测试需更新 |
-
----
-
-## 实施顺序
-
-依赖图：
 ```
-Task 1 (ontology_constraints.py) 
-  ↓
-Task 2 (schema.py OntoConstraints) — 依赖 Task 1
-  ↓
-Task 3 (loader.py + tests) — 依赖 Task 1
-  ↓
-Task 4 (constraints.yaml 去 value_mapping) — 独立
-Task 5 (overrides.yaml 模板) — 独立
-  ↓
-Task 6 (tools.py 使用 Loader) — 依赖 Task 1-5
-Task 7 (__init__.py 导出) — 独立
-  ↓
-Task 8 (集成验证) — 依赖 Task 1-7
-Task 9 (清理推送) — 依赖 Task 8
+Task 1 (ontology_constraints.py) ──┐
+Task 2 (constraints.py +source) ──┤
+                                   ├→ Task 4 (loader.py + tests)
+Task 3 (schema.py registry) ──────┘        ↓
+                                   Task 5 (constraints.yaml) — 可并行
+                                   Task 6 (overrides.yaml)  — 可并行
+                                        ↓
+                                   Task 7 (tools.py)
+                                   Task 8 (__init__.py)
+                                        ↓
+                                   Task 9 (集成验证)
+                                   Task 10 (清理推送)
 ```
 
-**可并行：** Task 4 和 Task 5 可在 Task 1-3 完成后并行执行。
+**可并行：** Task 1+2+3 可在同一 commit 中完成（都在 domain 层）。Task 5+6 可并行执行。
