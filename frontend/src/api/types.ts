@@ -24,6 +24,16 @@ export interface ChatResponse {
 export type MessageBlock =
   | { type: 'text'; content: string }
   | { type: 'tool_call'; toolCall: ToolCall }
+  | {
+      type: 'approval'
+      approval: {
+        approval_id: string
+        level: string
+        checks?: Array<{ guard: string; level: string; reason: string }>
+        policies?: Array<{ policy: string; level: string; reason: string }>
+        summary?: string
+      }
+    }
 
 export interface Message {
   id: string

@@ -31,6 +31,19 @@ export async function sendChatStream(
   })
 }
 
+export async function sendApproval(
+  approvalId: string,
+  approved: boolean,
+): Promise<{ success: boolean; status: string; message: string }> {
+  const resp = await fetch('/api/chat/approval', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ approval_id: approvalId, approved }),
+  })
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+  return resp.json()
+}
+
 export async function sendChatSync(req: ChatRequest): Promise<{ answer: string; thread_id: string; duration_ms: number }> {
   const resp = await fetch('/api/chat', {
     method: 'POST',

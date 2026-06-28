@@ -32,6 +32,8 @@ function handleSend(message: string) {
         :key="msg.id"
         :message="msg"
         :thread-id="chatStore.threadId"
+        @approve="(id) => chatStore.handleApproval(id, true)"
+        @reject="(id) => chatStore.handleApproval(id, false)"
       />
     </div>
     <ChatInput :disabled="chatStore.isLoading" @send="handleSend" />

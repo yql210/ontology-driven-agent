@@ -1,12 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { sendChatStream } from '../api/chat'
+import { sendChatStream, sendApproval } from '../api/chat'
 import type { Message, MessageBlock, ToolCall, SSEEvent } from '../api/types'
+import type { ApprovalData } from '../components/ApprovalCard.vue'
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<Message[]>([])
   const threadId = ref<string | null>(null)
   const isLoading = ref(false)
+  const pendingApprovals = ref<Map<string, ApprovalData>>(new Map())
 
   function addUserMessage(content: string) {
     messages.value.push({
@@ -45,6 +47,57 @@ export const useChatStore = defineStore('chat', () => {
     return { block: block as MessageBlock & { type: 'text' }, index: blocks.length - 1 }
   }
 
+  function detectApprovalData(result: string): ApprovalData | null {
+    try {
+      const data = JSON.parse(result)
+      if (data.status === 'approval_required' && data.approval_id) {
+        return {
+          approval_id: data.approval_id,
+          level: data.level || 'action',
+          checks: data.checks || [],
+          policies: data.policies || [],
+          summary: `需要审批才能继续执行`,
+        }
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
+  function handleApproval(approvalId: string, approved: boolean) {
+    const lastMsg = messages.value[messages.value.length - 1]
+    if (!lastMsg) return
+
+    // 标记审批卡片为已处理
+    pendingApprovals.value.delete(approvalId)
+
+    // 添加用户操作记录
+    lastMsg.blocks!.push({
+      type: 'text',
+      content: approved ? '✅ 已批准执行' : '❌ 已拒绝',
+    })
+
+    // 调用后端审批接口
+    sendApproval(approvalId, approved)
+      .then(result => {
+        if (lastMsg) {
+          lastMsg.blocks!.push({
+            type: 'text',
+            content: result.success ? `📋 ${result.message}` : `⚠️ ${result.message}`,
+          })
+        }
+      })
+      .catch(err => {
+        if (lastMsg) {
+          lastMsg.blocks!.push({
+            type: 'text',
+            content: `⚠️ 审批处理失败: ${err.message}`,
+          })
+        }
+      })
+  }
+
   async function sendMessage(content: string) {
     if (!content.trim() || isLoading.value) return
     isLoading.value = true
@@ -79,13 +132,23 @@ export const useChatStore = defineStore('chat', () => {
             case 'tool_end': {
               // 匹配最后一个同名 running 工具
               const calls = lastMsg.toolCalls
+              let matchedToolName = ''
               if (calls) {
                 for (let i = calls.length - 1; i >= 0; i--) {
                   if (calls[i].tool === event.tool && calls[i].status === 'running') {
                     calls[i].status = 'completed'
                     if (event.result) calls[i].result = event.result
+                    matchedToolName = event.tool
                     break
                   }
+                }
+              }
+              // 检测 express_intent 返回审批请求
+              if (matchedToolName === 'express_intent' && event.result) {
+                const approvalData = detectApprovalData(event.result)
+                if (approvalData) {
+                  lastMsg.blocks!.push({ type: 'approval', approval: approvalData })
+                  pendingApprovals.value.set(approvalData.approval_id, approvalData)
                 }
               }
               break
@@ -122,5 +185,5 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  return { messages, threadId, isLoading, sendMessage }
+  return { messages, threadId, isLoading, sendMessage, handleApproval }
 })

@@ -2,8 +2,10 @@
 import type { Message } from '../api/types'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import ToolCallBlock from './ToolCallBlock.vue'
+import ApprovalCard from './ApprovalCard.vue'
 
 defineProps<{ message: Message; threadId?: string | null }>()
+const emit = defineEmits<{ approve: [approvalId: string]; reject: [approvalId: string] }>()
 </script>
 
 <template>
@@ -14,6 +16,12 @@ defineProps<{ message: Message; threadId?: string | null }>()
         <template v-for="(block, idx) in message.blocks" :key="idx">
           <MarkdownRenderer v-if="block.type === 'text'" :content="block.content || ''" />
           <ToolCallBlock v-if="block.type === 'tool_call'" :tool-call="block.toolCall" />
+          <ApprovalCard
+            v-if="block.type === 'approval'"
+            :approval="block.approval"
+            @approve="(id: string) => emit('approve', id)"
+            @reject="(id: string) => emit('reject', id)"
+          />
         </template>
       </template>
       <template v-else>
