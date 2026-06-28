@@ -718,5 +718,6 @@ ONTOLOGY_CONSTRAINT_REGISTRY: dict[str, ConstraintFieldDescriptor] = {
             "mq_consumer": GuardLevel.ALLOW,
             "event_handler": GuardLevel.ALLOW,
         },
+        neo4j_property="entryCategory",
     ),
 }

@@ -57,9 +57,10 @@ class OntologyConstraintLoader:
         for name, cfg in yaml_data.get("propagation_rules", {}).items():
             raw_mapping: dict[str, str] = cfg.get("value_mapping", {})
             # If collect_property corresponds to a registered field, prefer registry
-            # (propagation rules don't have target_label, so we search by field_name)
+            # (propagation rules don't have target_label, so we search by field_name or neo4j_property)
             for reg_key, desc in self._registry.items():
-                if reg_key.endswith(f".{cfg['collect_property']}"):
+                if (reg_key.endswith(f".{cfg['collect_property']}") or
+                    (desc.neo4j_property and desc.neo4j_property == cfg['collect_property'])):
                     raw_mapping = {k: v.value for k, v in desc.value_mapping.items()}
                     break
             rules[name] = PropagationRule(
