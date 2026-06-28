@@ -415,6 +415,8 @@ def express_intent(
         executor = _get_action_executor(neo4j)
         approval_gate = _get_approval_gate()
 
+        skip_approval = False
+
         # --- 审批回执模式 ---
         if approval_id:
             if not approval_gate:
@@ -437,6 +439,7 @@ def express_intent(
             params = ctx.params
             intent_type = ctx.intent_type
             target = ctx.target
+            skip_approval = True  # 跳过后续审批检查，直接执行
 
         # --- 正常模式 ---
         if not intent_type or not target:
@@ -453,7 +456,7 @@ def express_intent(
             return json.dumps({"status": "error", "error": f"未知操作类型: {intent_type}"}, ensure_ascii=False)
 
         # --- Approval gate check ---
-        if approval_gate:
+        if not skip_approval and approval_gate:
             from ontoagent.domain.approval import ApprovalContext, DecisionLevel
 
             # Run guard pipeline to collect checks
@@ -465,11 +468,13 @@ def express_intent(
             if pipeline:
                 for guard in pipeline.guards:
                     decision = guard.evaluate(config, entity, neo4j)
-                    guard_checks.append({
-                        "guard": type(guard).__name__,
-                        "level": decision.level.value,
-                        "reason": decision.reason,
-                    })
+                    guard_checks.append(
+                        {
+                            "guard": type(guard).__name__,
+                            "level": decision.level.value,
+                            "reason": decision.reason,
+                        }
+                    )
 
             approval_ctx = ApprovalContext(
                 intent_type=intent_type,
@@ -487,19 +492,31 @@ def express_intent(
             )
 
             if decision.level == DecisionLevel.DENIED:
-                return json.dumps({
-                    "status": "blocked",
-                    "checks": [{"policy": r.policy_name, "level": r.level.value, "reason": r.reason} for r in decision.results],
-                }, ensure_ascii=False)
+                return json.dumps(
+                    {
+                        "status": "blocked",
+                        "checks": [
+                            {"policy": r.policy_name, "level": r.level.value, "reason": r.reason}
+                            for r in decision.results
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
 
             if decision.level == DecisionLevel.PENDING:
-                return json.dumps({
-                    "status": "approval_required",
-                    "approval_id": decision.token,
-                    "level": "action",
-                    "checks": guard_checks,
-                    "policies": [{"policy": r.policy_name, "level": r.level.value, "reason": r.reason} for r in decision.results],
-                }, ensure_ascii=False)
+                return json.dumps(
+                    {
+                        "status": "approval_required",
+                        "approval_id": decision.token,
+                        "level": "action",
+                        "checks": guard_checks,
+                        "policies": [
+                            {"policy": r.policy_name, "level": r.level.value, "reason": r.reason}
+                            for r in decision.results
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
 
         # --- Execute ---
         result = executor.execute(intent_type, {**(params or {}), "target": target})
@@ -559,11 +576,13 @@ def check_operation(intent_type: str, target: str) -> str:
         checks = []
         for guard in pipeline.guards:
             decision = guard.evaluate(config, entity, graph_store)
-            checks.append({
-                "guard": type(guard).__name__,
-                "level": decision.level.value,
-                "reason": decision.reason,
-            })
+            checks.append(
+                {
+                    "guard": type(guard).__name__,
+                    "level": decision.level.value,
+                    "reason": decision.reason,
+                }
+            )
             if decision.level.value == "block":
                 return json.dumps(
                     {
@@ -608,15 +627,17 @@ def _get_approval_gate() -> object:
         )
         from ontoagent.execution.functions.registry import _meta as function_meta
 
-        _APPROVAL_GATE = ApprovalGate([
-            GuardResultPolicy(
-                pipeline=None,  # 延迟注入：_get_action_executor 创建 pipeline 后 set_pipeline()
-                on_block="require_approval",
-                on_warn="require_approval",
-            ),
-            ActionApprovalPolicy(),
-            FunctionDangerPolicy(function_meta),
-        ])
+        _APPROVAL_GATE = ApprovalGate(
+            [
+                GuardResultPolicy(
+                    pipeline=None,  # 延迟注入：_get_action_executor 创建 pipeline 后 set_pipeline()
+                    on_block="require_approval",
+                    on_warn="require_approval",
+                ),
+                ActionApprovalPolicy(),
+                FunctionDangerPolicy(function_meta),
+            ]
+        )
     return _APPROVAL_GATE
 
 
@@ -626,7 +647,10 @@ def _get_function_runner() -> Any:
     if _function_runner is None:
         from ontoagent.execution.function_runner import FunctionRunner
 
-        _function_runner = FunctionRunner()
+        _function_runner = FunctionRunner(
+            graph_store=None,  # will be injected by ActionExecutor
+            approval_gate=_get_approval_gate(),
+        )
     return _function_runner
 
 
