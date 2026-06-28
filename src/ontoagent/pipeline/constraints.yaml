@@ -1,0 +1,36 @@
+traversal_constraints:
+  data_sensitivity:
+    name: data_sensitivity
+    source_label: "CodeEntity"
+    relation_chain: ["PROCESSES_DATA"]
+    target_label: "DataAsset"
+    collect_property: "sensitivity"
+    value_mapping:
+      restricted: "block"
+      confidential: "warn"
+      internal: "allow"
+      public: "allow"
+    aggregation: "max"
+
+  compliance_chain:
+    name: compliance_chain
+    source_label: "CodeEntity"
+    relation_chain: ["PROCESSES_DATA"]
+    target_label: "DataAsset"
+    collect_property: "sensitivity"
+    value_mapping:
+      restricted: "warn"
+      confidential: "warn"
+      internal: "allow"
+      public: "allow"
+    aggregation: "max"
+
+propagation_rules:
+  upstream_risk:
+    name: upstream_risk
+    along: ["CALLS"]
+    direction: "backward"
+    max_depth: 5
+    collect_property: "name"
+    value_mapping: {}
+    aggregation: "exists"
