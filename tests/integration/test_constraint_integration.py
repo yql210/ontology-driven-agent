@@ -8,9 +8,8 @@ import os
 from pathlib import Path
 
 import pytest
-import yaml
 
-from ontoagent.domain.constraints import GuardLevel, TraversalConstraint
+from ontoagent.domain.constraints import TraversalConstraint
 from ontoagent.execution.action_executor import ActionExecutor
 from ontoagent.execution.constraints import (
     ActionGuardPipeline,
@@ -21,6 +20,7 @@ from ontoagent.execution.constraints import (
     OntologyPropagationGuard,
     OntologyTraversalGuard,
     PropagationRule,
+    WhitelistGuard,
 )
 from ontoagent.execution.functions import registry as fn_registry
 from ontoagent.store.neo4j_store import Neo4jGraphStore
@@ -37,50 +37,29 @@ def _get_neo4j_creds() -> tuple[str, str, str]:
 
 
 def _load_traversal_constraints(yaml_path: Path) -> list[TraversalConstraint]:
-    """Load traversal constraints from constraints.yaml.
+    """Load traversal constraints using OntologyConstraintLoader (v3).
 
-    Converts YAML string value_mapping (e.g. "block") to GuardLevel enum values.
+    In v3, value_mapping is auto-derived from ONTOLOGY_CONSTRAINT_REGISTRY
+    rather than stored directly in constraints.yaml.
     """
-    with open(yaml_path) as f:
-        data = yaml.safe_load(f) or {}
+    from ontoagent.domain.schema import ONTOLOGY_CONSTRAINT_REGISTRY
+    from ontoagent.execution.constraints.loader import OntologyConstraintLoader
 
-    constraints: list[TraversalConstraint] = []
-    for name, cfg in data.get("traversal_constraints", {}).items():
-        raw_mapping: dict[str, str] = cfg.get("value_mapping", {})
-        value_mapping: dict[str, GuardLevel] = {}
-        for key, val in raw_mapping.items():
-            value_mapping[key] = GuardLevel(val)
-
-        constraints.append(
-            TraversalConstraint(
-                name=cfg.get("name", name),
-                source_label=cfg.get("source_label", ""),
-                relation_chain=cfg.get("relation_chain", []),
-                target_label=cfg.get("target_label", ""),
-                collect_property=cfg.get("collect_property", ""),
-                value_mapping=value_mapping,
-                aggregation=cfg.get("aggregation", "max"),
-            )
-        )
-    return constraints
+    loader = OntologyConstraintLoader(registry=ONTOLOGY_CONSTRAINT_REGISTRY)
+    traversals, _, _, _ = loader.load_all(constraints_yaml=yaml_path)
+    return traversals
 
 
 def _load_propagation_rules(yaml_path: Path) -> dict[str, PropagationRule]:
-    """Load propagation rules from constraints.yaml."""
-    with open(yaml_path) as f:
-        data = yaml.safe_load(f) or {}
+    """Load propagation rules using OntologyConstraintLoader (v3).
 
-    rules: dict[str, PropagationRule] = {}
-    for name, cfg in data.get("propagation_rules", {}).items():
-        rules[name] = PropagationRule(
-            name=cfg.get("name", name),
-            along=cfg.get("along", []),
-            direction=cfg.get("direction", "forward"),
-            max_depth=cfg.get("max_depth", 5),
-            collect_property=cfg.get("collect_property", ""),
-            value_mapping=cfg.get("value_mapping", {}),
-            aggregation=cfg.get("aggregation", "max"),
-        )
+    In v3, value_mapping is auto-derived from ONTOLOGY_CONSTRAINT_REGISTRY.
+    """
+    from ontoagent.domain.schema import ONTOLOGY_CONSTRAINT_REGISTRY
+    from ontoagent.execution.constraints.loader import OntologyConstraintLoader
+
+    loader = OntologyConstraintLoader(registry=ONTOLOGY_CONSTRAINT_REGISTRY)
+    _, rules, _, _ = loader.load_all(constraints_yaml=yaml_path)
     return rules
 
 
@@ -135,6 +114,7 @@ def guard_pipeline(
     propagator = ConstraintPropagator(graph_store)
     return ActionGuardPipeline(
         [
+            WhitelistGuard(set()),  # empty allow_set for tests
             EntityExistsGuard(),
             EntityPropertyGuard(),
             OntologyTraversalGuard(constraint_engine),
@@ -205,16 +185,17 @@ def test_refactor_daily_reconciliation_allowed(executor: ActionExecutor) -> None
     assert result.action_name == "refactor"
     # Positive assertion: guard pipeline ran (wired correctly)
     assert executor._guard_pipeline is not None
-    assert len(executor._guard_pipeline.guards) >= 4, "Expected at least 4 guards in pipeline"
+    assert len(executor._guard_pipeline.guards) >= 5, "Expected at least 5 guards in pipeline"
 
 
 @pytest.mark.integration
 def test_compliance_check_validate_credit_card_allowed(executor: ActionExecutor) -> None:
     """compliance_check on validate_credit_card should ALLOW.
 
-    data_sensitivity_check maps restricted → WARN instead of BLOCK,
-    so the guard pipeline does not block. The check_compliance function
-    may not be registered, but the guard must not block this action.
+    In v3, data_sensitivity_check has been removed from constraints.yaml.
+    compliance_check's guard_configs reference it as a dead constraint,
+    causing ConstraintEngine to return ALLOW (unknown constraint).
+    The guard pipeline must not block this action on sensitivity grounds.
     """
     result = executor.execute("compliance_check", {"target": "validate_credit_card"})
     # Guard pipeline must not block — failure must NOT be from constraint guards
@@ -237,6 +218,7 @@ def test_executor_guard_pipeline_is_wired(executor: ActionExecutor) -> None:
     pipeline = executor._guard_pipeline
     assert pipeline is not None, "Guard pipeline must be wired"
     guard_names = [type(g).__name__ for g in pipeline.guards]
+    assert "WhitelistGuard" in guard_names, f"Missing WhitelistGuard in {guard_names}"
     assert "EntityExistsGuard" in guard_names, f"Missing EntityExistsGuard in {guard_names}"
     assert "EntityPropertyGuard" in guard_names, f"Missing EntityPropertyGuard in {guard_names}"
     assert "OntologyTraversalGuard" in guard_names, f"Missing OntologyTraversalGuard in {guard_names}"
