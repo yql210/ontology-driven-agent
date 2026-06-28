@@ -103,7 +103,7 @@ def test_export_graph_returns_json() -> None:
 
 
 def test_all_tools_count() -> None:
-    """ALL_TOOLS 包含 8 个工具"""
+    """ALL_TOOLS 包含 10 个工具"""
     from ontoagent.agent.tools import ALL_TOOLS
 
-    assert len(ALL_TOOLS) == 9
+    assert len(ALL_TOOLS) == 10

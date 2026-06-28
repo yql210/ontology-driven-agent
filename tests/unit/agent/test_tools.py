@@ -9,8 +9,8 @@ from ontoagent.agent.tools import ALL_TOOLS, graph_query, semantic_search
 
 
 def test_all_tools_defined() -> None:
-    """ALL_TOOLS 长度为 9，包含所有工具"""
-    assert len(ALL_TOOLS) == 9
+    """ALL_TOOLS 长度为 10，包含所有工具"""
+    assert len(ALL_TOOLS) == 10
     tool_names = {t.name for t in ALL_TOOLS}
     expected_tools = {
         "semantic_search",
@@ -22,6 +22,7 @@ def test_all_tools_defined() -> None:
         "detect_changes",
         "export_graph",
         "express_intent",
+        "check_operation",
     }
     assert tool_names == expected_tools
 

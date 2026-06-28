@@ -393,6 +393,83 @@ def express_intent(intent_type: str, target: str, params: dict | None = None) ->
         return json.dumps({"error": f"操作执行失败: {e!s}"}, ensure_ascii=False)
 
 
+@tool
+def check_operation(intent_type: str, target: str) -> str:
+    """预检查操作是否可以通过本体约束。不执行实际操作，只返回约束检查结果。
+
+    在调用 express_intent 之前使用此工具，了解操作是否会被拦截。
+
+    Args:
+        intent_type: 意图类型（如 refactor, compliance_check）
+        target: 目标实体名称
+
+    Returns:
+        JSON 字符串，包含 {pass: bool, checks: [...], block_reason: str|null}
+        每个 check 包含 {guard: str, level: ALLOW|WARN|BLOCK, reason: str}
+    """
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        graph_store = get_neo4j()
+        executor = _get_action_executor(graph_store)
+        pipeline = executor._guard_pipeline
+
+        if pipeline is None:
+            return json.dumps(
+                {"pass": True, "checks": [], "note": "约束管线未启用"},
+                ensure_ascii=False,
+            )
+
+        # Resolve entity
+        entity = executor._resolve_entity(target)
+        if entity is None:
+            return json.dumps(
+                {"pass": False, "checks": [], "block_reason": f"未找到实体 '{target}'"},
+                ensure_ascii=False,
+            )
+
+        # Get action config for this intent type
+        config = executor.intent_map.get(intent_type)
+        if config is None:
+            return json.dumps(
+                {"pass": False, "checks": [], "block_reason": f"未知意图类型: {intent_type}"},
+                ensure_ascii=False,
+            )
+
+        # Run each guard individually and collect results
+        checks = []
+        for guard in pipeline.guards:
+            decision = guard.evaluate(config, entity, graph_store)
+            checks.append({
+                "guard": type(guard).__name__,
+                "level": decision.level.value,
+                "reason": decision.reason,
+            })
+            if decision.level.value == "block":
+                return json.dumps(
+                    {
+                        "pass": False,
+                        "checks": checks,
+                        "block_reason": decision.reason,
+                    },
+                    ensure_ascii=False,
+                )
+
+        return json.dumps(
+            {"pass": True, "checks": checks},
+            ensure_ascii=False,
+        )
+
+    except Exception as e:
+        logger.exception("check_operation failed")
+        return json.dumps(
+            {"pass": False, "checks": [], "block_reason": f"内部错误: {e!s}"},
+            ensure_ascii=False,
+        )
+
+
 _action_executor: ActionExecutor | None = None
 _function_runner: Any | None = None
 
@@ -477,4 +554,5 @@ ALL_TOOLS = [
     detect_changes,
     export_graph,
     express_intent,
+    check_operation,
 ]
