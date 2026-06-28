@@ -33,15 +33,22 @@ class ActionGuard(ABC):
 class ActionGuardPipeline:
     """Guard chain — sequential execution, first BLOCK returns immediately.
 
+    Guards should be ordered cheap-before-expensive:
+    (1) EntityExistsGuard (memory lookup)
+    (2) EntityPropertyGuard (memory lookup)
+    (3) OntologyTraversalGuard (constrained graph query)
+    (4) OntologyPropagationGuard (BFS graph traversal, potentially expensive)
+
     Usage:
         pipeline = ActionGuardPipeline([
             EntityExistsGuard(),
             EntityPropertyGuard(),
             OntologyTraversalGuard(engine),
         ])
-        block_reason = pipeline.check(config, entity, graph_store)
+        block_reason, warnings = pipeline.check(config, entity, graph_store)
         if block_reason:
             return ActionResult(success=False, error=block_reason)
+        # warnings can be surfaced to the user
     """
 
     def __init__(self, guards: list[ActionGuard]) -> None:
@@ -51,15 +58,20 @@ class ActionGuardPipeline:
     def guards(self) -> list[ActionGuard]:
         return self._guards
 
-    def check(self, config: Any, entity: dict, graph_store: Any) -> str | None:
+    def check(self, config: Any, entity: dict, graph_store: Any) -> tuple[str | None, list[str]]:
         """Execute the guard chain.
 
         Returns:
-            None if chain passes, or a str block reason if any guard blocked.
+            Tuple of (block_reason | None, warnings: list[str]).
+            block_reason is None if chain passes, or a str if any guard blocked.
+            warnings accumulates WARN-level reasons from guards.
         """
+        warnings: list[str] = []
         for guard in self._guards:
             decision = guard.evaluate(config, entity, graph_store)
             if decision.level == GuardLevel.BLOCK:
-                return decision.reason
-            # WARN and ALLOW continue to next guard
-        return None
+                return decision.reason, warnings
+            elif decision.level == GuardLevel.WARN:
+                warnings.append(decision.reason)
+            # ALLOW continues to next guard
+        return None, warnings

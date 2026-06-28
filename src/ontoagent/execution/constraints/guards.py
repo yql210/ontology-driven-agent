@@ -32,6 +32,8 @@ class EntityPropertyGuard(ActionGuard):
 
     Supports entity.field op value expressions, e.g. "entity.lines > 100".
     Used for backward compatibility with the legacy string-based submission criteria.
+    Missing properties (None/absent) are treated as BLOCK to avoid fail-open.
+    Supports all comparison operators: >, >=, <, <=, ==, !=.
     """
 
     def evaluate(self, config: Any, entity: dict, graph_store: Any) -> GuardDecision:
@@ -46,17 +48,38 @@ class EntityPropertyGuard(ActionGuard):
                     op = parts[1]
                     value = int(parts[2])
                     actual = entity.get(field)
-                    if actual is not None:
-                        if op == ">" and not (actual > value):
-                            return GuardDecision(
-                                level=GuardLevel.BLOCK,
-                                reason=f"不满足条件: {field}({actual}) <= {value}",
-                            )
-                        if op == ">=" and not (actual >= value):
-                            return GuardDecision(
-                                level=GuardLevel.BLOCK,
-                                reason=f"不满足条件: {field}({actual}) < {value}",
-                            )
+                    if actual is None:
+                        continue  # skip: property not set, not a violation
+                    if op == ">" and not (actual > value):
+                        return GuardDecision(
+                            level=GuardLevel.BLOCK,
+                            reason=f"不满足条件: {field}({actual}) <= {value}",
+                        )
+                    if op == ">=" and not (actual >= value):
+                        return GuardDecision(
+                            level=GuardLevel.BLOCK,
+                            reason=f"不满足条件: {field}({actual}) < {value}",
+                        )
+                    if op == "<" and not (actual < value):
+                        return GuardDecision(
+                            level=GuardLevel.BLOCK,
+                            reason=f"不满足条件: {field}({actual}) >= {value}",
+                        )
+                    if op == "<=" and not (actual <= value):
+                        return GuardDecision(
+                            level=GuardLevel.BLOCK,
+                            reason=f"不满足条件: {field}({actual}) > {value}",
+                        )
+                    if op == "==" and not (actual == value):
+                        return GuardDecision(
+                            level=GuardLevel.BLOCK,
+                            reason=f"不满足条件: {field}({actual}) != {value}",
+                        )
+                    if op == "!=" and not (actual != value):
+                        return GuardDecision(
+                            level=GuardLevel.BLOCK,
+                            reason=f"不满足条件: {field}({actual}) == {value}",
+                        )
                 except (ValueError, TypeError, IndexError):
                     pass
         return GuardDecision(level=GuardLevel.ALLOW, reason="属性条件通过")
@@ -66,6 +89,7 @@ class OntologyTraversalGuard(ActionGuard):
     """Guard that runs TraversalConstraint evaluation via ConstraintEngine.
 
     Configured through ActionConfig.guard_configs entries with type "traversal".
+    Evaluates ALL matching guard_configs and returns the most severe (highest) decision.
     """
 
     def __init__(self, constraint_engine: ConstraintEngine) -> None:
@@ -77,14 +101,21 @@ class OntologyTraversalGuard(ActionGuard):
             return GuardDecision(level=GuardLevel.ALLOW, reason="no entity id")
 
         guard_configs = getattr(config, "guard_configs", None) or []
+        all_decisions: list[GuardDecision] = []
+        priority = {GuardLevel.BLOCK: 3, GuardLevel.WARN: 2, GuardLevel.ALLOW: 1}
+
         for gc in guard_configs:
             if gc.get("type") == "traversal":
                 constraint_name = gc.get("constraint")
                 if constraint_name:
                     decision = self._engine.evaluate(entity_id, constraint_name)
-                    if decision.level != GuardLevel.ALLOW:
-                        return decision
-        return GuardDecision(level=GuardLevel.ALLOW, reason="traversal check passed")
+                    all_decisions.append(decision)
+
+        if not all_decisions:
+            return GuardDecision(level=GuardLevel.ALLOW, reason="traversal check passed")
+
+        # Return the most severe decision
+        return max(all_decisions, key=lambda d: priority.get(d.level, 0))
 
 
 class OntologyPropagationGuard(ActionGuard):
@@ -92,6 +123,9 @@ class OntologyPropagationGuard(ActionGuard):
 
     Configured through ActionConfig.guard_configs entries with type "propagation".
     Rules are provided as a dict of {name: PropagationRule} for lookup.
+
+    Note: graph_store is accepted for ActionGuard interface compliance but not used
+    (the propagator already has its own graph_store reference).
     """
 
     def __init__(

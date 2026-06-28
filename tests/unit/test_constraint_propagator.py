@@ -12,7 +12,7 @@ from ontoagent.execution.constraints.propagator import (
 
 # ---------------------------------------------------------------------------
 # Fixtures
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -201,6 +201,32 @@ def test_propagate_unknown_value_mapped_to_allow(graph_store, propagator):
     assert result.aggregated_level == "allow"
 
 
+def test_propagate_max_depth_zero_self_check_only(graph_store, propagator):
+    """max_depth=0 only checks the starting entity itself — no BFS."""
+    rule = _make_rule(max_depth=0, along=["CALLS"], collect_property="risk_level")
+
+    # Start node has risk_level=P0 → should be block
+    graph_store.get_node.return_value = {"id": "A", "risk_level": "P0"}
+
+    result = propagator.propagate("A", rule)
+    assert result.path_count == 1
+    assert result.aggregated_level == "block"
+    # query() should NOT have been called
+    graph_store.query.assert_not_called()
+
+
+def test_propagate_max_depth_zero_missing_property(graph_store, propagator):
+    """max_depth=0 with missing property on self returns allow."""
+    rule = _make_rule(max_depth=0, along=["CALLS"], collect_property="risk_level")
+
+    graph_store.get_node.return_value = {"id": "A"}  # no risk_level
+
+    result = propagator.propagate("A", rule)
+    assert result.path_count == 0
+    assert result.aggregated_level == "allow"
+    graph_store.query.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Tests: find_entry_points()
 # ---------------------------------------------------------------------------
@@ -208,10 +234,11 @@ def test_propagate_unknown_value_mapped_to_allow(graph_store, propagator):
 
 def test_find_entry_points_returns_nodes_with_entry_category(graph_store, propagator):
     """find_entry_points returns CodeEntity nodes with entryCategory set."""
+    graph_store.get_node.return_value = None  # starting node has no entryCategory
     graph_store.query.side_effect = [
         # First query: find entry points (nodes with entryCategory)
         [{"a": {"id": "E1", "entryCategory": "rest_api", "name": "handle_request"}}],
-        # Second query: continue BFS for non-entry
+        # BFS continuation for non-entry
         [],
     ]
 
@@ -224,18 +251,14 @@ def test_find_entry_points_returns_nodes_with_entry_category(graph_store, propag
 
 def test_find_entry_points_bfs_continues_past_non_entry_nodes(graph_store, propagator):
     """BFS continues past nodes without entryCategory to find deeper entry points."""
+    graph_store.get_node.return_value = None  # starting node has no entryCategory
     call_count = 0
     responses = [
         # Depth 0: A -> no entry points found
-        [],
-        # Depth 0: A -> non-entry neighbor B
         [{"a": {"id": "B"}}],
         # Depth 1: B -> entry point E1
         [{"a": {"id": "E1", "entryCategory": "rest_api"}}],
-        # Depth 1: B -> non-entry neighbors
-        [],
-        # Depth 2: E1 -> (no deeper, loop ends or more)
-        [],
+        # Depth 2: E1 -> (no deeper)
         [],
     ]
 
@@ -254,13 +277,11 @@ def test_find_entry_points_bfs_continues_past_non_entry_nodes(graph_store, propa
 
 def test_find_entry_points_depth_limit(graph_store, propagator):
     """find_entry_points respects max_depth."""
+    graph_store.get_node.return_value = None  # starting node has no entryCategory
     graph_store.query.side_effect = [
-        [],  # entry point query depth 0
         [{"a": {"id": "B"}}],  # non-entry depth 0
-        [],  # entry point query depth 1
         [{"a": {"id": "C"}}],  # non-entry depth 1
         [{"a": {"id": "E2", "entryCategory": "grpc"}}],  # depth 2 → should NOT be queried (max_depth=2)
-        [],
     ]
 
     result = propagator.find_entry_points("A", max_depth=2)
@@ -270,6 +291,7 @@ def test_find_entry_points_depth_limit(graph_store, propagator):
 
 def test_find_entry_points_empty_graph(graph_store, propagator):
     """Empty graph returns empty list."""
+    graph_store.get_node.return_value = None
     graph_store.query.return_value = []
 
     result = propagator.find_entry_points("A", max_depth=5)
@@ -279,11 +301,11 @@ def test_find_entry_points_empty_graph(graph_store, propagator):
 
 def test_find_entry_points_duplicate_visited_not_added(graph_store, propagator):
     """Already-visited nodes are not re-added as entry points."""
+    graph_store.get_node.return_value = None
     call_count = 0
     responses = [
         [{"a": {"id": "E1", "entryCategory": "rest_api"}}],
-        [{"a": {"id": "E1"}}],  # same node as non-entry (should be skipped)
-        [],
+        [{"a": {"id": "E1"}}],  # same node (should be skipped because visited)
     ]
 
     def side_effect(query, params):
@@ -298,3 +320,37 @@ def test_find_entry_points_duplicate_visited_not_added(graph_store, propagator):
     # E1 appears once (first as entry point, second time skipped because visited)
     assert len(result) == 1
     assert result[0]["id"] == "E1"
+
+
+def test_find_entry_points_starting_node_is_entry(graph_store, propagator):
+    """When the starting node itself IS an entry point, it should be included."""
+    graph_store.get_node.return_value = {
+        "id": "A",
+        "entryCategory": "http_api",
+        "name": "main_handler",
+    }
+    graph_store.query.return_value = []  # no further neighbors
+
+    result = propagator.find_entry_points("A", max_depth=5)
+    assert len(result) == 1
+    assert result[0]["id"] == "A"
+    assert result[0]["entryCategory"] == "http_api"
+
+
+def test_find_entry_points_starting_node_is_entry_with_neighbors(graph_store, propagator):
+    """Starting node IS an entry AND has upstream neighbors that are also entries."""
+    graph_store.get_node.return_value = {
+        "id": "A",
+        "entryCategory": "http_api",
+        "name": "handler",
+    }
+    graph_store.query.side_effect = [
+        [{"a": {"id": "B", "entryCategory": "rpc_service", "name": "service_call"}}],
+        [],
+    ]
+
+    result = propagator.find_entry_points("A", max_depth=5)
+    assert len(result) == 2
+    ids = [n["id"] for n in result]
+    assert "A" in ids  # starting node
+    assert "B" in ids  # upstream neighbor

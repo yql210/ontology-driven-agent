@@ -102,9 +102,10 @@ def test_action_executor_singleton() -> None:
         result2 = tools_mod._get_action_executor(mock_store)
 
         assert result1 is result2
-        mock_executor_cls.assert_called_once_with(
-            mock_store, function_runner=mock_executor_cls.call_args[1]["function_runner"]
-        )
+        assert mock_executor_cls.call_count == 1
+        call_kwargs = mock_executor_cls.call_args[1]
+        assert "function_runner" in call_kwargs
+        assert "guard_pipeline" in call_kwargs
 
     # Cleanup
     tools_mod._action_executor = None

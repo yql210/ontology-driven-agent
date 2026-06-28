@@ -53,7 +53,7 @@ actions:
       - "entity exists"
     guard_configs:
       - type: traversal
-        constraint: compliance_chain
+        constraint: data_sensitivity_check
     functions:
       - check_compliance
     requires_approval: false

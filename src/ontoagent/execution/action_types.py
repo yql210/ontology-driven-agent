@@ -40,6 +40,7 @@ class ActionResult:
     results: list[FunctionResult] = field(default_factory=list)
     summary: str = ""
     error: str | None = None
+    warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -48,6 +49,7 @@ class ActionResult:
             "results": [{"success": r.success, "data": r.data, "error": r.error} for r in self.results],
             "summary": self.summary,
             "error": self.error,
+            "warnings": self.warnings,
         }
 
 

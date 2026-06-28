@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ontoagent.domain.schema import GuardLevel, TraversalConstraint
+from ontoagent.domain.constraints import GuardLevel, TraversalConstraint
 from ontoagent.execution.action_executor import ActionExecutor
 from ontoagent.execution.constraints import (
     ActionGuardPipeline,
@@ -178,6 +178,9 @@ def test_refactor_validate_credit_card_blocked(executor: ActionExecutor) -> None
     assert "block" in (result.error or "").lower() or "sensitivity" in (result.error or "").lower(), (
         f"Expected block error, got: {result.error}"
     )
+    # Positive assertion: guard pipeline was wired and ran
+    assert hasattr(executor, "_guard_pipeline"), "guard_pipeline not wired to executor"
+    assert executor._guard_pipeline is not None, "guard_pipeline is None"
 
 
 @pytest.mark.integration
@@ -200,13 +203,16 @@ def test_refactor_daily_reconciliation_allowed(executor: ActionExecutor) -> None
             f"Expected constraint to allow, but got: {result.error}"
         )
     assert result.action_name == "refactor"
+    # Positive assertion: guard pipeline ran (wired correctly)
+    assert executor._guard_pipeline is not None
+    assert len(executor._guard_pipeline.guards) >= 4, "Expected at least 4 guards in pipeline"
 
 
 @pytest.mark.integration
 def test_compliance_check_validate_credit_card_allowed(executor: ActionExecutor) -> None:
     """compliance_check on validate_credit_card should ALLOW.
 
-    compliance_chain maps restricted → WARN instead of BLOCK,
+    data_sensitivity_check maps restricted → WARN instead of BLOCK,
     so the guard pipeline does not block. The check_compliance function
     may not be registered, but the guard must not block this action.
     """
@@ -221,3 +227,17 @@ def test_compliance_check_validate_credit_card_allowed(executor: ActionExecutor)
             f"Expected constraint to allow, but got restricted block: {result.error}"
         )
     assert result.action_name == "compliance_check"
+    # Positive assertion: guard pipeline is wired
+    assert executor._guard_pipeline is not None
+
+
+@pytest.mark.integration
+def test_executor_guard_pipeline_is_wired(executor: ActionExecutor) -> None:
+    """Verify that the executor has a fully wired guard pipeline."""
+    pipeline = executor._guard_pipeline
+    assert pipeline is not None, "Guard pipeline must be wired"
+    guard_names = [type(g).__name__ for g in pipeline.guards]
+    assert "EntityExistsGuard" in guard_names, f"Missing EntityExistsGuard in {guard_names}"
+    assert "EntityPropertyGuard" in guard_names, f"Missing EntityPropertyGuard in {guard_names}"
+    assert "OntologyTraversalGuard" in guard_names, f"Missing OntologyTraversalGuard in {guard_names}"
+    assert "OntologyPropagationGuard" in guard_names, f"Missing OntologyPropagationGuard in {guard_names}"

@@ -76,33 +76,34 @@ class TestActionGuardPipeline:
     def test_pipeline_with_no_guards_passes(self, refactor_config, valid_entity, graph_store):
         """Pipeline with no guards should always return None (pass)."""
         pipeline = ActionGuardPipeline([])
-        result = pipeline.check(refactor_config, valid_entity, graph_store)
-        assert result is None
+        block_reason, warnings = pipeline.check(refactor_config, valid_entity, graph_store)
+        assert block_reason is None
+        assert warnings == []
 
     def test_pipeline_with_entity_exists_blocks_on_missing(self, refactor_config, empty_entity, graph_store):
         """EntityExistsGuard blocks when entity has no id."""
         pipeline = ActionGuardPipeline([EntityExistsGuard()])
-        result = pipeline.check(refactor_config, empty_entity, graph_store)
-        assert result == "目标实体不存在"
+        block_reason, warnings = pipeline.check(refactor_config, empty_entity, graph_store)
+        assert block_reason == "目标实体不存在"
 
     def test_pipeline_with_entity_exists_passes_on_valid(self, refactor_config, valid_entity, graph_store):
         """EntityExistsGuard allows when entity has an id."""
         pipeline = ActionGuardPipeline([EntityExistsGuard()])
-        result = pipeline.check(refactor_config, valid_entity, graph_store)
-        assert result is None
+        block_reason, warnings = pipeline.check(refactor_config, valid_entity, graph_store)
+        assert block_reason is None
 
     def test_pipeline_entity_property_blocks_on_lines_too_low(self, refactor_config, small_entity, graph_store):
         """EntityPropertyGuard blocks when lines <= 100."""
         pipeline = ActionGuardPipeline([EntityPropertyGuard()])
-        result = pipeline.check(refactor_config, small_entity, graph_store)
-        assert result is not None
-        assert "不满足条件" in result
+        block_reason, warnings = pipeline.check(refactor_config, small_entity, graph_store)
+        assert block_reason is not None
+        assert "不满足条件" in block_reason
 
     def test_pipeline_entity_property_passes_on_large_entity(self, refactor_config, valid_entity, graph_store):
         """EntityPropertyGuard allows when lines > 100."""
         pipeline = ActionGuardPipeline([EntityPropertyGuard()])
-        result = pipeline.check(refactor_config, valid_entity, graph_store)
-        assert result is None
+        block_reason, warnings = pipeline.check(refactor_config, valid_entity, graph_store)
+        assert block_reason is None
 
     def test_pipeline_stops_at_first_block(self, refactor_config, small_entity, graph_store):
         """Pipeline returns the first BLOCK decision and does not evaluate further guards."""
@@ -122,9 +123,9 @@ class TestActionGuardPipeline:
         third = RecordingGuard("third", GuardDecision(level=GuardLevel.BLOCK, reason="blocked by third"))
 
         pipeline = ActionGuardPipeline([first, second, third])
-        result = pipeline.check(refactor_config, small_entity, graph_store)
+        block_reason, warnings = pipeline.check(refactor_config, small_entity, graph_store)
 
-        assert result == "blocked by first"
+        assert block_reason == "blocked by first"
         assert first.evaluated is True
         assert second.evaluated is False
         assert third.evaluated is False
@@ -147,9 +148,10 @@ class TestActionGuardPipeline:
         third = RecordingGuard("third", GuardDecision(level=GuardLevel.ALLOW, reason="allow2"))
 
         pipeline = ActionGuardPipeline([first, second, third])
-        result = pipeline.check(refactor_config, valid_entity, graph_store)
+        block_reason, warnings = pipeline.check(refactor_config, valid_entity, graph_store)
 
-        assert result is None
+        assert block_reason is None
+        assert warnings == ["warn"]
         assert first.evaluated is True
         assert second.evaluated is True
         assert third.evaluated is True

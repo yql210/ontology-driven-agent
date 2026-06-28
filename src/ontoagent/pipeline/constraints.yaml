@@ -12,8 +12,8 @@ traversal_constraints:
       public: "allow"
     aggregation: "max"
 
-  compliance_chain:
-    name: compliance_chain
+  data_sensitivity_check:
+    name: data_sensitivity_check
     source_label: "CodeEntity"
     relation_chain: ["PROCESSES_DATA"]
     target_label: "DataAsset"
@@ -31,6 +31,11 @@ propagation_rules:
     along: ["CALLS"]
     direction: "backward"
     max_depth: 5
-    collect_property: "name"
-    value_mapping: {}
+    collect_property: "entryCategory"
+    value_mapping:
+      http_api: "warn"
+      rpc_service: "warn"
+      scheduled: "allow"
+      mq_consumer: "allow"
+      event_handler: "allow"
     aggregation: "exists"

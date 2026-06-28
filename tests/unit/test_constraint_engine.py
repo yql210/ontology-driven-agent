@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ontoagent.domain.schema import GuardDecision, GuardLevel, TraversalConstraint
+from ontoagent.domain.constraints import GuardDecision, GuardLevel, TraversalConstraint
 from ontoagent.execution.constraints.engine import ConstraintEngine
 
 
@@ -41,20 +41,16 @@ class TestConstraintEngine:
         target_id = "data-1"
 
         # Setup: entity exists
-        mock_graph_store.get_node.side_effect = lambda nid: (
-            {"id": entity_id, "name": "MyFunction"}
-            if nid == entity_id
-            else {"id": target_id, "name": "CustomerDB", "sensitivity": "high"}
-        )
+        mock_graph_store.get_node.return_value = {"id": entity_id, "name": "MyFunction"}
 
-        # Setup: traversal returns a target
+        # Setup: traversal returns a target with id and val
         mock_graph_store.query.return_value = [{"id": target_id, "val": "high"}]
 
         result = engine.evaluate(entity_id, constraint_name="data_sensitivity")
 
         assert isinstance(result, GuardDecision)
         assert result.level == GuardLevel.BLOCK
-        assert "CustomerDB.sensitivity=high → block" in result.reason
+        assert "data-1.sensitivity=high → block" in result.reason
 
     def test_evaluate_with_unknown_constraint_returns_allow(self, engine, mock_graph_store):
         """未知约束应返回 ALLOW。"""
@@ -90,18 +86,7 @@ class TestConstraintEngine:
         """value_mapping 应正确映射 sensitivity 值。"""
         entity_id = "entity-1"
 
-        def get_node_side_effect(nid):
-            if nid == entity_id:
-                return {"id": entity_id, "name": "Processor"}
-            if nid == "data-high":
-                return {"id": "data-high", "name": "CustomerDB", "sensitivity": "high"}
-            if nid == "data-medium":
-                return {"id": "data-medium", "name": "LogDB", "sensitivity": "medium"}
-            if nid == "data-low":
-                return {"id": "data-low", "name": "CacheDB", "sensitivity": "low"}
-            return None
-
-        mock_graph_store.get_node.side_effect = get_node_side_effect
+        mock_graph_store.get_node.return_value = {"id": entity_id, "name": "Processor"}
         mock_graph_store.query.return_value = [
             {"id": "data-high", "val": "high"},
             {"id": "data-medium", "val": "medium"},
@@ -112,24 +97,15 @@ class TestConstraintEngine:
 
         # With max aggregation, high should win
         assert result.level == GuardLevel.BLOCK
-        assert "CustomerDB" in result.reason
-        assert "LogDB" in result.reason
-        assert "CacheDB" in result.reason
+        assert "data-high" in result.reason
+        assert "data-medium" in result.reason
+        assert "data-low" in result.reason
 
     def test_aggregation_max_prioritizes_block_over_warn(self, engine, mock_graph_store):
         """max 聚合时 BLOCK 优先于 WARN。"""
         entity_id = "entity-1"
 
-        def get_node_side_effect(nid):
-            if nid == entity_id:
-                return {"id": entity_id, "name": "Proc"}
-            if nid == "a":
-                return {"id": "a", "name": "AssetA", "sensitivity": "medium"}
-            if nid == "b":
-                return {"id": "b", "name": "AssetB", "sensitivity": "low"}
-            return None
-
-        mock_graph_store.get_node.side_effect = get_node_side_effect
+        mock_graph_store.get_node.return_value = {"id": entity_id, "name": "Proc"}
         mock_graph_store.query.return_value = [
             {"id": "a", "val": "medium"},
             {"id": "b", "val": "low"},
@@ -153,16 +129,7 @@ class TestConstraintEngine:
         engine = ConstraintEngine(mock_graph_store, [constraint])
         entity_id = "entity-1"
 
-        def get_node_side_effect(nid):
-            if nid == entity_id:
-                return {"id": entity_id, "name": "Proc"}
-            if nid == "a":
-                return {"id": "a", "name": "A", "sensitivity": "low"}
-            if nid == "b":
-                return {"id": "b", "name": "B", "sensitivity": "medium"}
-            return None
-
-        mock_graph_store.get_node.side_effect = get_node_side_effect
+        mock_graph_store.get_node.return_value = {"id": entity_id, "name": "Proc"}
         mock_graph_store.query.return_value = [
             {"id": "a", "val": "low"},
             {"id": "b", "val": "medium"},
@@ -186,14 +153,7 @@ class TestConstraintEngine:
         engine = ConstraintEngine(mock_graph_store, [constraint])
         entity_id = "entity-1"
 
-        def get_node_side_effect(nid):
-            if nid == entity_id:
-                return {"id": entity_id, "name": "Proc"}
-            if nid == "a":
-                return {"id": "a", "name": "A", "sensitivity": "low"}
-            return None
-
-        mock_graph_store.get_node.side_effect = get_node_side_effect
+        mock_graph_store.get_node.return_value = {"id": entity_id, "name": "Proc"}
         mock_graph_store.query.return_value = [{"id": "a", "val": "low"}]
 
         result = engine.evaluate(entity_id, constraint_name="data_sensitivity")
@@ -227,7 +187,7 @@ class TestConstraintEngine:
             value_mapping={},
             aggregation="max",
         )
-        # Unknown relation types in RELATION_CONSTRAINTS are silently allowed
+        # Unknown relation types not in RELATION_CONSTRAINTS are silently allowed
         engine = ConstraintEngine(mock_graph_store, [constraint])
         assert engine is not None
 
@@ -246,17 +206,9 @@ class TestConstraintEngine:
 
         entity_id = "entity-1"
 
-        def get_node_side_effect(nid):
-            nodes = {
-                "entity-1": {"id": "entity-1", "name": "MyService"},
-                "svc-1": {"id": "svc-1", "name": "ServiceA"},
-                "comp-1": {"id": "comp-1", "name": "SOX", "level": "critical"},
-            }
-            return nodes.get(nid)
+        mock_graph_store.get_node.return_value = {"id": entity_id, "name": "MyService"}
 
-        mock_graph_store.get_node.side_effect = get_node_side_effect
-
-        # First hop: RUNS_AS -> ServiceEntity
+        # First hop: RUNS_AS -> ServiceEntity, second hop: GOVERNED_BY -> ComplianceItem
         def query_side_effect(query, params):
             if "RUNS_AS" in query:
                 return [{"id": "svc-1", "val": "critical"}]
@@ -276,14 +228,64 @@ class TestConstraintEngine:
         entity_id = "entity-1"
         target_id = "data-1"
 
-        mock_graph_store.get_node.side_effect = lambda nid: (
-            {"id": entity_id, "name": "Func"}
-            if nid == entity_id
-            else {"id": target_id, "name": "DB"}  # No sensitivity property
-        )
+        mock_graph_store.get_node.return_value = {"id": entity_id, "name": "Func"}
         mock_graph_store.query.return_value = [{"id": target_id, "val": None}]
 
         result = engine.evaluate(entity_id, constraint_name="data_sensitivity")
 
         assert result.level == GuardLevel.ALLOW
         assert "No sensitivity found" in result.reason
+
+
+def test_aggregation_min_strategy():
+    """'min' aggregation picks the least severe level."""
+    store = MagicMock()
+    store.get_node.return_value = {"id": "entity-1", "name": "Test"}
+    store.query.return_value = [
+        {"id": "a", "val": "high"},
+        {"id": "b", "val": "low"},
+    ]
+    constraint = TraversalConstraint(
+        name="test",
+        source_label="CodeEntity",
+        relation_chain=["PROCESSES_DATA"],
+        target_label="DataAsset",
+        collect_property="sensitivity",
+        value_mapping={"high": GuardLevel.BLOCK, "medium": GuardLevel.WARN, "low": GuardLevel.ALLOW},
+        aggregation="min",
+    )
+    engine = ConstraintEngine(store, [constraint])
+    result = engine.evaluate("entity-1", constraint_name="test")
+    assert result.level == GuardLevel.ALLOW
+
+
+def test_invalid_relation_type_raises_on_init():
+    """Relation type that doesn't match allowlist should raise ValueError."""
+    store = MagicMock()
+    constraint = TraversalConstraint(
+        name="bad",
+        source_label="CodeEntity",
+        relation_chain=["DROP TABLE"],  # spaces not allowed
+        target_label="CodeEntity",
+        collect_property="lines",
+        value_mapping={},
+        aggregation="max",
+    )
+    with pytest.raises(ValueError, match="Invalid relation type"):
+        ConstraintEngine(store, [constraint])
+
+
+def test_invalid_collect_property_raises_on_init():
+    """Collect property with invalid chars should raise ValueError."""
+    store = MagicMock()
+    constraint = TraversalConstraint(
+        name="bad",
+        source_label="CodeEntity",
+        relation_chain=["CALLS"],
+        target_label="CodeEntity",
+        collect_property="1bad; DROP",  # starts with digit, contains semicolon
+        value_mapping={},
+        aggregation="max",
+    )
+    with pytest.raises(ValueError, match="Invalid collect_property"):
+        ConstraintEngine(store, [constraint])

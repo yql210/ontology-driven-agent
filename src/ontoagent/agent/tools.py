@@ -408,12 +408,87 @@ def _get_function_runner() -> Any:
 
 
 def _get_action_executor(graph_store: object) -> ActionExecutor:
-    """获取或初始化 ActionExecutor 单例。"""
+    """获取或初始化 ActionExecutor 单例。
+
+    Wires the full guard pipeline with traversal and propagation constraints
+    loaded from src/ontoagent/pipeline/constraints.yaml.
+    """
     global _action_executor
     if _action_executor is None:
-        from ontoagent.execution.action_executor import ActionExecutor
+        from pathlib import Path
 
-        _action_executor = ActionExecutor(graph_store, function_runner=_get_function_runner())
+        import yaml
+
+        from ontoagent.domain.constraints import GuardLevel, TraversalConstraint
+        from ontoagent.execution.action_executor import ActionExecutor
+        from ontoagent.execution.constraints import (
+            ActionGuardPipeline,
+            ConstraintEngine,
+            ConstraintPropagator,
+            EntityExistsGuard,
+            EntityPropertyGuard,
+            OntologyPropagationGuard,
+            OntologyTraversalGuard,
+            PropagationRule,
+        )
+
+        constraints_yaml = (
+            Path(__file__).parent.parent / "pipeline" / "constraints.yaml"
+        )
+
+        # Load traversal constraints
+        traversal_constraints: list[TraversalConstraint] = []
+        propagation_rules: dict[str, PropagationRule] = {}
+
+        if constraints_yaml.exists():
+            with open(constraints_yaml) as f:
+                data = yaml.safe_load(f) or {}
+
+            for name, cfg in data.get("traversal_constraints", {}).items():
+                raw_mapping: dict[str, str] = cfg.get("value_mapping", {})
+                value_mapping: dict[str, GuardLevel] = {
+                    k: GuardLevel(v) for k, v in raw_mapping.items()
+                }
+                traversal_constraints.append(
+                    TraversalConstraint(
+                        name=cfg.get("name", name),
+                        source_label=cfg.get("source_label", ""),
+                        relation_chain=cfg.get("relation_chain", []),
+                        target_label=cfg.get("target_label", ""),
+                        collect_property=cfg.get("collect_property", ""),
+                        value_mapping=value_mapping,
+                        aggregation=cfg.get("aggregation", "max"),
+                    )
+                )
+
+            for name, cfg in data.get("propagation_rules", {}).items():
+                propagation_rules[name] = PropagationRule(
+                    name=cfg.get("name", name),
+                    along=cfg.get("along", []),
+                    direction=cfg.get("direction", "forward"),
+                    max_depth=cfg.get("max_depth", 5),
+                    collect_property=cfg.get("collect_property", ""),
+                    value_mapping=cfg.get("value_mapping", {}),
+                    aggregation=cfg.get("aggregation", "max"),
+                )
+
+        # Build constraint engine and guard pipeline
+        engine = ConstraintEngine(graph_store, traversal_constraints)
+        propagator = ConstraintPropagator(graph_store)
+        guard_pipeline = ActionGuardPipeline(
+            [
+                EntityExistsGuard(),
+                EntityPropertyGuard(),
+                OntologyTraversalGuard(engine),
+                OntologyPropagationGuard(propagator, rules=propagation_rules),
+            ]
+        )
+
+        _action_executor = ActionExecutor(
+            graph_store,
+            function_runner=_get_function_runner(),
+            guard_pipeline=guard_pipeline,
+        )
     return _action_executor
 
 

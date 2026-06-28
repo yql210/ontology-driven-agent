@@ -9,7 +9,7 @@ from ontoagent.agent.tools import ALL_TOOLS, graph_query, semantic_search
 
 
 def test_all_tools_defined() -> None:
-    """ALL_TOOLS 长度为 8，包含所有工具"""
+    """ALL_TOOLS 长度为 9，包含所有工具"""
     assert len(ALL_TOOLS) == 9
     tool_names = {t.name for t in ALL_TOOLS}
     expected_tools = {
@@ -89,3 +89,64 @@ def test_semantic_search_default_top_k() -> None:
 
         # 验证使用默认值 5
         mock_chroma.search.assert_called_once_with(query_text="test", n_results=5)
+
+
+def test_get_action_executor_has_guard_pipeline() -> None:
+    """Verify that _get_action_executor wires a guard_pipeline to ActionExecutor."""
+    from ontoagent.agent.tools import _get_action_executor
+
+    # Reset the global singleton to force re-initialization
+    import ontoagent.agent.tools as tools_module
+
+    tools_module._action_executor = None
+    tools_module._function_runner = None
+
+    mock_graph_store = MagicMock()
+
+    # Mock the constraints.yaml to exist with valid content
+    mock_constraints_data = {
+        "traversal_constraints": {
+            "data_sensitivity": {
+                "name": "data_sensitivity",
+                "source_label": "CodeEntity",
+                "relation_chain": ["PROCESSES_DATA"],
+                "target_label": "DataAsset",
+                "collect_property": "sensitivity",
+                "value_mapping": {"restricted": "block", "confidential": "warn", "internal": "allow", "public": "allow"},
+                "aggregation": "max",
+            }
+        },
+        "propagation_rules": {
+            "upstream_risk": {
+                "name": "upstream_risk",
+                "along": ["CALLS"],
+                "direction": "backward",
+                "max_depth": 5,
+                "collect_property": "entryCategory",
+                "value_mapping": {"http_api": "warn"},
+                "aggregation": "exists",
+            }
+        },
+    }
+
+    with patch("builtins.open", create=True) as mock_open:
+        mock_open.return_value.__enter__.return_value.read.return_value = json.dumps(mock_constraints_data)
+        mock_open.return_value.__enter__.return_value.__iter__.return_value = json.dumps(mock_constraints_data).splitlines()
+
+        from pathlib import Path
+        from unittest.mock import mock_open as mock_open_func
+
+        import yaml
+
+        # Use a YAML mock path - create a temp approach
+        with patch.object(Path, "exists", return_value=True):
+            with patch("yaml.safe_load", return_value=mock_constraints_data):
+                executor = _get_action_executor(mock_graph_store)
+
+    # Verify guard pipeline is wired
+    assert executor._guard_pipeline is not None, "guard_pipeline should be wired to ActionExecutor"
+    guard_names = [type(g).__name__ for g in executor._guard_pipeline.guards]
+    assert "EntityExistsGuard" in guard_names, f"Expected EntityExistsGuard in {guard_names}"
+    assert "EntityPropertyGuard" in guard_names, f"Expected EntityPropertyGuard in {guard_names}"
+    assert "OntologyTraversalGuard" in guard_names, f"Expected OntologyTraversalGuard in {guard_names}"
+    assert "OntologyPropagationGuard" in guard_names, f"Expected OntologyPropagationGuard in {guard_names}"

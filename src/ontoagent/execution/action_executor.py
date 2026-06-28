@@ -7,6 +7,7 @@ from typing import Any
 
 from ontoagent.execution.action_types import ActionConfig, ActionContext, ActionResult, FunctionResult
 from ontoagent.execution.constraints.guard_pipeline import ActionGuardPipeline
+from ontoagent.execution.constraints.guards import EntityExistsGuard, EntityPropertyGuard
 from ontoagent.execution.intent_router import build_intent_map
 
 
@@ -50,16 +51,18 @@ class ActionExecutor:
                 error=f"未找到实体 '{target}'",
             )
 
-        # 3. Guard pipeline check — uses pluggable guards if available, else legacy criteria
-        if self._guard_pipeline is not None:
-            guard_error = self._guard_pipeline.check(config, entity, self._graph_store)
-        else:
-            guard_error = self._check_criteria(config, entity)
-        if guard_error:
+        # 3. Guard pipeline check — uses pluggable guards if available, else auto-pipeline
+        pipeline = self._guard_pipeline
+        if pipeline is None:
+            pipeline = ActionGuardPipeline([EntityExistsGuard(), EntityPropertyGuard()])
+
+        block_reason, warnings = pipeline.check(config, entity, self._graph_store)
+        if block_reason:
             return ActionResult(
                 success=False,
                 action_name=config.name,
-                error=guard_error,
+                error=block_reason,
+                warnings=warnings,
             )
 
         # 4. Build ActionContext
@@ -98,34 +101,14 @@ class ActionExecutor:
         cypher = (
             "MATCH (n {name: $name}) RETURN n.id AS id, n.name AS name, "
             "n.lines AS lines, n.branches AS branches, n.entityType AS entityType, "
-            "labels(n) AS labels LIMIT 1"
+            "labels(n) AS labels ORDER BY n.filePath, n.id LIMIT 1"
         )
         records = self._graph_store.query(cypher, {"name": target})
         if not records:
             cypher = (
                 "MATCH (n) WHERE n.name CONTAINS $name RETURN n.id AS id, n.name AS name, "
                 "n.lines AS lines, n.branches AS branches, n.entityType AS entityType, "
-                "labels(n) AS labels LIMIT 1"
+                "labels(n) AS labels ORDER BY n.filePath, n.id LIMIT 1"
             )
             records = self._graph_store.query(cypher, {"name": target})
         return records[0] if records else None
-
-    def _check_criteria(self, config: ActionConfig, entity: dict) -> str | None:
-        """Check submission criteria. Returns None if passed, else error message."""
-        for criterion in config.submission_criteria:
-            if criterion == "entity exists":
-                if not entity:
-                    return "目标实体不存在"
-            elif criterion.startswith("entity."):
-                field_expr = criterion[7:]  # strip "entity."
-                try:
-                    field, op, value = field_expr.split()
-                    actual = entity.get(field)
-                    if actual is not None:
-                        if op == ">" and not (actual > int(value)):
-                            return f"不满足条件: {field}({actual}) <= {value}"
-                        if op == ">=" and not (actual >= int(value)):
-                            return f"不满足条件: {field}({actual}) < {value}"
-                except (ValueError, TypeError):
-                    pass
-        return None

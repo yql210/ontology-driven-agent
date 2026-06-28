@@ -1,28 +1,80 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING
 
-from ontoagent.domain.schema import RELATION_CONSTRAINTS, GuardDecision, GuardLevel, TraversalConstraint
+from ontoagent.domain.schema import (
+    RELATION_CONSTRAINTS,
+    GuardDecision,
+    GuardLevel,
+    TraversalConstraint,
+    validate_relation_constraint,
+)
 
 if TYPE_CHECKING:
     from ontoagent.store.graph_store import GraphStore
 
 logger = logging.getLogger(__name__)
 
+_VALID_REL_TYPE_RE = re.compile(r"^[A-Za-z_]+$")
+_VALID_PROPERTY_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _validate_collect_property(collect_property: str) -> None:
+    """Validate that collect_property passes an identifier allowlist to prevent Cypher injection."""
+    if not _VALID_PROPERTY_RE.match(collect_property):
+        raise ValueError(f"Invalid collect_property: {collect_property!r} — must match {_VALID_PROPERTY_RE.pattern}")
+
+
+def _validate_rel_domain(rel_type_snake: str, expected_domain: str) -> None:
+    """Validate that the relation's domain includes expected_domain."""
+    from ontoagent.domain.exceptions import ConstraintViolationError
+
+    rc = RELATION_CONSTRAINTS[rel_type_snake]
+    domain = rc.domain
+    allowed = {domain} if isinstance(domain, str) else domain
+    if expected_domain not in allowed:
+        raise ConstraintViolationError(
+            f"关系 '{rel_type_snake}' 的源实体必须是 {allowed}，实际为 '{expected_domain}'"
+        )
+
+
+def _validate_rel_range(rel_type_snake: str, expected_range: str) -> None:
+    """Validate that the relation's range includes expected_range."""
+    from ontoagent.domain.exceptions import ConstraintViolationError
+
+    rc = RELATION_CONSTRAINTS[rel_type_snake]
+    range_val = rc.range
+    allowed = {range_val} if isinstance(range_val, str) else range_val
+    if expected_range not in allowed:
+        raise ConstraintViolationError(
+            f"关系 '{rel_type_snake}' 的目标实体必须是 {allowed}，实际为 '{expected_range}'"
+        )
+
 
 class ConstraintEngine:
     """执行遍历约束检查。加载时校验 relation_chain 合法性。"""
 
     def __init__(self, graph_store: GraphStore, constraints: list[TraversalConstraint]) -> None:
-        # 加载时逐跳校验每个 constraint 的 relation_chain
         for c in constraints:
-            for rel_type in c.relation_chain:
-                # 校验关系类型是否已注册（未知类型静默放行，向后兼容）
+            _validate_collect_property(c.collect_property)
+            chain_len = len(c.relation_chain)
+            for i, rel_type in enumerate(c.relation_chain):
+                if not _VALID_REL_TYPE_RE.match(rel_type):
+                    raise ValueError(f"Invalid relation type: {rel_type!r} — must match {_VALID_REL_TYPE_RE.pattern}")
                 rel_snake = rel_type.lower()
                 if rel_snake in RELATION_CONSTRAINTS:
-                    # 关系类型已注册；完整 domain/range 校验需要 intermediate label 信息，暂不实现
-                    pass
+                    # Validate domain for first hop, range for last hop
+                    if chain_len == 1:
+                        validate_relation_constraint(rel_snake, c.source_label, c.target_label)
+                    elif i == 0:
+                        # First hop: only validate domain
+                        _validate_rel_domain(rel_snake, c.source_label)
+                    elif i == chain_len - 1:
+                        # Last hop: only validate range
+                        _validate_rel_range(rel_snake, c.target_label)
+                    # Intermediate hops: skip domain/range validation (unknown intermediate labels)
 
         self._graph_store = graph_store
         self._constraints = {c.name: c for c in constraints}
@@ -52,19 +104,19 @@ class ConstraintEngine:
         # 3. Map properties to decisions and aggregate
         return self._aggregate(results, constraint)
 
-    def _traverse(self, start_id: str, constraint: TraversalConstraint) -> list[dict]:
-        """沿关系链遍历，返回目标实体的属性列表。
+    def _traverse(self, start_id: str, constraint: TraversalConstraint) -> list[tuple[str, object]]:
+        """沿关系链遍历，返回 (id, collect_property_value) 元组列表。
 
         Args:
             start_id: 起始实体 ID。
             constraint: 遍历约束。
 
         Returns:
-            目标实体属性字典列表。
+            (target_id, property_value) 元组列表，可以直接传给 _aggregate。
         """
         current_ids = [start_id]
         for i, rel_type in enumerate(constraint.relation_chain):
-            next_ids: list[str] = []
+            next_pairs: list[tuple[str, object]] = []
             is_final = i == len(constraint.relation_chain) - 1
             target_filter = f":{constraint.target_label}" if is_final else ""
 
@@ -77,32 +129,27 @@ class ConstraintEngine:
                 try:
                     rows = self._graph_store.query(query, {"id": nid})
                     for row in rows:
-                        if row.get("id"):
-                            next_ids.append(row["id"])
+                        nid_out = row.get("id")
+                        if nid_out:
+                            next_pairs.append((nid_out, row.get("val")))
                 except Exception:
-                    logger.debug("Traversal query failed for node %s, rel %s", nid, rel_type, exc_info=True)
+                    logger.warning("Traversal query failed for node %s, rel %s", nid, rel_type, exc_info=True)
 
-            current_ids = next_ids
+            current_ids = [nid for nid, _ in next_pairs]
             if not current_ids:
                 break
 
-        # Collect properties on final targets
-        results: list[dict] = []
-        for nid in current_ids:
-            node = self._graph_store.get_node(nid)
-            if node:
-                results.append(node)
-        return results
+        return next_pairs
 
-    def _aggregate(self, results: list[dict], constraint: TraversalConstraint) -> GuardDecision:
+    def _aggregate(self, results: list[tuple[str, object]], constraint: TraversalConstraint) -> GuardDecision:
         """聚合多个目标实体的约束级别。
 
         Args:
-            results: 目标实体属性字典列表。
+            results: (target_id, property_value) 元组列表。
             constraint: 遍历约束。
 
         Returns:
-            GuardDecision 聚合后的决策。
+            GuardDecision 聚合后的决策，details 中包含 collected_values。
         """
         if not results:
             return GuardDecision(
@@ -112,13 +159,15 @@ class ConstraintEngine:
 
         levels: list[GuardLevel] = []
         reasons: list[str] = []
-        for node in results:
-            val = node.get(constraint.collect_property)
+        collected_values: list[str] = []
+        for nid, val in results:
             if val is None:
                 continue
-            level = constraint.value_mapping.get(str(val), GuardLevel.ALLOW)
+            val_str = str(val)
+            level = constraint.value_mapping.get(val_str, GuardLevel.ALLOW)
             levels.append(level)
-            reasons.append(f"{node.get('name', 'unknown')}.{constraint.collect_property}={val} → {level.value}")
+            reasons.append(f"{nid}.{constraint.collect_property}={val_str} → {level.value}")
+            collected_values.append(val_str)
 
         if not levels:
             return GuardDecision(
@@ -126,16 +175,33 @@ class ConstraintEngine:
                 reason=f"No {constraint.collect_property} found",
             )
 
+        # block > warn > allow
+        priority = {GuardLevel.BLOCK: 3, GuardLevel.WARN: 2, GuardLevel.ALLOW: 1}
+
         if constraint.aggregation == "max":
-            # block > warn > allow
-            priority = {GuardLevel.BLOCK: 3, GuardLevel.WARN: 2, GuardLevel.ALLOW: 1}
             max_level = max(levels, key=lambda level_val: priority.get(level_val, 0))
-            return GuardDecision(level=max_level, reason="; ".join(reasons))
+            return GuardDecision(
+                level=max_level,
+                reason="; ".join(reasons),
+                details={"collected_values": collected_values},
+            )
+        elif constraint.aggregation == "min":
+            min_level = min(levels, key=lambda level_val: priority.get(level_val, 3))
+            return GuardDecision(
+                level=min_level,
+                reason="; ".join(reasons),
+                details={"collected_values": collected_values},
+            )
         elif constraint.aggregation == "exists":
             has_issue = any(level_val != GuardLevel.ALLOW for level_val in levels)
             return GuardDecision(
                 level=GuardLevel.WARN if has_issue else GuardLevel.ALLOW,
                 reason="; ".join(reasons),
+                details={"collected_values": collected_values},
             )
 
-        return GuardDecision(level=GuardLevel.ALLOW, reason="; ".join(reasons))
+        return GuardDecision(
+            level=GuardLevel.ALLOW,
+            reason="; ".join(reasons),
+            details={"collected_values": collected_values},
+        )
