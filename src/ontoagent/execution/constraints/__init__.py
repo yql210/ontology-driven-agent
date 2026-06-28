@@ -1,5 +1,6 @@
 # ontoagent.execution.constraints — constraint evaluation framework
 
+from ontoagent.execution.constraints.approval_gate import ApprovalGate
 from ontoagent.execution.constraints.engine import ConstraintEngine
 from ontoagent.execution.constraints.guard_pipeline import ActionGuard, ActionGuardPipeline
 from ontoagent.execution.constraints.guards import (
@@ -10,6 +11,12 @@ from ontoagent.execution.constraints.guards import (
     WhitelistGuard,
 )
 from ontoagent.execution.constraints.loader import OntologyConstraintLoader
+from ontoagent.execution.constraints.policies import (
+    ActionApprovalPolicy,
+    ApprovalPolicy,
+    FunctionDangerPolicy,
+    GuardResultPolicy,
+)
 from ontoagent.execution.constraints.propagator import ConstraintPropagator, PropagationResult, PropagationRule
 
 # Shared aggregation utility used by both ConstraintEngine and ConstraintPropagator
@@ -42,12 +49,17 @@ def aggregate_levels(
 
 
 __all__ = [
+    "ActionApprovalPolicy",
     "ActionGuard",
     "ActionGuardPipeline",
+    "ApprovalGate",
+    "ApprovalPolicy",
     "ConstraintEngine",
     "ConstraintPropagator",
     "EntityExistsGuard",
     "EntityPropertyGuard",
+    "FunctionDangerPolicy",
+    "GuardResultPolicy",
     "OntologyConstraintLoader",
     "OntologyPropagationGuard",
     "OntologyTraversalGuard",
