@@ -616,9 +616,15 @@ def _get_approval_gate() -> object:
 
     GuardResultPolicy 的 pipeline 将通过 set_pipeline() 延迟注入，
     由 _get_action_executor 在创建 guard pipeline 后完成。
+
+    审批策略配置从 config/approval_policy.yaml 读取。
     """
     global _APPROVAL_GATE
     if _APPROVAL_GATE is None:
+        from pathlib import Path
+
+        import yaml
+
         from ontoagent.execution.constraints import (
             ActionApprovalPolicy,
             ApprovalGate,
@@ -627,17 +633,44 @@ def _get_approval_gate() -> object:
         )
         from ontoagent.execution.functions.registry import _meta as function_meta
 
-        _APPROVAL_GATE = ApprovalGate(
-            [
-                GuardResultPolicy(
-                    pipeline=None,  # 延迟注入：_get_action_executor 创建 pipeline 后 set_pipeline()
-                    on_block="require_approval",
-                    on_warn="require_approval",
-                ),
-                ActionApprovalPolicy(),
-                FunctionDangerPolicy(function_meta),
-            ]
-        )
+        # Load config from YAML
+        config_path = Path(__file__).parent.parent / "config" / "approval_policy.yaml"
+        config = {}
+        if config_path.exists():
+            with open(config_path) as f:
+                config = yaml.safe_load(f) or {}
+
+        # GuardResultPolicy config
+        guard_config = config.get("guard_result", {})
+        on_block = guard_config.get("on_block", "require_approval")
+        on_warn = guard_config.get("on_warn", "require_approval")
+
+        # FunctionDangerPolicy config
+        fd_config = config.get("function_danger", {})
+        auto_approve = set(fd_config.get("auto_approve", ["read"]))
+        require_approval = set(fd_config.get("require_approval", ["read_sensitive", "write", "admin"]))
+
+        # Build policies based on config
+        policies = []
+        enabled_policies = config.get("policies", ["guard_result", "action_approval", "function_danger"])
+        for name in enabled_policies:
+            if name == "guard_result":
+                policies.append(
+                    GuardResultPolicy(
+                        pipeline=None,  # 延迟注入：_get_action_executor 创建 pipeline 后 set_pipeline()
+                        on_block=on_block,
+                        on_warn=on_warn,
+                    )
+                )
+            elif name == "action_approval":
+                policies.append(ActionApprovalPolicy())
+            elif name == "function_danger":
+                fp = FunctionDangerPolicy(function_meta)
+                fp.auto_approve_levels = auto_approve
+                fp.require_approval_levels = require_approval
+                policies.append(fp)
+
+        _APPROVAL_GATE = ApprovalGate(policies)
     return _APPROVAL_GATE
 
 

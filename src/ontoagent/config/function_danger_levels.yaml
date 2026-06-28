@@ -1,0 +1,19 @@
+# Function 危险级别配置
+# danger_level 含义: read(纯查询) / read_sensitive(查询敏感数据) / write(修改) / admin(系统级)
+
+# 默认值（未在此文件中的 function）
+default: read
+
+functions:
+  check_refactor_eligibility: read
+  generate_api_doc: write
+  extract_interface: write
+  check_compliance: read
+  trace_call_chain: read
+  trace_business_impact: read_sensitive
+  query_entity: read
+  update_entity: write
+  create_entity: admin
+  create_relation: write
+  check_condition: read
+  send_notification: write

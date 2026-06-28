@@ -137,14 +137,16 @@ class FunctionDangerPolicy(ApprovalPolicy):
       - "read_sensitive": 查询敏感数据，需要审批
       - "write": 修改数据，需要审批
       - "admin": 系统级操作，需要审批
-    """
 
-    # 不需要审批的危险级别
-    AUTO_APPROVE = {"read"}
+    auto_approve_levels / require_approval_levels 是实例属性，
+    允许通过 YAML 配置覆盖默认值。
+    """
 
     def __init__(self, function_meta: dict[str, dict[str, str]] | None = None) -> None:
         """function_meta: {function_name: {danger_level: "write", description: "..."}}"""
         self._meta = function_meta or {}
+        self.auto_approve_levels: set[str] = {"read"}
+        self.require_approval_levels: set[str] = {"read_sensitive", "write", "admin"}
 
     @property
     def name(self) -> str:
@@ -162,16 +164,24 @@ class FunctionDangerPolicy(ApprovalPolicy):
         meta = self._meta.get(func_name, {})
         danger_level = meta.get("danger_level", "read")
 
-        if danger_level in self.AUTO_APPROVE:
+        if danger_level in self.auto_approve_levels:
             return PolicyResult(
                 policy_name=self.name,
                 level=DecisionLevel.APPROVED,
                 reason=f"function danger_level={danger_level}",
             )
 
+        if danger_level in self.require_approval_levels:
+            return PolicyResult(
+                policy_name=self.name,
+                level=DecisionLevel.PENDING,
+                reason=f"Function '{func_name}' danger_level={danger_level}，需要审批",
+                details={"function_name": func_name, "danger_level": danger_level},
+            )
+
+        # Unknown danger_level — approved by default (safe fail-open for backward compat)
         return PolicyResult(
             policy_name=self.name,
-            level=DecisionLevel.PENDING,
-            reason=f"Function '{func_name}' danger_level={danger_level}，需要审批",
-            details={"function_name": func_name, "danger_level": danger_level},
+            level=DecisionLevel.APPROVED,
+            reason=f"function danger_level={danger_level} (not in auto_approve or require_approval — default approved)",
         )

@@ -1,0 +1,16 @@
+# 工具网关配置 — 拦截规则
+
+# 是否启用写操作拦截
+enabled: true
+
+# 拦截的 Cypher 写操作关键字（不区分大小写）
+blocked_keywords:
+  - SET
+  - DELETE
+  - REMOVE
+  - CREATE
+  - MERGE
+  - DROP
+  - "DETACH DELETE"
+  - FOREACH
+  - "CALL apoc"

@@ -1,0 +1,27 @@
+# 审批策略配置
+# 控制 ApprovalGate 的行为：启用哪些策略、BLOCK/WARN 如何处理、token 配置
+
+# 启用的策略（按执行顺序）
+policies:
+  - guard_result      # Guard Pipeline 的结果 → 审批
+  - action_approval   # ActionConfig.requires_approval → 审批
+  - function_danger   # Function.danger_level → 审批
+
+# GuardResultPolicy 配置
+guard_result:
+  on_block: require_approval   # require_approval | auto_reject
+  on_warn: require_approval    # require_approval | auto_allow | auto_reject
+
+# FunctionDangerPolicy 配置
+function_danger:
+  auto_approve:
+    - read
+  require_approval:
+    - read_sensitive
+    - write
+    - admin
+
+# 审批令牌配置
+token:
+  ttl: 600           # 秒，令牌有效期
+  max_pending: 10    # 同时最多待审批数
