@@ -573,9 +573,9 @@ RELATION_CONSTRAINTS: dict[str, RelationConstraint] = {
         description="资源/文档图示实体",
     ),
     "derived_from": RelationConstraint(
-        domain="ConceptEntity",
+        domain={"ConceptEntity", "CodeEntity"},
         range="ConceptEntity",
-        description="概念派生关系",
+        description="概念派生关系（代码实体可实现/派生自某概念）",
     ),
     # --- 变更关系 ---
     "changed_in": RelationConstraint(

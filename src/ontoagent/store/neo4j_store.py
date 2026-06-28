@@ -14,6 +14,43 @@ from ontoagent.store.schema_version import register_schema_version
 
 logger = logging.getLogger(__name__)
 
+
+def _snake_to_camel(name: str) -> str:
+    """Convert snake_case to camelCase.
+
+    Args:
+        name: A snake_case string (e.g. ``entity_type``).
+
+    Returns:
+        The camelCase equivalent (e.g. ``entityType``).
+    """
+    parts = name.split("_")
+    return parts[0] + "".join(p.capitalize() for p in parts[1:])
+
+
+def _keys_to_camel_case(d: dict) -> dict:
+    """Convert all string keys in a dict from snake_case to camelCase.
+
+    Reserved keys (``id``, ``source_id``, ``target_id``) are left unchanged
+    because they are used as Cypher parameter names and MERGE match keys.
+
+    Args:
+        d: A dict potentially containing snake_case keys.
+
+    Returns:
+        A new dict with camelCase keys.
+    """
+    reserved = frozenset({"id", "source_id", "target_id"})
+    result: dict = {}
+    for key, value in d.items():
+        new_key = key if key in reserved else _snake_to_camel(key)
+        if isinstance(value, dict):
+            result[new_key] = _keys_to_camel_case(value)
+        else:
+            result[new_key] = value
+    return result
+
+
 # 实体标签列表，用于约束创建
 ENTITY_LABELS = [
     "CodeEntity",
@@ -97,7 +134,7 @@ class Neo4jGraphStore(GraphStore):
             properties: 节点属性字典，必须包含 'id'。
 
         Returns:
-            合并后的节点属性。
+            合并后的节点属性（key 已转为 camelCase）。
 
         Raises:
             ValueError: 当 properties 缺少 'id' 时。
@@ -106,9 +143,12 @@ class Neo4jGraphStore(GraphStore):
             msg = "properties must contain 'id'"
             raise ValueError(msg)
 
+        # 将属性 key 转为 camelCase（符合 Neo4j 属性命名规范）
+        props = _keys_to_camel_case(properties)
+
         # 构建 SET 子句，排除 id（id 已在 MERGE 中使用）
         set_clauses = []
-        for key in properties:
+        for key in props:
             if key != "id":
                 set_clauses.append(f"n.{key} = ${key}")
 
@@ -119,10 +159,10 @@ class Neo4jGraphStore(GraphStore):
             cypher += f" SET {set_statement}"
 
         with self._driver.session() as session:
-            session.run(cypher, **properties)
-            logger.debug(f"Merged node {label}:{properties['id']}")
+            session.run(cypher, **props)
+            logger.debug(f"Merged node {label}:{props['id']}")
 
-        return properties
+        return props
 
     @retry(
         retry=retry_if_exception_type((OSError, ConnectionError)),
@@ -150,6 +190,7 @@ class Neo4jGraphStore(GraphStore):
         """批量合并（创建或更新）节点。
 
         使用 UNWIND + MERGE 批量写入，按 batch_size 分批执行。
+        属性 key 会自动从 snake_case 转为 camelCase。
 
         Args:
             label: 节点标签，如 CodeEntity、ConceptEntity。
@@ -170,6 +211,8 @@ class Neo4jGraphStore(GraphStore):
         merged = 0
         for i in range(0, total, batch_size):
             batch = properties_list[i : i + batch_size]
+            # 将每个 dict 的 key 转为 camelCase
+            batch = [_keys_to_camel_case(p) for p in batch]
             self._execute_batch_nodes(label, batch)
             merged += len(batch)
             logger.info("[Neo4j] Batch merged %d/%d %s", merged, total, label)
@@ -253,7 +296,7 @@ class Neo4jGraphStore(GraphStore):
                     {
                         "source_id": rel["source_id"],
                         "target_id": rel["target_id"],
-                        "properties": rel.get("properties", {}),
+                        "properties": _keys_to_camel_case(rel.get("properties", {})),
                     }
                 )
 
@@ -365,8 +408,9 @@ class Neo4jGraphStore(GraphStore):
 
         # 如果有属性，添加 SET 子句
         if properties:
+            props = _keys_to_camel_case(properties)
             set_clauses = []
-            for key, value in properties.items():
+            for key, value in props.items():
                 set_clauses.append(f"r.{key} = ${key}")
                 params[key] = value
             cypher += " SET " + ", ".join(set_clauses)
