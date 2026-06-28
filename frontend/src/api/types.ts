@@ -95,7 +95,7 @@ export interface NodeDetail {
 
 export interface TraceStep {
   step_id: number
-  type: 'thinking' | 'tool_call' | 'tool_result' | 'final'
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'final' | 'approval_required' | 'approval_resolved'
   content: string
   tool_name?: string
   tool_args?: string
@@ -118,4 +118,5 @@ export interface TraceListItem {
   step_count: number
   total_duration_ms?: number
   created_at: number
+  approval_status?: string
 }

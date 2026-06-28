@@ -231,6 +231,46 @@ async def run_query_stream(
                     "result": output_str,
                 }
                 if trace_collector:
+                    # Detect approval events in express_intent results
+                    if tool_name == "express_intent":
+                        try:
+                            import json
+                            result_data = json.loads(output_str)
+                            if result_data.get("status") == "approval_required":
+                                # Record as approval_required step
+                                approval_id = result_data.get("approval_id", "")
+                                await trace_collector.add_step(
+                                    thread_id,
+                                    type="approval_required",
+                                    content=f"操作需要审批: {result_data.get('level', 'action')}",
+                                    tool_name=tool_name,
+                                    tool_result=output_str,
+                                    duration_ms=duration,
+                                )
+                                # Update trace's approval token
+                                log = await trace_collector.get_trace(thread_id)
+                                if log:
+                                    log.approval_token = approval_id
+                                    log.approval_status = "pending"
+                                return  # Skip the default tool_result step for this event
+                            elif result_data.get("approval_id") and "approved" in str(output_str):
+                                # This is an approval resolution
+                                await trace_collector.add_step(
+                                    thread_id,
+                                    type="approval_resolved",
+                                    content="审批已处理",
+                                    tool_name=tool_name,
+                                    tool_result=output_str,
+                                    duration_ms=duration,
+                                )
+                                log = await trace_collector.get_trace(thread_id)
+                                if log:
+                                    log.approval_status = "approved"
+                                return  # Skip default tool_result
+                        except (json.JSONDecodeError, KeyError):
+                            pass
+
+                    # Default: record as normal tool_result
                     await trace_collector.add_step(
                         thread_id,
                         type="tool_result",

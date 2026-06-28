@@ -44,6 +44,7 @@ class TraceListItem(BaseModel):
     step_count: int
     total_duration_ms: float | None = None
     created_at: float
+    approval_status: str = ""  # NEW
 
 
 class MermaidResponse(BaseModel):
@@ -66,6 +67,7 @@ async def list_traces() -> list[TraceListItem]:
             step_count=len(t.steps),
             total_duration_ms=t.total_duration_ms,
             created_at=t.created_at,
+            approval_status=getattr(t, 'approval_status', ''),
         )
         for t in traces
     ]

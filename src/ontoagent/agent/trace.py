@@ -15,7 +15,7 @@ class TraceStep:
     """Single agent step."""
 
     step_id: int
-    type: str  # "thinking" | "tool_call" | "tool_result" | "final"
+    type: str  # "thinking" | "tool_call" | "tool_result" | "final" | "approval_required" | "approval_resolved"
     content: str
     tool_name: str | None = None
     tool_args: str | None = None
@@ -33,6 +33,10 @@ class TraceLog:
     total_duration_ms: float | None = None
     created_at: float = field(default_factory=time.time)
     status: str = "running"  # "running" | "completed" | "failed"
+    # NEW — 审批关联
+    approval_token: str = ""       # 当前待审批的令牌
+    approval_status: str = ""      # "pending" | "approved" | "rejected" | ""
+    parent_trace_thread_id: str = ""  # 如果是审批回执，关联父 trace
 
 
 class TraceCollector:
@@ -103,6 +107,9 @@ class TraceCollector:
             "status": log.status,
             "created_at": log.created_at,
             "total_duration_ms": log.total_duration_ms,
+            "approval_token": log.approval_token,
+            "approval_status": log.approval_status,
+            "parent_trace_thread_id": log.parent_trace_thread_id,
             "steps": [
                 {
                     "step_id": s.step_id,
@@ -127,6 +134,9 @@ class TraceCollector:
                 status=data.get("status", "running"),
                 created_at=data.get("created_at", time.time()),
                 total_duration_ms=data.get("total_duration_ms"),
+                approval_token=data.get("approval_token", ""),
+                approval_status=data.get("approval_status", ""),
+                parent_trace_thread_id=data.get("parent_trace_thread_id", ""),
             )
             for s in data.get("steps", []):
                 log.steps.append(

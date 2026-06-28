@@ -94,7 +94,29 @@ function stepIcon(type: string): string {
     case 'tool_call': return '🔧'
     case 'tool_result': return '📋'
     case 'final': return '✅'
+    case 'approval_required': return '🛡️'
+    case 'approval_resolved': return '✅'
     default: return '•'
+  }
+}
+
+function formatApproval(resultJson: string): string {
+  try {
+    const data = JSON.parse(resultJson)
+    const lines: string[] = []
+    if (data.checks) {
+      lines.push('约束检查:')
+      for (const c of data.checks) {
+        const icon = c.level === 'block' ? '🔴' : c.level === 'warn' ? '🟡' : '🟢'
+        lines.push(`  ${icon} ${c.guard}: ${c.reason?.slice(0, 60) || c.level}`)
+      }
+    }
+    if (data.approval_id) {
+      lines.push(`令牌: ${data.approval_id}`)
+    }
+    return lines.join('\n')
+  } catch {
+    return resultJson.slice(0, 200)
   }
 }
 
@@ -175,8 +197,44 @@ onUnmounted(() => {
       <section class="timeline-section">
         <h3>执行步骤</h3>
         <div class="timeline">
+          <template v-for="step in trace.steps" :key="step.step_id">
+          <!-- Approval Required Step -->
           <div
-            v-for="step in trace.steps"
+            v-if="step.type === 'approval_required'"
+            class="timeline-item approval-required"
+          >
+            <div class="timeline-marker approval-marker">🛡️</div>
+            <div class="timeline-content">
+              <div class="step-header">
+                <span class="step-type approval-label">等待审批</span>
+                <span v-if="step.duration_ms" class="step-duration">{{ formatDuration(step.duration_ms) }}</span>
+              </div>
+              <div class="step-content">{{ step.content }}</div>
+              <div v-if="step.tool_result" class="tool-result">
+                <button class="toggle-btn" @click="toggleExpand(step.step_id + 2000)">
+                  {{ isExpanded(step.step_id + 2000) ? '▼ 隐藏审批详情' : '▶ 查看审批详情' }}
+                </button>
+                <pre v-if="isExpanded(step.step_id + 2000)" class="code-block approval-json">{{ formatApproval(step.tool_result) }}</pre>
+              </div>
+            </div>
+          </div>
+          <!-- Approval Resolved Step -->
+          <div
+            v-else-if="step.type === 'approval_resolved'"
+            class="timeline-item approval-resolved"
+          >
+            <div class="timeline-marker approval-resolved-marker">✅</div>
+            <div class="timeline-content">
+              <div class="step-header">
+                <span class="step-type approval-resolved-label">审批完成</span>
+                <span v-if="step.duration_ms" class="step-duration">{{ formatDuration(step.duration_ms) }}</span>
+              </div>
+              <div class="step-content">{{ step.content }}</div>
+            </div>
+          </div>
+          <!-- Default Steps (non-approval) -->
+          <div
+            v-else
             :key="step.step_id"
             class="timeline-item"
             :class="[`type-${step.type}`]"
@@ -205,6 +263,7 @@ onUnmounted(() => {
               </div>
             </div>
           </div>
+          </template>
         </div>
       </section>
     </div>
@@ -636,5 +695,40 @@ onUnmounted(() => {
   color: #f87171;
   text-align: center;
   padding: 40px;
+}
+
+/* Approval step styling */
+.timeline-item.approval-required {
+  border-left: 3px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.04);
+}
+.timeline-item.approval-resolved {
+  border-left: 3px solid #10b981;
+  background: rgba(16, 185, 129, 0.04);
+}
+.approval-marker {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+.approval-resolved-marker {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+.approval-label {
+  color: #fbbf24;
+  font-weight: 600;
+}
+.approval-resolved-label {
+  color: #34d399;
+  font-weight: 600;
+}
+.approval-json {
+  font-size: 0.8em;
+  color: #d1d5db;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 8px;
+  border-radius: 6px;
+  margin-top: 8px;
+  white-space: pre-wrap;
 }
 </style>
