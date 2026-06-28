@@ -745,9 +745,9 @@ class OntoAgentBuilder:
                                 }
                             )
                         processes_data_count = graph_store.merge_relations_batch(pd_rel_data, batch_size=200)
-                        self._logger.info("[Neo4j] Wrote %d processes_data relations", processes_data_count)
+                        self._logger.info("[Business Ontology] Created %d processes_data relations", processes_data_count)
                     else:
-                        self._logger.info("[Neo4j] No processes_data relations found")
+                        self._logger.info("[Business Ontology] No processes_data relations found")
             except Exception as e:
                 self._logger.warning("Business ontology loading failed (non-critical): %s", e)
                 all_errors.append(f"Business ontology error: {e}")
