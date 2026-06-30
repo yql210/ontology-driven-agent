@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
+from ontoagent.domain.shapes import Operation, Severity
 from ontoagent.execution.action_types import ActionConfig, ActionContext, ActionResult, FunctionResult
 from ontoagent.execution.constraints.guard_pipeline import ActionGuardPipeline
 from ontoagent.execution.constraints.guards import EntityExistsGuard, EntityPropertyGuard
+from ontoagent.execution.decision_fuser import DecisionFuser
+from ontoagent.execution.functions.registry import get_capabilities
 from ontoagent.execution.intent_router import build_intent_map
+from ontoagent.execution.shape_evaluator import ShapeEvaluator
+
+logger = logging.getLogger(__name__)
 
 
 class ActionExecutor:
@@ -61,13 +68,18 @@ class ActionExecutor:
                 error=f"未找到实体 '{target}'",
             )
 
-        # 3. Guard pipeline check — SKIP if bypass_guard=True
+        # 3. Constraint check — SKIP if bypass_guard=True
         if not bypass_guard:
-            pipeline = self._guard_pipeline
-            if pipeline is None:
-                pipeline = ActionGuardPipeline([EntityExistsGuard(), EntityPropertyGuard()])
+            if self._shape_registry is not None:
+                # Phase 3c: shape-based path (ShapeEvaluator + DecisionFuser)
+                block_reason, warnings = self._check_with_shapes(entity, config)
+            else:
+                # Legacy guard pipeline fallback
+                pipeline = self._guard_pipeline
+                if pipeline is None:
+                    pipeline = ActionGuardPipeline([EntityExistsGuard(), EntityPropertyGuard()])
 
-            block_reason, warnings = pipeline.check(config, entity, self._graph_store)
+                block_reason, warnings = pipeline.check(config, entity, self._graph_store)
             if block_reason:
                 return ActionResult(
                     success=False,
@@ -114,6 +126,66 @@ class ActionExecutor:
             results=results,
             summary=f"操作 '{config.name}' 执行成功",
         )
+
+    def _check_with_shapes(
+        self,
+        entity: dict,
+        config: ActionConfig,
+    ) -> tuple[str | None, list[str]]:
+        """Phase 3c: shape-based constraint check.
+
+        收集 ``config.functions`` 中每个 Function 声明的 capabilities
+        (``"Resource:OP"`` 字符串列表) → 去重得到 Operation 集合 → 调用
+        ShapeEvaluator 评估 → DecisionFuser 融合。
+
+        Args:
+            entity: 已 resolve 的目标实体字典（含 ``id`` / ``labels``）。
+            config: 当前 Action 的配置，functions 字段决定能力集合。
+
+        Returns:
+            ``(block_reason | None, warnings)``，与 ``ActionGuardPipeline.check()``
+            返回值语义一致：BLOCK/ESCALATE → block_reason 非 None；WARN → 警告入列表。
+        """
+        operations = self._collect_operations(config.functions)
+        if not operations:
+            return None, []
+
+        evaluator = ShapeEvaluator(self._shape_registry, self._graph_store)
+        results = evaluator.evaluate(entity, operations)
+        report = DecisionFuser.fuse(results)
+
+        if report.severity is Severity.BLOCK:
+            return report.suggestion or "操作被约束 Shape 阻断", []
+        if report.severity is Severity.ESCALATE:
+            # Phase 4 将在 ApprovalGate 中路由 ESCALATE；此处保守阻断
+            return report.suggestion or "操作需要人工审批", []
+        if report.severity is Severity.WARN:
+            return None, [report.suggestion] if report.suggestion else []
+        return None, []
+
+    @staticmethod
+    def _collect_operations(function_names: list[str]) -> list[Operation]:
+        """从 Function 列表汇总 Operation 集合（去重、保持插入顺序）。
+
+        capabilities 字符串格式为 ``"Resource:OP"``，此处只关心 OP 部分
+        （resource 匹配由 ShapeEvaluator 通过 entity.labels 完成）。
+        无法解析的条目记 warning 后跳过，不抛异常。
+        """
+        operations: list[Operation] = []
+        seen: set[str] = set()
+        for func_name in function_names:
+            for cap in get_capabilities(func_name):
+                if ":" not in cap:
+                    continue
+                op_str = cap.split(":", 1)[1]
+                if op_str in seen:
+                    continue
+                try:
+                    operations.append(Operation(op_str))
+                    seen.add(op_str)
+                except ValueError:
+                    logger.warning("未知 capability operation %r (function=%s)", op_str, func_name)
+        return operations
 
     def _resolve_entity(self, target: str) -> dict | None:
         if not target:

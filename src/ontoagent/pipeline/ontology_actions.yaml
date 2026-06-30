@@ -5,12 +5,6 @@ actions:
     bind_to: code_entity
     submission_criteria:
       - "entity exists"
-      - "entity.lines > 100"
-    guard_configs:
-      - type: traversal
-        constraint: data_sensitivity
-      - type: propagation
-        rule: upstream_risk
     functions:
       - check_refactor_eligibility
     requires_approval: false

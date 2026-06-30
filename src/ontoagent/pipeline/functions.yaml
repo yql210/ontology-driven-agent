@@ -1,0 +1,112 @@
+# Function 注册中心 — Phase 3a 单一来源
+#
+# 此文件是所有 Function 的注册元数据单一来源，包含：
+#   - danger_level: read | read_sensitive | write | admin
+#   - capabilities: 资源能力声明，格式 "EntityLabel:OPERATION"
+#       OPERATION ∈ {CREATE, READ, UPDATE, DELETE, EXECUTE, EXPORT}
+#       EntityLabel ∈ VALID_ENTITY_LABELS (见 domain/schema.py)
+#
+# 加载顺序（registry.py）：
+#   1. 本文件 (functions.yaml) — 最高优先级
+#   2. 装饰器 register_function(name, danger_level=..., capabilities=...) 的元数据
+#   3. 旧版 config/function_danger_levels.yaml — 兼容回退
+#   4. 默认值 "read"
+#
+# capabilities 用途：Phase 4 ShapeEvaluator 用 Function.capabilities ∩ Shape.target
+# 触发评估（详见 docs/design/DESIGN_V4_ONTOLOGY_CONSTRAINT.md §3.3）。
+
+version: "1.0"
+default_danger_level: read
+
+functions:
+  # ── general.py — 通用业务 Function（CRUD/通知/条件） ──────────────────
+  - name: query_entity
+    impl: ontoagent.execution.functions.general.query_entity
+    danger_level: read
+    description: 从 ctx.match_data 查实体属性+关系
+    capabilities:
+      - CodeEntity:READ
+
+  - name: update_entity
+    impl: ontoagent.execution.functions.general.update_entity
+    danger_level: write
+    description: 更新实体属性
+    capabilities:
+      - CodeEntity:UPDATE
+
+  - name: create_entity
+    impl: ontoagent.execution.functions.general.create_entity
+    danger_level: admin
+    description: 创建新实体（白名单校验）
+    capabilities:
+      - CodeEntity:CREATE
+
+  - name: create_relation
+    impl: ontoagent.execution.functions.general.create_relation
+    danger_level: write
+    description: 创建实体间关系
+    capabilities:
+      - CodeEntity:UPDATE
+
+  - name: check_condition
+    impl: ontoagent.execution.functions.general.check_condition
+    danger_level: read
+    description: 条件判断（无副作用）
+    capabilities:
+      - CodeEntity:READ
+
+  - name: send_notification
+    impl: ontoagent.execution.functions.general.send_notification
+    danger_level: write
+    description: 发送通知
+    capabilities:
+      - AlertEntity:CREATE
+
+  # ── builtin.py — 内建分析/重构 Function ─────────────────────────────
+  - name: check_refactor_eligibility
+    impl: ontoagent.execution.functions.builtin._check_refactor_eligibility
+    danger_level: read
+    description: 检查函数复杂度并建议拆分
+    capabilities:
+      - CodeEntity:READ
+
+  - name: trace_call_chain
+    impl: ontoagent.execution.functions.builtin._trace_call_chain
+    danger_level: read
+    description: 沿 CALLS 关系追踪调用链
+    capabilities:
+      - CodeEntity:READ
+
+  - name: generate_api_doc
+    impl: ontoagent.execution.functions.builtin._generate_api_doc
+    danger_level: write
+    description: 为实体生成 Markdown API 文档
+    capabilities:
+      - CodeEntity:READ
+      - DocEntity:CREATE
+
+  - name: extract_interface
+    impl: ontoagent.execution.functions.builtin._extract_interface
+    danger_level: write
+    description: 从类提取公共接口建议
+    capabilities:
+      - CodeEntity:READ
+
+  # ── check_compliance.py — 合规风险分析 ──────────────────────────────
+  - name: check_compliance
+    impl: ontoagent.execution.functions.check_compliance._check_compliance
+    danger_level: read
+    description: 通过数据资产与合规项评估代码合规风险
+    capabilities:
+      - CodeEntity:READ
+      - DataAsset:READ
+      - ComplianceItem:READ
+
+  # ── trace_business_impact.py — 业务影响回溯 ─────────────────────────
+  - name: trace_business_impact
+    impl: ontoagent.execution.functions.trace_business_impact._trace_business_impact
+    danger_level: read_sensitive
+    description: 反向 BFS 沿 CALLS 找业务入口点
+    capabilities:
+      - CodeEntity:READ
+      - ServiceEntity:READ

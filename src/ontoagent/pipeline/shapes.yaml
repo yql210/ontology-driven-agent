@@ -63,3 +63,24 @@ shapes:
       (a) 确认不破坏 API 契约
       (b) 检查下游调用方
       (c) 更新 API 文档
+
+  - id: shape:refactor_large_code_unit
+    name: 大型代码单元重构保护
+    description: "重构 lines > 100 的 CodeEntity 时发出提示（迁移自 submission_criteria: entity.lines > 100）"
+    kind: structural
+    target:
+      resource_type: CodeEntity
+      operation: UPDATE
+    path: "SELF"
+    constraint:
+      field: lines
+      operator: ">"
+      value: 100
+    severity: warn
+    priority: 3
+    tags: [refactor, size_guard]
+    suggestion: |
+      目标代码单元行数较多（> 100），重构前请:
+      (a) 优先拆分为更小的可测试单元
+      (b) 确认现有测试覆盖足够
+      (c) 评估变更影响范围
