@@ -9,8 +9,8 @@ from ontoagent.agent.tools import ALL_TOOLS, graph_query, semantic_search
 
 
 def test_all_tools_defined() -> None:
-    """ALL_TOOLS 长度为 10，包含所有工具"""
-    assert len(ALL_TOOLS) == 10
+    """ALL_TOOLS 长度为 13，包含所有工具"""
+    assert len(ALL_TOOLS) == 13
     tool_names = {t.name for t in ALL_TOOLS}
     expected_tools = {
         "semantic_search",
@@ -23,6 +23,9 @@ def test_all_tools_defined() -> None:
         "export_graph",
         "express_intent",
         "check_operation",
+        "explore_ontology",
+        "explain_constraint",
+        "suggest_alternatives",
     }
     assert tool_names == expected_tools
 
@@ -94,11 +97,12 @@ def test_semantic_search_default_top_k() -> None:
 
 def test_get_action_executor_has_guard_pipeline() -> None:
     """Verify that _get_action_executor wires a guard_pipeline to ActionExecutor."""
+    from pathlib import Path
+
+    import ontoagent.agent.tools as tools_module
     from ontoagent.agent.tools import _get_action_executor
 
     # Reset the global singleton to force re-initialization
-    import ontoagent.agent.tools as tools_module
-
     tools_module._action_executor = None
     tools_module._function_runner = None
 
@@ -113,7 +117,12 @@ def test_get_action_executor_has_guard_pipeline() -> None:
                 "relation_chain": ["PROCESSES_DATA"],
                 "target_label": "DataAsset",
                 "collect_property": "sensitivity",
-                "value_mapping": {"restricted": "block", "confidential": "warn", "internal": "allow", "public": "allow"},
+                "value_mapping": {
+                    "restricted": "block",
+                    "confidential": "warn",
+                    "internal": "allow",
+                    "public": "allow",
+                },
                 "aggregation": "max",
             }
         },
@@ -132,17 +141,15 @@ def test_get_action_executor_has_guard_pipeline() -> None:
 
     with patch("builtins.open", create=True) as mock_open:
         mock_open.return_value.__enter__.return_value.read.return_value = json.dumps(mock_constraints_data)
-        mock_open.return_value.__enter__.return_value.__iter__.return_value = json.dumps(mock_constraints_data).splitlines()
+        mock_open.return_value.__enter__.return_value.__iter__.return_value = json.dumps(
+            mock_constraints_data
+        ).splitlines()
 
-        from pathlib import Path
-        from unittest.mock import mock_open as mock_open_func
-
-        import yaml
-
-        # Use a YAML mock path - create a temp approach
-        with patch.object(Path, "exists", return_value=True):
-            with patch("yaml.safe_load", return_value=mock_constraints_data):
-                executor = _get_action_executor(mock_graph_store)
+        with (
+            patch.object(Path, "exists", return_value=True),
+            patch("yaml.safe_load", return_value=mock_constraints_data),
+        ):
+            executor = _get_action_executor(mock_graph_store)
 
     # Verify guard pipeline is wired
     assert executor._guard_pipeline is not None, "guard_pipeline should be wired to ActionExecutor"

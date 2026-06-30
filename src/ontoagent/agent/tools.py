@@ -630,10 +630,186 @@ def check_operation(intent_type: str, target: str) -> str:
         )
 
 
+@tool
+def explore_ontology() -> str:
+    """浏览本体约束：返回所有已启用 Shape 的摘要列表。
+
+    用于在执行操作前了解系统中有哪些约束规则。每条 Shape 返回 id/name/description。
+    需要查看完整字段时使用 explain_constraint(shape_id)。
+
+    Returns:
+        JSON 字符串，格式: {count: int, shapes: [{id, name, description}, ...]}
+        ShapeRegistry 未启用时返回 {info: ..., count: 0}
+    """
+    registry = _get_shape_registry()
+    if registry is None:
+        return json.dumps(
+            {
+                "info": "ShapeRegistry 未启用（feature flag 关闭 / shapes.yaml 缺失）。约束由旧 Guard Pipeline 强制执行。",
+                "count": 0,
+                "shapes": [],
+            },
+            ensure_ascii=False,
+        )
+
+    summaries = [{"id": s.id, "name": s.name, "description": s.description} for s in registry.all_shapes() if s.enabled]
+    return json.dumps(
+        {"count": len(summaries), "shapes": summaries},
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+@tool
+def explain_constraint(shape_id: str) -> str:
+    """查看单条约束 Shape 的完整信息。
+
+    在 explore_ontology() 看到 Shape 摘要后，用此工具获取 target/path/constraint/
+    severity/suggestion 等完整字段，理解为何某操作被拦截。
+
+    Args:
+        shape_id: Shape 全局唯一 id（来自 explore_ontology 返回的 id 字段）
+
+    Returns:
+        JSON 字符串，包含完整 Shape 信息。找不到时返回 {error: ...}
+    """
+    registry = _get_shape_registry()
+    if registry is None:
+        return json.dumps(
+            {"error": "ShapeRegistry 未启用，无法解释 Shape 详情"},
+            ensure_ascii=False,
+        )
+
+    shape = None
+    for s in registry.all_shapes():
+        if s.id == shape_id:
+            shape = s
+            break
+
+    if shape is None:
+        return json.dumps(
+            {"error": f"未找到 Shape '{shape_id}'。请先调用 explore_ontology 查看可用 id。"},
+            ensure_ascii=False,
+        )
+
+    target = shape.target
+    constraint = shape.constraint
+    path = shape.path
+    return json.dumps(
+        {
+            "id": shape.id,
+            "name": shape.name,
+            "description": shape.description,
+            "kind": shape.kind.value,
+            "enabled": shape.enabled,
+            "version": shape.version,
+            "priority": shape.priority,
+            "tags": list(shape.tags),
+            "severity": shape.severity.value,
+            "suggestion": shape.suggestion,
+            "max_depth": shape.max_depth,
+            "target": {
+                "resource_type": target.resource_type,
+                "operation": target.operation.value,
+                "field_filter": target.field_filter,
+            },
+            "path": {
+                "raw": path.raw,
+                "target_label": path.target_label,
+                "max_depth": path.max_depth,
+            },
+            "constraint": {
+                "field": constraint.field,
+                "operator": constraint.operator,
+                "value": constraint.value,
+                "unless_field": constraint.unless_field,
+                "unless_value": constraint.unless_value,
+            },
+        },
+        ensure_ascii=False,
+        indent=2,
+        default=str,
+    )
+
+
+@tool
+def suggest_alternatives(intent_type: str, target: str) -> str:
+    """启发式推荐：找出与给定 intent 绑定到同一资源类型的其他 intent。
+
+    当某个操作被约束拦截时，可用此工具找到该实体上可执行的其他操作。
+    例如：refactor 被拦截时，可建议 document / analyze_impact 等同 bind_to 的 intent。
+
+    Args:
+        intent_type: 当前被拦截或关心的意图类型（如 refactor）
+        target: 目标实体名称（保留参数，便于未来按实体精化推荐）
+
+    Returns:
+        JSON 字符串，格式:
+        {source_intent: str, resource_type: str, count: int,
+         alternatives: [{intent_type, trigger_hint, bind_to}, ...]}
+    """
+    intent_map = _get_intent_map()
+    source = intent_map.get(intent_type)
+    if source is None:
+        return json.dumps(
+            {"error": f"未知 intent_type: {intent_type!r}"},
+            ensure_ascii=False,
+        )
+
+    bind_to = source.bind_to or ""
+    alternatives = [
+        {
+            "intent_type": cfg.intent_type,
+            "trigger_hint": cfg.trigger_hint,
+            "bind_to": cfg.bind_to,
+        }
+        for cfg in intent_map.values()
+        if cfg.intent_type != intent_type and (cfg.bind_to or "") == bind_to
+    ]
+
+    return json.dumps(
+        {
+            "source_intent": intent_type,
+            "target": target,
+            "resource_type": bind_to,
+            "count": len(alternatives),
+            "alternatives": alternatives,
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
 _action_executor: ActionExecutor | None = None
 _function_runner: Any | None = None
 _APPROVAL_GATE: object | None = None
 _shape_registry: Any | None = None
+_intent_map: dict[str, Any] | None = None
+
+
+def _get_intent_map() -> dict[str, Any]:
+    """获取全局 intent_type → ActionConfig 映射（lazy init）。
+
+    从 ``pipeline/ontology_actions.yaml`` 加载，供 suggest_alternatives 等工具
+    做资源类型启发式查询。"""
+    global _intent_map
+    if _intent_map is not None:
+        return _intent_map
+
+    from pathlib import Path
+
+    from ontoagent.execution.intent_router import build_intent_map
+
+    yaml_path = Path(__file__).parent.parent / "pipeline" / "ontology_actions.yaml"
+    if not yaml_path.exists():
+        _intent_map = {}
+        return _intent_map
+
+    try:
+        _intent_map = build_intent_map(yaml_path)
+    except Exception:  # 加载失败不阻塞其他工具
+        _intent_map = {}
+    return _intent_map
 
 
 def _get_approval_gate() -> object:
@@ -848,4 +1024,7 @@ ALL_TOOLS = [
     export_graph,
     express_intent,
     check_operation,
+    explore_ontology,
+    explain_constraint,
+    suggest_alternatives,
 ]

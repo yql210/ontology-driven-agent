@@ -98,12 +98,18 @@ def test_e2e_refactor_success() -> None:
 
 
 def test_e2e_refactor_too_small() -> None:
-    """SmallHelper(lines=50) → refactor → criteria fail (lines <= 100)."""
+    """SmallHelper(lines=50) → refactor → Function rejects (lines <= max_lines=100).
+
+    V4 起 ``entity.lines > 100`` 不再由 submission_criteria 检查（已迁移至
+    ShapeEvaluator，需 ``ONTOAGENT_ENABLE_SHAPES=true`` + Neo4j 实体）。
+    旧 Guard Pipeline 只检查 ``entity exists``，因此 SmallHelper 通过 guard 后由
+    ``check_refactor_eligibility`` Function 自身在执行时拒绝。
+    """
     executor = _make_executor()
     result = executor.execute("refactor", {"target": "SmallHelper"})
 
     assert result.success is False
-    assert "不满足条件" in (result.error or "")
+    assert "max_lines" in (result.error or "")
 
 
 def test_e2e_document_success() -> None:
