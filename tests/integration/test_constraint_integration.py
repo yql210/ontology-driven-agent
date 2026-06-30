@@ -2,6 +2,7 @@
 
 Tests real Neo4j graph queries through ActionExecutor with GuardPipeline.
 Requires demo-service built in Neo4j first."""
+
 from __future__ import annotations
 
 import os
@@ -86,10 +87,7 @@ def graph_store() -> Neo4jGraphStore:
 @pytest.fixture(scope="module")
 def constraint_engine(graph_store: Neo4jGraphStore) -> ConstraintEngine:
     """Create ConstraintEngine loaded from constraints.yaml."""
-    yaml_path = (
-        Path(__file__).parent.parent.parent
-        / "src" / "ontoagent" / "pipeline" / "constraints.yaml"
-    )
+    yaml_path = Path(__file__).parent.parent.parent / "src" / "ontoagent" / "pipeline" / "constraints.yaml"
     constraints = _load_traversal_constraints(yaml_path)
     return ConstraintEngine(graph_store, constraints)
 
@@ -97,10 +95,7 @@ def constraint_engine(graph_store: Neo4jGraphStore) -> ConstraintEngine:
 @pytest.fixture(scope="module")
 def propagation_rules() -> dict[str, PropagationRule]:
     """Load propagation rules from constraints.yaml."""
-    yaml_path = (
-        Path(__file__).parent.parent.parent
-        / "src" / "ontoagent" / "pipeline" / "constraints.yaml"
-    )
+    yaml_path = Path(__file__).parent.parent.parent / "src" / "ontoagent" / "pipeline" / "constraints.yaml"
     return _load_propagation_rules(yaml_path)
 
 
@@ -129,10 +124,7 @@ def executor(
     guard_pipeline: ActionGuardPipeline,
 ) -> ActionExecutor:
     """Create ActionExecutor wired with guard_pipeline and real Neo4j."""
-    yaml_path = (
-        Path(__file__).parent.parent.parent
-        / "src" / "ontoagent" / "pipeline" / "ontology_actions.yaml"
-    )
+    yaml_path = Path(__file__).parent.parent.parent / "src" / "ontoagent" / "pipeline" / "ontology_actions.yaml"
     return ActionExecutor(
         graph_store=graph_store,
         yaml_path=yaml_path,
@@ -143,6 +135,7 @@ def executor(
 # ---------------------------------------------------------------------------
 # Test scenarios
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.integration
 def test_refactor_validate_credit_card_blocked(executor: ActionExecutor) -> None:
@@ -192,10 +185,8 @@ def test_refactor_daily_reconciliation_allowed(executor: ActionExecutor) -> None
 def test_compliance_check_validate_credit_card_allowed(executor: ActionExecutor) -> None:
     """compliance_check on validate_credit_card should ALLOW.
 
-    In v3, data_sensitivity_check has been removed from constraints.yaml.
-    compliance_check's guard_configs reference it as a dead constraint,
-    causing ConstraintEngine to return ALLOW (unknown constraint).
-    The guard pipeline must not block this action on sensitivity grounds.
+    compliance_check has no guard_configs, so it bypasses the Guard Pipeline
+    and executes directly without constraint checks.
     """
     result = executor.execute("compliance_check", {"target": "validate_credit_card"})
     # Guard pipeline must not block — failure must NOT be from constraint guards

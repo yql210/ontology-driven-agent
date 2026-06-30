@@ -51,9 +51,6 @@ actions:
     bind_to: code_entity
     submission_criteria:
       - "entity exists"
-    guard_configs:
-      - type: traversal
-        constraint: data_sensitivity_check
     functions:
       - check_compliance
     requires_approval: false
