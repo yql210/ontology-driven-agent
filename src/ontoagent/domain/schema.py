@@ -489,6 +489,14 @@ RELATION_TYPE_TO_NEO4J: dict[str, str] = {
     "consumed_by": "CONSUMED_BY",
 }
 
+# ============================================================
+# V4 Ontology canonical constants — 用于 ShapeRegistry 校验
+# ============================================================
+# 与 VALID_ENTITY_LABELS / RELATION_TYPE_TO_NEO4J 同步，供 ShapeRegistry 校验
+# shapes.yaml 中的 resource_type / path 关系名（UPPER_SNAKE）。
+ONTOLOGY_ENTITY_LABELS: frozenset[str] = VALID_ENTITY_LABELS
+ONTOLOGY_RELATION_TYPES: frozenset[str] = frozenset(RELATION_TYPE_TO_NEO4J.values())
+
 
 @dataclass
 class Relation:
@@ -686,38 +694,10 @@ def validate_relation_constraint(
 # ============================================================
 # Ontology Constraint Registry — Layer 1 auto-derivation source
 # ============================================================
-# 格式: "{EntityLabel}.{field_name}" → ConstraintFieldDescriptor
+# FROZEN — V4 Phase 1 迁移到 shapes.yaml + ShapeRegistry。
+# 保留为空 dict 以兼容旧代码的 import；不再接受新增条目。
+# 新规则一律写入 src/ontoagent/pipeline/shapes.yaml。
 
 from ontoagent.domain.ontology_constraints import ConstraintFieldDescriptor  # noqa: E402
 
-ONTOLOGY_CONSTRAINT_REGISTRY: dict[str, ConstraintFieldDescriptor] = {
-    "DataAsset.sensitivity": ConstraintFieldDescriptor(
-        field_name="sensitivity",
-        value_mapping={
-            "restricted": GuardLevel.BLOCK,
-            "confidential": GuardLevel.WARN,
-            "internal": GuardLevel.ALLOW,
-            "public": GuardLevel.ALLOW,
-        },
-    ),
-    "ComplianceItem.severity": ConstraintFieldDescriptor(
-        field_name="severity",
-        value_mapping={
-            "critical": GuardLevel.BLOCK,
-            "high": GuardLevel.WARN,
-            "medium": GuardLevel.ALLOW,
-            "low": GuardLevel.ALLOW,
-        },
-    ),
-    "CodeEntity.entry_category": ConstraintFieldDescriptor(
-        field_name="entry_category",
-        value_mapping={
-            "http_api": GuardLevel.WARN,
-            "rpc_service": GuardLevel.WARN,
-            "scheduled": GuardLevel.ALLOW,
-            "mq_consumer": GuardLevel.ALLOW,
-            "event_handler": GuardLevel.ALLOW,
-        },
-        neo4j_property="entryCategory",
-    ),
-}
+ONTOLOGY_CONSTRAINT_REGISTRY: dict[str, ConstraintFieldDescriptor] = {}

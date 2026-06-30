@@ -18,10 +18,12 @@ class ActionExecutor:
         yaml_path: Path | None = None,
         function_runner: Any | None = None,
         guard_pipeline: ActionGuardPipeline | None = None,
+        shape_registry: Any | None = None,
     ) -> None:
         self._graph_store = graph_store
         self._function_runner = function_runner
         self._guard_pipeline = guard_pipeline
+        self._shape_registry = shape_registry
         if yaml_path is None:
             yaml_path = Path(__file__).parent.parent / "pipeline" / "ontology_actions.yaml"
         self._intent_map = build_intent_map(yaml_path)

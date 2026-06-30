@@ -633,6 +633,7 @@ def check_operation(intent_type: str, target: str) -> str:
 _action_executor: ActionExecutor | None = None
 _function_runner: Any | None = None
 _APPROVAL_GATE: object | None = None
+_shape_registry: Any | None = None
 
 
 def _get_approval_gate() -> object:
@@ -718,12 +719,59 @@ def _get_function_runner() -> Any:
     return _function_runner
 
 
+def _get_shape_registry() -> Any:
+    """获取全局 ShapeRegistry 单例（lazy init）。
+
+    V4 Phase 1: 从 ``pipeline/shapes.yaml`` 加载约束 Shape。失败时返回 ``None``，
+    调用方需 fallback 到旧的 Guard Pipeline。
+
+    Feature flag: 环境变量 ``ONTOAGENT_ENABLE_SHAPES``（默认 ``"true"``）。置为
+    ``"false"`` / ``"0"`` / ``"off"`` / ``"no"`` 可禁用 ShapeRegistry，仅用旧 Guard Pipeline。
+    """
+    global _shape_registry
+    if _shape_registry is not None:
+        return _shape_registry
+
+    import logging
+    import os
+    from pathlib import Path
+
+    log = logging.getLogger(__name__)
+
+    flag = os.getenv("ONTOAGENT_ENABLE_SHAPES", "true").strip().lower()
+    if flag not in ("1", "true", "yes", "on"):
+        log.info("ShapeRegistry disabled by ONTOAGENT_ENABLE_SHAPES=%r", flag)
+        return None
+
+    try:
+        from ontoagent.domain.schema import ONTOLOGY_ENTITY_LABELS
+        from ontoagent.execution.shape_registry import ShapeRegistry
+
+        shapes_yaml = Path(__file__).parent.parent / "pipeline" / "shapes.yaml"
+        if not shapes_yaml.exists():
+            log.warning("shapes.yaml not found at %s; ShapeRegistry disabled", shapes_yaml)
+            return None
+
+        registry = ShapeRegistry(valid_labels=set(ONTOLOGY_ENTITY_LABELS))
+        registry.load_from_yaml(shapes_yaml)
+        _shape_registry = registry
+        log.info("ShapeRegistry enabled with %d shapes", len(registry))
+    except Exception as exc:  # 启动期降级，不能阻塞 Agent
+        log.warning("ShapeRegistry init failed (%s); falling back to Guard Pipeline", exc)
+        _shape_registry = None
+
+    return _shape_registry
+
+
 def _get_action_executor(graph_store: object) -> ActionExecutor:
     """获取或初始化 ActionExecutor 单例。
 
     Uses OntologyConstraintLoader for three-layer constraint loading:
     Layer 1: auto-derive value_mapping from ONTOLOGY_CONSTRAINT_REGISTRY
     Layer 2: apply overrides from constraint_overrides.yaml
+
+    V4 Phase 1: 同时初始化 ShapeRegistry 并注入 ActionExecutor。ShapeRegistry 不可用
+    时（feature flag 关闭 / shapes.yaml 缺失 / 加载失败）回落到旧 Guard Pipeline。
     """
     global _action_executor
     if _action_executor is None:
@@ -776,10 +824,15 @@ def _get_action_executor(graph_store: object) -> ActionExecutor:
             if hasattr(policy, "set_pipeline"):
                 policy.set_pipeline(guard_pipeline)
 
+        # V4 Phase 1: 初始化 ShapeRegistry；失败/禁用时返回 None，ActionExecutor 仍持有
+        # 旧 Guard Pipeline 作为 fallback。
+        shape_registry = _get_shape_registry()
+
         _action_executor = ActionExecutor(
             graph_store,
             function_runner=_get_function_runner(),
             guard_pipeline=guard_pipeline,
+            shape_registry=shape_registry,
         )
     return _action_executor
 

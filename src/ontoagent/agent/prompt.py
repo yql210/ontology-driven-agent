@@ -11,7 +11,16 @@ _intent_map = build_intent_map(_yaml_path)
 INTENT_SECTION = build_intent_prompt(_intent_map)
 
 def _build_constraint_prompt() -> str:
-    """从 ONTOLOGY_CONSTRAINT_REGISTRY 动态生成约束提示段。"""
+    """生成约束提示段。
+
+    V4 Phase 1: 优先从 ShapeRegistry 生成摘要（仅 ``name + description``，控制 ≤200 token）。
+    ShapeRegistry 暂不可用（feature flag 关闭 / 加载失败 / 空注册表）时 fallback
+    到 ``ONTOLOGY_CONSTRAINT_REGISTRY`` 的旧行为。
+    """
+    shape_summary = _build_shape_summary()
+    if shape_summary is not None:
+        return shape_summary
+
     from ontoagent.domain.schema import ONTOLOGY_CONSTRAINT_REGISTRY
 
     if not ONTOLOGY_CONSTRAINT_REGISTRY:
@@ -29,6 +38,34 @@ def _build_constraint_prompt() -> str:
 
     if len(lines) <= 2:
         return "（所有已注册约束均为 ALLOW，无实际限制）"
+
+    return "\n".join(lines)
+
+
+def _build_shape_summary() -> str | None:
+    """从 ShapeRegistry 生成简短摘要（仅 name + description）。
+
+    Returns:
+        摘要字符串；ShapeRegistry 不可用 / 空时返回 ``None`` 让调用方 fallback。
+    """
+    try:
+        from ontoagent.agent.tools import _get_shape_registry
+
+        registry = _get_shape_registry()
+    except Exception:  # 模块加载期降级，不能阻塞 prompt 构建
+        return None
+
+    if registry is None or len(registry) == 0:
+        return None
+
+    lines = ["| 约束 Shape | 说明 |", "|-----------|------|"]
+    for shape in registry.all_shapes():
+        if not shape.enabled:
+            continue
+        lines.append(f"| {shape.name} | {shape.description} |")
+
+    if len(lines) <= 2:
+        return None
 
     return "\n".join(lines)
 

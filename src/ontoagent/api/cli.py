@@ -397,3 +397,47 @@ def migrate(target: str | None) -> None:
         else:
             click.echo("No pending migrations.")
     store.close()
+
+
+@main.command(name="validate-shapes")
+@click.option(
+    "--path",
+    "path_opt",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="shapes.yaml 路径，默认使用内置 pipeline/shapes.yaml",
+)
+@click.option("--strict", is_flag=True, help="校验失败时以 exit(1) 退出")
+def validate_shapes(path_opt: Path | None, strict: bool) -> None:
+    """校验 shapes.yaml 中的约束 Shape。
+
+    加载 YAML → ShapeRegistry → 对每条 Shape 应用 validate_shape（resource_type、
+    path.target_label 必须在合法标签集合中）。失败时打印聚合错误；--strict 时 exit(1)。
+    """
+    from ontoagent.domain.schema import ONTOLOGY_ENTITY_LABELS
+    from ontoagent.execution.shape_registry import ShapeRegistry
+
+    shapes_yaml = (
+        path_opt if path_opt is not None else Path(__file__).resolve().parent.parent / "pipeline" / "shapes.yaml"
+    )
+    if not shapes_yaml.exists():
+        click.echo(f"Error: shapes.yaml not found at {shapes_yaml}", err=True)
+        if strict:
+            sys.exit(1)
+        return
+
+    registry = ShapeRegistry(valid_labels=set(ONTOLOGY_ENTITY_LABELS))
+    try:
+        registry.load_from_yaml(shapes_yaml)
+    except (ValueError, FileNotFoundError) as exc:
+        click.echo(f"Validation failed: {exc}", err=True)
+        if strict:
+            sys.exit(1)
+        return
+
+    click.echo(f"Validated {len(registry)} shapes from {shapes_yaml}")
+    for shape in registry.all_shapes():
+        click.echo(
+            f"  - {shape.id} [{shape.target.resource_type}/{shape.target.operation.value}] "
+            f"severity={shape.severity.value} priority={shape.priority}"
+        )

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import tempfile
 
+import pytest
 import yaml
 
 from ontoagent.domain.constraints import GuardLevel
@@ -41,6 +42,7 @@ class TestOntologyConstraintLoader:
         finally:
             os.unlink(tmp)
 
+    @pytest.mark.skip(reason="ONTOLOGY_CONSTRAINT_REGISTRY frozen in V4 Phase 1")
     def test_auto_fill_value_mapping_from_registry(self):
         """注册表中 DataAsset.sensitivity → value_mapping 自动填充"""
         from ontoagent.execution.constraints.loader import OntologyConstraintLoader
