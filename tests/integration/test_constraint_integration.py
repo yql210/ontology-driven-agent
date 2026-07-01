@@ -138,12 +138,21 @@ def executor(
 
 
 @pytest.mark.integration
-def test_refactor_validate_credit_card_blocked(executor: ActionExecutor) -> None:
+def test_refactor_validate_credit_card_blocked(
+    executor: ActionExecutor,
+    graph_store: Neo4jGraphStore,
+) -> None:
     """refactor on validate_credit_card should BLOCK due to restricted data sensitivity.
 
     validate_credit_card has PROCESSES_DATA → 信用卡信息 (sensitivity=restricted).
     The data_sensitivity traversal constraint maps restricted → BLOCK.
     """
+    rows = graph_store.query(
+        "MATCH (n {name: $name}) RETURN n.id AS id LIMIT 1",
+        {"name": "validate_credit_card"},
+    )
+    if not rows:
+        pytest.skip("validate_credit_card node not found in Neo4j — demo-service not built")
     result = executor.execute("refactor", {"target": "validate_credit_card"})
     assert result.success is False, f"Expected BLOCK but got success: {result}"
     assert result.action_name == "refactor"
