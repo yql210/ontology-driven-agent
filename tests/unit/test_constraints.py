@@ -39,6 +39,8 @@ def test_all_constraint_domains_are_valid_entity_labels():
         "ServiceEntity",
         "DataAsset",
         "ComplianceItem",
+        "CapabilityEntity",
+        "ProcessEntity",
     }
 
     for rel_type, constraint in RELATION_CONSTRAINTS.items():
@@ -63,6 +65,8 @@ def test_all_constraint_ranges_are_valid_entity_labels():
         "ServiceEntity",
         "DataAsset",
         "ComplianceItem",
+        "CapabilityEntity",
+        "ProcessEntity",
     }
 
     for rel_type, constraint in RELATION_CONSTRAINTS.items():

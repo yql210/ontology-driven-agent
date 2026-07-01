@@ -81,7 +81,7 @@ class TestCheckSchemaVersion:
 
     def test_ahead_version(self):
         store = MagicMock()
-        store.query.return_value = [{"version": "2.0.0"}]
+        store.query.return_value = [{"version": "3.0.0"}]
         assert check_schema_version(store) == SchemaStatus.AHEAD
 
 

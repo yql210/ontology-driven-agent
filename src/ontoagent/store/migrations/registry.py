@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 _BUILTIN_MIGRATIONS: list[str] = [
     "1.1.0",
     "1.2.0",
+    "2.0.0",
 ]
 
 
@@ -38,6 +39,12 @@ def _load_migration(version: str) -> MigrationBase:
         )
 
         return CrossServiceRelationsMigration()
+    if version == "2.0.0":
+        from ontoagent.store.migrations.v2_0_0_add_capability_entities import (
+            CapabilityEntityMigration,
+        )
+
+        return CapabilityEntityMigration()
     raise ValueError(f"Unknown migration version: {version}")
 
 

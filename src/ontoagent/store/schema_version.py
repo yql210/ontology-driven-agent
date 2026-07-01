@@ -10,7 +10,7 @@ from ontoagent.store.graph_store import GraphStore
 
 logger = logging.getLogger(__name__)
 
-CURRENT_SCHEMA_VERSION = "1.0.0"
+CURRENT_SCHEMA_VERSION = "2.0.0"
 
 
 class SchemaStatus(Enum):

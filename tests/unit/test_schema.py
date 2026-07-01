@@ -9,10 +9,12 @@ from ontoagent.domain.schema import (
     RELATION_CONSTRAINTS,
     VALID_RELATION_TYPES,
     AlertEntity,
+    CapabilityEntity,
     CodeEntity,
     ConceptEntity,
     DocEntity,
     LogEntity,
+    ProcessEntity,
     ResourceEntity,
     ServiceEntity,
 )
@@ -348,3 +350,116 @@ def test_new_relation_constraints_valid():
     assert RELATION_CONSTRAINTS["runs_as"].range == "ServiceEntity"
     assert RELATION_CONSTRAINTS["service_depends_on"].domain == "ServiceEntity"
     assert RELATION_CONSTRAINTS["service_depends_on"].range == "ServiceEntity"
+
+
+# =============================================================================
+# V5 Phase 0 — CapabilityEntity & ProcessEntity (TDD RED)
+# =============================================================================
+
+
+@pytest.mark.unit
+def test_capability_entity_creation():
+    """Test creating a CapabilityEntity with required fields."""
+    entity = CapabilityEntity(
+        name="订单履约",
+        business_domain="order",
+        description="完成订单从创建到发货的全流程",
+    )
+    assert entity.name == "订单履约"
+    assert entity.business_domain == "order"
+    assert entity.id is not None
+
+
+@pytest.mark.unit
+def test_capability_entity_defaults():
+    """CapabilityEntity optional fields have correct defaults."""
+    entity = CapabilityEntity(name="test", business_domain="test", description="test")
+    assert entity.input_contract == {}
+    assert entity.output_contract == {}
+    assert entity.preconditions == []
+    assert entity.postconditions == []
+    assert entity.effects == []
+    assert entity.non_functional == {}
+    assert entity.keywords == []
+    assert entity.realized_by == []
+    assert entity.version == "1"
+    assert entity.enabled is True
+
+
+@pytest.mark.unit
+def test_capability_entity_name_required():
+    """CapabilityEntity.name must not be empty."""
+    with pytest.raises(SchemaValidationError):
+        CapabilityEntity(name="", business_domain="test", description="test")
+
+
+@pytest.mark.unit
+def test_capability_entity_full_construction():
+    """CapabilityEntity with all fields set."""
+    entity = CapabilityEntity(
+        name="库存校验",
+        business_domain="inventory",
+        description="校验商品库存是否满足订单数量",
+        input_contract={"sku_id": "str", "quantity": "int"},
+        output_contract={"available": "bool", "reason": "str"},
+        preconditions=["sku_id 存在"],
+        postconditions=["库存状态已查询"],
+        effects=["返回库存可用性"],
+        non_functional={"sync": True, "idempotent": True, "sla": "100ms"},
+        keywords=["库存", "校验", "可用性"],
+        version="1",
+        enabled=True,
+    )
+    assert entity.input_contract == {"sku_id": "str", "quantity": "int"}
+    assert entity.non_functional["sla"] == "100ms"
+    assert "库存" in entity.keywords
+
+
+@pytest.mark.unit
+def test_process_entity_creation():
+    """Test creating a ProcessEntity with required fields."""
+    entity = ProcessEntity(
+        name="订单履约流程",
+        description="从下单到发货的完整业务流程",
+    )
+    assert entity.name == "订单履约流程"
+    assert entity.id is not None
+
+
+@pytest.mark.unit
+def test_process_entity_defaults():
+    """ProcessEntity optional fields have correct defaults."""
+    entity = ProcessEntity(name="test", description="test")
+    assert entity.steps == []
+    assert entity.triggers == []
+    assert entity.completion_criteria == []
+
+
+@pytest.mark.unit
+def test_process_entity_name_required():
+    """ProcessEntity.name must not be empty."""
+    with pytest.raises(SchemaValidationError):
+        ProcessEntity(name="", description="test")
+
+
+@pytest.mark.unit
+def test_new_v5_relation_types_exist():
+    """V5 新增的 6 条关系类型在 VALID_RELATION_TYPES + RELATION_CONSTRAINTS 中。"""
+    from ontoagent.domain.schema import ONTOLOGY_RELATION_TYPES, RELATION_TYPE_TO_NEO4J
+
+    v5_rels = ["produces", "consumes", "composes_into", "realized_by", "precedes", "equivalent_to"]
+    for rel in v5_rels:
+        assert rel in VALID_RELATION_TYPES, f"{rel} not in VALID_RELATION_TYPES"
+        assert rel in RELATION_CONSTRAINTS, f"{rel} not in RELATION_CONSTRAINTS"
+        assert rel in RELATION_TYPE_TO_NEO4J, f"{rel} not in RELATION_TYPE_TO_NEO4J"
+        neo4j_name = RELATION_TYPE_TO_NEO4J[rel]
+        assert neo4j_name in ONTOLOGY_RELATION_TYPES, f"{neo4j_name} not in ONTOLOGY_RELATION_TYPES"
+
+
+@pytest.mark.unit
+def test_capability_entity_in_valid_labels():
+    """CapabilityEntity label is in VALID_ENTITY_LABELS."""
+    from ontoagent.domain.schema import VALID_ENTITY_LABELS
+
+    assert "CapabilityEntity" in VALID_ENTITY_LABELS
+    assert "ProcessEntity" in VALID_ENTITY_LABELS

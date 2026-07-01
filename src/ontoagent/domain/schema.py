@@ -422,6 +422,81 @@ class ComplianceItem:
             )
 
 
+# ============================================================
+# V5 Phase 0 — 业务能力与流程实体 (CapabilityEntity / ProcessEntity)
+# ============================================================
+
+
+@dataclass
+class CapabilityEntity:
+    """业务能力实体：系统能做什么。V5 将"动词"从硬编码 YAML 升格为本体一等公民。
+
+    Attributes:
+        name: 能力名称，如"订单履约""库存校验"。
+        business_domain: 业务域，如"order""inventory"。
+        description: 能力描述，用于语义检索。
+        input_contract: 输入契约，``{字段名: 类型}``。
+        output_contract: 输出契约，``{字段名: 类型}``。
+        preconditions: 前置条件列表。
+        postconditions: 后置条件列表。
+        effects: 对业务状态的影响。
+        non_functional: 非功能性属性，含 sync/async、idempotent、sla、side_effect 等。
+        keywords: 语义检索关键词。
+        realized_by: 实现此能力的代码实体 ID 列表。
+        version: 版本号。
+        enabled: 是否启用。
+        id: UUID v4 标识符，自动生成。
+        created_at: ISO 8601 时间戳，自动生成。
+    """
+
+    name: str
+    business_domain: str
+    description: str
+    input_contract: dict[str, str] = field(default_factory=dict)
+    output_contract: dict[str, str] = field(default_factory=dict)
+    preconditions: list[str] = field(default_factory=list)
+    postconditions: list[str] = field(default_factory=list)
+    effects: list[str] = field(default_factory=list)
+    non_functional: dict[str, object] = field(default_factory=dict)
+    keywords: list[str] = field(default_factory=list)
+    realized_by: list[str] = field(default_factory=list)
+    version: str = "1"
+    enabled: bool = True
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    def __post_init__(self) -> None:
+        if not self.name or not self.name.strip():
+            raise SchemaValidationError("CapabilityEntity.name cannot be empty")
+
+
+@dataclass
+class ProcessEntity:
+    """业务流程实体：多个 Capability 编排成的端到端流程。
+
+    Attributes:
+        name: 流程名称，如"订单履约流程"。
+        description: 流程描述。
+        steps: 流程步骤列表，每步为 dict。
+        triggers: 触发条件列表。
+        completion_criteria: 完成标准列表。
+        id: UUID v4 标识符，自动生成。
+        created_at: ISO 8601 时间戳，自动生成。
+    """
+
+    name: str
+    description: str
+    steps: list[dict] = field(default_factory=list)
+    triggers: list[str] = field(default_factory=list)
+    completion_criteria: list[str] = field(default_factory=list)
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    def __post_init__(self) -> None:
+        if not self.name or not self.name.strip():
+            raise SchemaValidationError("ProcessEntity.name cannot be empty")
+
+
 VALID_ENTITY_LABELS: frozenset[str] = frozenset(
     {
         "CodeEntity",
@@ -435,6 +510,8 @@ VALID_ENTITY_LABELS: frozenset[str] = frozenset(
         "ServiceEntity",
         "DataAsset",
         "ComplianceItem",
+        "CapabilityEntity",
+        "ProcessEntity",
     }
 )
 
@@ -462,6 +539,13 @@ VALID_RELATION_TYPES = frozenset(
         "calls_service",
         "publishes_to",
         "consumed_by",
+        # V5 业务能力关系
+        "produces",
+        "consumes",
+        "composes_into",
+        "realized_by",
+        "precedes",
+        "equivalent_to",
     }
 )
 
@@ -487,6 +571,13 @@ RELATION_TYPE_TO_NEO4J: dict[str, str] = {
     "calls_service": "CALLS_SERVICE",
     "publishes_to": "PUBLISHES_TO",
     "consumed_by": "CONSUMED_BY",
+    # V5 业务能力关系
+    "produces": "PRODUCES",
+    "consumes": "CONSUMES",
+    "composes_into": "COMPOSES_INTO",
+    "realized_by": "REALIZED_BY",
+    "precedes": "PRECEDES",
+    "equivalent_to": "EQUIVALENT_TO",
 }
 
 # ============================================================
@@ -649,6 +740,37 @@ RELATION_CONSTRAINTS: dict[str, RelationConstraint] = {
         domain="ConceptEntity",
         range="CodeEntity",
         description="消息主题被代码消费",
+    ),
+    # --- V5 业务能力关系 ---
+    "produces": RelationConstraint(
+        domain="CapabilityEntity",
+        range="DataAsset",
+        description="能力产出的数据类型",
+    ),
+    "consumes": RelationConstraint(
+        domain="CapabilityEntity",
+        range="DataAsset",
+        description="能力消费的数据类型",
+    ),
+    "composes_into": RelationConstraint(
+        domain="CapabilityEntity",
+        range="CapabilityEntity",
+        description="子能力组合为更高级能力",
+    ),
+    "realized_by": RelationConstraint(
+        domain="CapabilityEntity",
+        range="CodeEntity",
+        description="能力由代码实体实现（逆向自代码）",
+    ),
+    "precedes": RelationConstraint(
+        domain="CapabilityEntity",
+        range="CapabilityEntity",
+        description="能力在流程中先于另一能力执行",
+    ),
+    "equivalent_to": RelationConstraint(
+        domain="CapabilityEntity",
+        range="CapabilityEntity",
+        description="两个能力语义等价（可互相替代）",
     ),
 }
 

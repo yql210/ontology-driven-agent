@@ -111,19 +111,19 @@ class TestMigrationRegistry:
         """内置迁移填补了空隙后，路径应完整返回。"""
         reg = MigrationRegistry()
         m1 = DummyMigration("0.0.0", "1.0.0")
-        m3 = DummyMigration("1.1.0", "2.0.0")  # gap 1.0.0→1.1.0 filled by builtin
+        m3 = DummyMigration("2.0.0", "3.0.0")  # gap 1.0.0→2.0.0 filled by builtin
         reg.register(m1)
         reg.register(m3)
-        path = reg.get_migration_path("0.0.0", "2.0.0")
-        # builtin 1.0.0→1.1.0 + m1 0.0.0→1.0.0 + m3 1.1.0→2.0.0 = 3 steps
-        assert len(path) == 3
+        path = reg.get_migration_path("0.0.0", "3.0.0")
+        # builtin 1.0.0→1.1.0 + 1.1.0→1.2.0 + 1.2.0→2.0.0 + m1 + m3
+        assert len(path) == 5
 
     def test_get_latest_version(self):
         reg = MigrationRegistry()
-        # builtin migrations (1.0.0→1.1.0, 1.1.0→1.2.0) are auto-loaded
-        assert reg.get_latest_version() == "1.2.0"
-        reg.register(DummyMigration("1.2.0", "2.0.0"))
+        # builtin migrations now include v2.0.0
         assert reg.get_latest_version() == "2.0.0"
+        reg.register(DummyMigration("2.0.0", "3.0.0"))
+        assert reg.get_latest_version() == "3.0.0"
 
 
 def _make_store(version: str | None = None):
@@ -157,26 +157,30 @@ class TestMigrationRunnerRunPending:
         assert applied == []
 
     def test_runs_single_migration(self):
-        """执行单步迁移。"""
+        """执行单步迁移（内置迁移链 1.0→1.1→1.2→2.0 也会执行）。"""
         store = _make_store("0.9.0")
         reg = MigrationRegistry()
         m = DummyMigration("0.9.0", "1.0.0")
         reg.register(m)
-        # 模拟迁移后版本查询
-        store.query.side_effect = [
-            [{"version": "0.9.0"}],  # get_current_db_version (check_schema_version)
-            [{"version": "0.9.0"}],  # get_current_db_version (run_pending)
-            [],  # register_schema_version
-        ]
+        # 内置迁移会连锁执行，用 lambda 返回 [] 避免 StopIteration
+        version_calls = 0
+        def _query_side_effect(*args, **kwargs):
+            nonlocal version_calls
+            version_calls += 1
+            # check_schema_version 和 run_pending 头两次返回版本
+            if version_calls <= 2:
+                return [{"version": "0.9.0"}]
+            return []
+        store.query.side_effect = _query_side_effect
         runner = MigrationRunner(store, reg)
         with patch.object(runner, "_acquire_lock", return_value=MagicMock()), patch.object(runner, "_release_lock"):
             applied = runner.run_pending()
-        assert applied == ["1.0.0"]
+        assert "1.0.0" in applied
         assert m.upgrade_called
 
     def test_fails_on_ahead_version(self):
         """DB 版本领先时抛出异常。"""
-        store = _make_store("2.0.0")
+        store = _make_store("3.0.0")
         reg = MigrationRegistry()
         runner = MigrationRunner(store, reg)
         with (
@@ -249,3 +253,19 @@ class TestMigrationRunnerLock:
 
             fcntl.flock(f1.fileno(), fcntl.LOCK_UN)
             f1.close()
+
+
+@pytest.mark.unit
+def test_migration_registry_includes_v5_capability() -> None:
+    """Phase 0: migration registry must include v2.0.0 for CapabilityEntity."""
+    reg = MigrationRegistry()
+    versions = [m.version_to for m in reg.migrations]
+    assert "2.0.0" in versions, f"v2.0.0 not found in migration registry: {versions}"
+
+
+@pytest.mark.unit
+def test_current_schema_version_is_2_0_0() -> None:
+    """Phase 0: CURRENT_SCHEMA_VERSION must be '2.0.0'."""
+    assert CURRENT_SCHEMA_VERSION == "2.0.0", (
+        f"Expected 2.0.0, got {CURRENT_SCHEMA_VERSION}"
+    )
