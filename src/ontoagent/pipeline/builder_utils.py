@@ -270,3 +270,27 @@ def capability_entity_to_dict(entity: "CapabilityEntity") -> dict[str, object]:
         "enabled": entity.enabled,
         "created_at": entity.created_at,
     }
+
+
+def capability_to_searchable_text(
+    name: str,
+    description: str,
+    keywords: list[str],
+) -> str:
+    """Generate ChromaDB-searchable text from CapabilityEntity fields.
+
+    Combines name, description, and keywords into a single text blob
+    for vector embedding. ChromaDB uses this text to compute similarity.
+
+    Args:
+        name: Capability name.
+        description: Capability description.
+        keywords: Keyword list for semantic retrieval.
+
+    Returns:
+        Combined searchable text string.
+    """
+    parts = [name, description]
+    if keywords:
+        parts.append(" ".join(keywords))
+    return " | ".join(parts)

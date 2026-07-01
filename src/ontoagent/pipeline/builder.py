@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -17,6 +18,7 @@ from ontoagent.parsing.parser.java_parser import JavaParser
 from ontoagent.parsing.parser.python_parser import PythonParser
 from ontoagent.pipeline.builder_utils import (
     capability_entity_to_dict,
+    capability_to_searchable_text,
     compliance_item_to_dict,
     data_asset_to_dict,
     doc_entity_to_dict,
@@ -798,7 +800,8 @@ class OntoAgentBuilder:
         # Stage 5: 向量写入（可降级）
         self._logger.info("═══ Stage 5/5: Vector Index ═══")
         try:
-            self._write_all_vectors(all_entities, doc_entities, new_concepts, clusters)
+            cap_dicts = getattr(self, "_capability_dicts", None) or []
+            self._write_all_vectors(all_entities, doc_entities, new_concepts, clusters, capability_dicts=cap_dicts)
         except Exception as e:
             self._logger.warning("Vector write failed: %s", e)
             all_errors.append(f"Vector write error: {e}")
@@ -1042,6 +1045,7 @@ class OntoAgentBuilder:
             graph_store.merge_nodes_batch("CapabilityEntity", cap_dicts, batch_size=200)
             cap_count = len(cap_dicts)
             self._logger.info("[Neo4j] Merged %d CapabilityEntities", cap_count)
+        self._capability_dicts = cap_dicts
 
         rel_count = 0
         if realized_by_rels:
@@ -1049,6 +1053,25 @@ class OntoAgentBuilder:
             self._logger.info("[Neo4j] Wrote %d REALIZED_BY relations", rel_count)
 
         return cap_count, rel_count
+
+    def _extract_capabilities_to_dicts(
+        self,
+        all_entities: list[CodeEntity],
+        graph_store: Neo4jGraphStore,
+        batch_time: str,
+    ) -> list[dict]:
+        """Stage 2.7: extract CapabilityEntities and return their dicts for ChromaDB indexing.
+
+        Args:
+            all_entities: All code entities.
+            graph_store: Neo4j store instance.
+            batch_time: Batch timestamp.
+
+        Returns:
+            List of capability property dicts.
+        """
+        _, _ = self._extract_capabilities(all_entities, graph_store, batch_time)
+        return self._capability_dicts
 
     def _detect_and_write_modules(
         self,
@@ -1079,15 +1102,18 @@ class OntoAgentBuilder:
         doc_entities: list[DocEntity],
         new_concepts: list[ConceptEntity],
         clusters: list[ModuleCluster],
+        capability_dicts: list[dict] | None = None,
     ) -> None:
         """Stage 5: 统一向量写入 ChromaDB.
 
         Args:
-            all_entities: 所有代码实体。
-            doc_entities: 所有文档实体。
-            new_concepts: 新创建的概念实体。
-            clusters: 模块聚类列表。
+            all_entities: All code entities.
+            doc_entities: All doc entities.
+            new_concepts: New concept entities.
+            clusters: Module clusters.
+            capability_dicts: Optional CapabilityEntity dicts for vector indexing.
         """
+
         chroma_store = self._get_chroma_store()
         items: list[tuple[str, str, dict[str, str]]] = []
 
@@ -1112,8 +1138,29 @@ class OntoAgentBuilder:
         for cluster in clusters:
             module = cluster.module
             text = module.description or module.name
-            # ModuleEntity 无 entity_type 字段，硬编码
             items.append((module.id, text, {"entity_type": "module", "name": module.name}))
+
+        # V5 Phase 2: CapabilityEntity — indexed for semantic search
+        if capability_dicts:
+            for cap in capability_dicts:
+                cap_name = str(cap.get("name", ""))
+                cap_desc = str(cap.get("description", ""))
+                cap_domain = str(cap.get("business_domain", ""))
+                cap_keywords_raw = cap.get("keywords", "[]")
+                try:
+                    cap_keywords: list[str] = json.loads(str(cap_keywords_raw))
+                except (json.JSONDecodeError, TypeError):
+                    cap_keywords = []
+                search_text = capability_to_searchable_text(cap_name, cap_desc, cap_keywords)
+                cap_id = str(cap.get("id", ""))
+                if search_text.strip() and cap_id:
+                    items.append(
+                        (
+                            cap_id,
+                            search_text,
+                            {"entity_type": "CapabilityEntity", "name": cap_name, "business_domain": cap_domain},
+                        )
+                    )
 
         if items:
             self._logger.info("[Vector] Writing %d items to ChromaDB...", len(items))
