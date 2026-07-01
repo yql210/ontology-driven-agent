@@ -16,6 +16,7 @@ from ontoagent.parsing.parser.base import BaseParser
 from ontoagent.parsing.parser.java_parser import JavaParser
 from ontoagent.parsing.parser.python_parser import PythonParser
 from ontoagent.pipeline.builder_utils import (
+    capability_entity_to_dict,
     compliance_item_to_dict,
     data_asset_to_dict,
     doc_entity_to_dict,
@@ -691,7 +692,7 @@ class OntoAgentBuilder:
             )
         self._logger.info("═══ Stage 2.5/5 complete: %d DESCRIBES relations ═══", len(describes_rels))
 
-        # Stage 2.6: 业务本体（Business Ontology YAML → DataAsset + ComplianceItem）
+        # Stage 2.6: 业务本体
         self._logger.info("═══ Stage 2.6/5: Business Ontology ═══")
         data_asset_count = 0
         compliance_item_count = 0
@@ -704,16 +705,13 @@ class OntoAgentBuilder:
 
                 data_assets, compliance_items = load_business_ontology(yaml_path)
 
-                # Write DataAsset entities
                 if data_assets:
                     asset_dicts = [
                         add_provenance(data_asset_to_dict(asset), extracted_at=batch_time) for asset in data_assets
                     ]
                     graph_store.merge_nodes_batch("DataAsset", asset_dicts, batch_size=200)
                     data_asset_count = len(data_assets)
-                    self._logger.info("[Neo4j] Merged %d DataAssets", data_asset_count)
 
-                # Write ComplianceItem entities
                 if compliance_items:
                     item_dicts = [
                         add_provenance(compliance_item_to_dict(item), extracted_at=batch_time)
@@ -721,9 +719,7 @@ class OntoAgentBuilder:
                     ]
                     graph_store.merge_nodes_batch("ComplianceItem", item_dicts, batch_size=200)
                     compliance_item_count = len(compliance_items)
-                    self._logger.info("[Neo4j] Merged %d ComplianceItems", compliance_item_count)
 
-                # Create processes_data relations from data mapper
                 if data_assets and all_entities:
                     asset_pairs = map_code_to_data_assets(all_entities, data_assets)
                     if asset_pairs:
@@ -745,22 +741,29 @@ class OntoAgentBuilder:
                                 }
                             )
                         processes_data_count = graph_store.merge_relations_batch(pd_rel_data, batch_size=200)
-                        self._logger.info("[Business Ontology] Created %d processes_data relations", processes_data_count)
-                    else:
-                        self._logger.info("[Business Ontology] No processes_data relations found")
             except Exception as e:
                 self._logger.warning("Business ontology loading failed (non-critical): %s", e)
                 all_errors.append(f"Business ontology error: {e}")
         else:
             self._logger.info("No ontoagent.yaml found, skipping business ontology")
+
+        # Stage 2.7: Capability Extraction (V5 Phase 1, non-critical)
+        capability_count = 0
+        realized_by_count = 0
+        try:
+            capability_count, realized_by_count = self._extract_capabilities(
+                all_entities, graph_store, batch_time
+            )
+        except Exception as e:
+            self._logger.warning("Capability extraction failed (non-critical): %s", e)
+            all_errors.append(f"Capability extraction error: {e}")
         self._logger.info(
-            "═══ Stage 2.6/5 complete: %d DataAssets, %d ComplianceItems, %d processes_data relations ═══",
-            data_asset_count,
-            compliance_item_count,
-            processes_data_count,
+            "═══ Stage 2.7: %d CapabilityEntities, %d REALIZED_BY relations ═══",
+            capability_count,
+            realized_by_count,
         )
 
-        # Stage 3: 语义提取（可降级）
+        # Stage 3: 语义提取
         self._logger.info("═══ Stage 3/5: Semantic Extraction (may take a while...) ═══")
         if skip_semantic:
             concepts_created = 0
@@ -969,7 +972,7 @@ class OntoAgentBuilder:
         return self._aligner
 
     def _init_clustering(self) -> ModuleClustering:
-        """Lazy init ModuleClustering。
+        """Lazy init ModuleClustering.
 
         Returns:
             ModuleClustering 实例。
@@ -979,6 +982,73 @@ class OntoAgentBuilder:
                 neo4j_store=self._get_graph_store(),
             )
         return self._clustering
+
+    def _extract_capabilities(
+        self,
+        all_entities: list[CodeEntity],
+        graph_store: Neo4jGraphStore,
+        batch_time: str,
+    ) -> tuple[int, int]:
+        """Stage 2.7: 从 API 入口函数逆向 CapabilityEntity 并写入 Neo4j。
+
+        Args:
+            all_entities: 所有代码实体。
+            graph_store: Neo4j 存储实例。
+            batch_time: 批次时间戳。
+
+        Returns:
+            (capability_count, realized_by_count) 元组。
+        """
+        from ontoagent.parsing.extractor.capability_extractor import CapabilityExtractor
+
+        extractor = CapabilityExtractor()
+        cap_dicts: list[dict] = []
+        realized_by_rels: list[dict] = []
+
+        for entity in all_entities:
+            capability = extractor.extract(entity)
+            if capability is None:
+                continue
+
+            cap_dicts.append(
+                add_provenance(
+                    capability_entity_to_dict(capability),
+                    source="ast_parser",
+                    confidence=0.85,
+                    extracted_at=batch_time,
+                )
+            )
+            # REALIZED_BY: CapabilityEntity → CodeEntity
+            if capability.realized_by:
+                for code_id in capability.realized_by:
+                    realized_by_rels.append(
+                        {
+                            "source_id": capability.id,
+                            "target_id": code_id,
+                            "rel_type": "realized_by",
+                            "source_label": "CapabilityEntity",
+                            "target_label": "CodeEntity",
+                            "properties": add_provenance(
+                                {},
+                                source="ast_parser",
+                                confidence=0.85,
+                                extracted_at=batch_time,
+                            ),
+                        }
+                    )
+
+        cap_count = 0
+        if cap_dicts:
+            graph_store.merge_nodes_batch("CapabilityEntity", cap_dicts, batch_size=200)
+            cap_count = len(cap_dicts)
+            self._logger.info("[Neo4j] Merged %d CapabilityEntities", cap_count)
+
+        rel_count = 0
+        if realized_by_rels:
+            rel_count = graph_store.merge_relations_batch(realized_by_rels, batch_size=200)
+            self._logger.info("[Neo4j] Wrote %d REALIZED_BY relations", rel_count)
+
+        return cap_count, rel_count
 
     def _detect_and_write_modules(
         self,

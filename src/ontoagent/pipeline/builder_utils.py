@@ -5,10 +5,18 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
-from ontoagent.domain.schema import CodeEntity, ComplianceItem, DataAsset, DocEntity, ServiceEntity
+from ontoagent.domain.schema import (
+    CapabilityEntity,
+    CodeEntity,
+    ComplianceItem,
+    DataAsset,
+    DocEntity,
+    ServiceEntity,
+)
 
 # 路径边界字符（用于防止子串误匹配）
 BOUNDARY_CHARS = " ./\\-_"
@@ -239,3 +247,26 @@ def service_entity_to_dict(entity: ServiceEntity) -> dict[str, object]:
     if entity.team:
         d["team"] = entity.team
     return d
+
+
+def capability_entity_to_dict(entity: "CapabilityEntity") -> dict[str, object]:
+    """将 CapabilityEntity 转为 Neo4j 属性字典。
+
+    Args:
+        entity: 业务能力实体。
+
+    Returns:
+        属性字典。
+    """
+    return {
+        "id": entity.id,
+        "name": entity.name,
+        "business_domain": entity.business_domain,
+        "description": entity.description,
+        "input_contract": json.dumps(entity.input_contract, ensure_ascii=False),
+        "output_contract": json.dumps(entity.output_contract, ensure_ascii=False),
+        "keywords": json.dumps(entity.keywords, ensure_ascii=False),
+        "version": entity.version,
+        "enabled": entity.enabled,
+        "created_at": entity.created_at,
+    }
