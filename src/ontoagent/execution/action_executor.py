@@ -157,8 +157,14 @@ class ActionExecutor:
         if report.severity is Severity.BLOCK:
             return report.suggestion or "操作被约束 Shape 阻断", []
         if report.severity is Severity.ESCALATE:
-            # Phase 4 将在 ApprovalGate 中路由 ESCALATE；此处保守阻断
-            return report.suggestion or "操作需要人工审批", []
+            # 不阻断：把 triggered shapes 放入 warnings，标记 approval_required
+            # 供调用方（ApprovalGate）后续路由人工审批
+            escalated = report.suggestion or "操作需要人工审批"
+            triggered_info = [
+                f"shape:{t['shape_id']}[{t['severity']}] {t.get('evidence', {}).get('field', '')}"
+                for t in report.triggered
+            ]
+            return None, [escalated, f"approval_required: {', '.join(triggered_info)}"]
         if report.severity is Severity.WARN:
             return None, [report.suggestion] if report.suggestion else []
         return None, []

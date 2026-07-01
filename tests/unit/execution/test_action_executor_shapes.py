@@ -171,6 +171,26 @@ def warn_registry() -> ShapeRegistry:
     return registry
 
 
+@pytest.fixture
+def escalate_registry() -> ShapeRegistry:
+    """Registry with one ESCALATE shape on CodeEntity:READ."""
+    shape = ConstraintShape(
+        id="shape:escalate_test",
+        name="escalate_test",
+        description="test escalate",
+        kind=ShapeKind.OPERATIONAL,
+        target=ShapeTarget(resource_type="CodeEntity", operation=Operation.READ),
+        path=PathExpression.parse("SELF"),
+        constraint=ConstraintExpr(field="sensitivity", operator="in", value=["restricted"]),
+        severity=Severity.ESCALATE,
+        priority=10,
+        suggestion="需人工审批",
+    )
+    registry = ShapeRegistry(valid_labels={"CodeEntity"})
+    registry.register(shape)
+    return registry
+
+
 # =============================================================================
 # Tests: _check_with_shapes
 # =============================================================================
@@ -222,6 +242,29 @@ class TestCheckWithShapes:
 
         assert block_reason is None
         assert len(warnings) == 1
+
+    def test_escalate_returns_warning_not_block(self, yaml_with_refactor, escalate_registry):
+        """ESCALATE shape → (None, warnings) — 不阻断，标记 approval_required。"""
+        store = MockGraphStore(
+            {
+                "ent-1": {
+                    "name": "Foo",
+                    "lines": 200,
+                    "entityType": "function",
+                    "labels": ["CodeEntity"],
+                }
+            },
+            shape_query_values=[{"val": "restricted"}],
+        )
+        executor = ActionExecutor(store, yaml_path=yaml_with_refactor, shape_registry=escalate_registry)
+        config = executor.intent_map["refactor"]
+        entity = store.query("", {"name": "Foo"})[0]
+
+        block_reason, warnings = executor._check_with_shapes(entity, config)
+
+        assert block_reason is None, f"ESCALATE should not block, got: {block_reason}"
+        assert len(warnings) >= 2, f"Expected at least 2 warnings, got: {warnings}"
+        assert any("approval_required" in w for w in warnings), f"Missing approval_required marker in: {warnings}"
 
     def test_no_matching_shape_returns_pass(self, yaml_with_refactor):
         """No shapes in registry → (None, [])."""

@@ -158,6 +158,14 @@ class ShapeEvaluator:
             return all(v != constraint.value for v in values)
         if op == "exists":
             return len(values) > 0
+        if op == ">":
+            return any(v > constraint.value for v in values)
+        if op == "<":
+            return any(v < constraint.value for v in values)
+        if op == ">=":
+            return any(v >= constraint.value for v in values)
+        if op == "<=":
+            return any(v <= constraint.value for v in values)
 
         logger.warning("未知 operator %r (field=%r) — 视为未触发", op, constraint.field)
         return False

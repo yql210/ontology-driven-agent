@@ -200,7 +200,7 @@ class TestMultipleBlock:
         assert report.severity == Severity.BLOCK
         assert report.suggestion == "high-block"
 
-    def test_same_priority_intersects_suggestions(self):
+    def test_same_priority_merges_suggestions(self):
         a = _make_shape(
             "a",
             Severity.BLOCK,
@@ -215,26 +215,28 @@ class TestMultipleBlock:
         )
         report = DecisionFuser.fuse([_make_result(a), _make_result(b)])
         assert report.severity == Severity.BLOCK
-        lowered = report.suggestion.lower()
-        assert "require" in lowered
-        assert "sox" in lowered
-        assert "approval" in lowered
+        # 按行去重合并，两条内容均保留
+        assert "before deletion" in report.suggestion
+        assert "from compliance" in report.suggestion
 
-    def test_same_priority_no_intersection_escalates(self):
+    def test_same_priority_merge_no_longer_escalates(self):
+        """新逻辑按行去重合并，不再因无交集而升级 ESCALATE。"""
         a = _make_shape("a", Severity.BLOCK, priority=5, suggestion="Backup data before deletion")
         b = _make_shape("b", Severity.BLOCK, priority=5, suggestion="Notify compliance team")
         report = DecisionFuser.fuse([_make_result(a), _make_result(b)])
-        assert report.severity == Severity.ESCALATE
+        assert report.severity == Severity.BLOCK
+        assert "Backup data before deletion" in report.suggestion
+        assert "Notify compliance team" in report.suggestion
 
-    def test_three_blocks_same_priority_intersects(self):
+    def test_three_blocks_same_priority_merges(self):
         a = _make_shape("a", Severity.BLOCK, priority=5, suggestion="Require approval SOX")
         b = _make_shape("b", Severity.BLOCK, priority=5, suggestion="Require approval GDPR")
         c = _make_shape("c", Severity.BLOCK, priority=5, suggestion="Require approval audit")
         report = DecisionFuser.fuse([_make_result(a), _make_result(b), _make_result(c)])
         assert report.severity == Severity.BLOCK
-        lowered = report.suggestion.lower()
-        assert "require" in lowered
-        assert "approval" in lowered
+        assert "SOX" in report.suggestion
+        assert "GDPR" in report.suggestion
+        assert "audit" in report.suggestion
 
 
 # ============================================================

@@ -119,39 +119,26 @@ def _build_triggered_details(results: list[ShapeResult]) -> list[dict[str, Any]]
 
 
 def _intersect_suggestions(suggestions: list[str]) -> str:
-    """对多条 suggestion 取词级交集。
+    """对多条 suggestion 按行去重合并，保留原文语义。
 
-    - 大小写不敏感比较，但输出保留首次出现的原始大小写。
-    - 顺序按第一条 suggestion 中词的出现顺序。
-    - 无交集返回空串。
+    多条 BLOCK Shape 同时触发时，将它们的 suggestion 按行拆分、
+    去重后拼接。避免原 word-level intersection 对中文输出无意义结果。
 
     Args:
         suggestions: 多条 suggestion 字符串。
 
     Returns:
-        交集词以空格拼接的字符串；无交集时为 ""。
+        按空行分隔的去重合并文本；均为空时返回 ""。
     """
     if not suggestions:
         return ""
 
-    word_sets: list[set[str]] = []
-    for s in suggestions:
-        words = {w.lower() for w in s.split() if w}
-        if not words:
-            return ""
-        word_sets.append(words)
-
-    common = set.intersection(*word_sets)
-    if not common:
-        return ""
-
-    out: list[str] = []
+    lines: list[str] = []
     seen: set[str] = set()
-    for w in suggestions[0].split():
-        if not w:
-            continue
-        key = w.lower()
-        if key in common and key not in seen:
-            out.append(w)
-            seen.add(key)
-    return " ".join(out)
+    for s in suggestions:
+        for line in s.split("\n"):
+            stripped = line.strip()
+            if stripped and stripped not in seen:
+                lines.append(stripped)
+                seen.add(stripped)
+    return "\n".join(lines)

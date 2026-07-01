@@ -369,3 +369,45 @@ class TestEdgeCases:
 
         field_names = {f.name for f in dc_fields(ShapeResult)}
         assert field_names == {"shape", "severity", "evidence", "triggered"}
+
+    # ─── 数值比较 operator ───────────────────────────────────────────
+
+    def test_gt_operator_triggers(
+        self, evaluator: ShapeEvaluator, registry: ShapeRegistry, mock_graph_store: MagicMock
+    ) -> None:
+        registry.register(_make_shape("s1", operator=">", value=100))
+        mock_graph_store.query.return_value = [{"val": 150}]
+        results = evaluator.evaluate({"id": "abc", "labels": ["CodeEntity"]}, [Operation.READ])
+        assert results[0].triggered is True
+
+    def test_gt_operator_does_not_trigger_when_below(
+        self, evaluator: ShapeEvaluator, registry: ShapeRegistry, mock_graph_store: MagicMock
+    ) -> None:
+        registry.register(_make_shape("s1", operator=">", value=100))
+        mock_graph_store.query.return_value = [{"val": 50}]
+        results = evaluator.evaluate({"id": "abc", "labels": ["CodeEntity"]}, [Operation.READ])
+        assert results[0].triggered is False
+
+    def test_lt_operator_triggers(
+        self, evaluator: ShapeEvaluator, registry: ShapeRegistry, mock_graph_store: MagicMock
+    ) -> None:
+        registry.register(_make_shape("s1", operator="<", value=100))
+        mock_graph_store.query.return_value = [{"val": 50}]
+        results = evaluator.evaluate({"id": "abc", "labels": ["CodeEntity"]}, [Operation.READ])
+        assert results[0].triggered is True
+
+    def test_gte_operator_triggers_on_equal(
+        self, evaluator: ShapeEvaluator, registry: ShapeRegistry, mock_graph_store: MagicMock
+    ) -> None:
+        registry.register(_make_shape("s1", operator=">=", value=100))
+        mock_graph_store.query.return_value = [{"val": 100}]
+        results = evaluator.evaluate({"id": "abc", "labels": ["CodeEntity"]}, [Operation.READ])
+        assert results[0].triggered is True
+
+    def test_lte_operator_triggers(
+        self, evaluator: ShapeEvaluator, registry: ShapeRegistry, mock_graph_store: MagicMock
+    ) -> None:
+        registry.register(_make_shape("s1", operator="<=", value=100))
+        mock_graph_store.query.return_value = [{"val": 50}]
+        results = evaluator.evaluate({"id": "abc", "labels": ["CodeEntity"]}, [Operation.READ])
+        assert results[0].triggered is True
