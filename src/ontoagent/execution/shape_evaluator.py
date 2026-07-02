@@ -69,6 +69,12 @@ class ShapeEvaluator:
         results: list[ShapeResult] = []
         entity_id = str(entity.get("id", ""))
         labels: list[str] = entity.get("labels") or []
+        entity_name: str = str(entity.get("name", ""))
+
+        # Allow-set 短路：白名单实体跳过所有 Shape 检查
+        for label in labels:
+            if self._registry.is_allowed(label, entity_name):
+                return results
 
         for operation in capabilities:
             for label in labels:

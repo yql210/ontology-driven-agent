@@ -50,6 +50,7 @@ def _make_shape(
     severity: Severity = Severity.WARN,
     unless_field: str | None = None,
     unless_value: str | list[str] | None = None,
+    max_depth: int = 3,
 ) -> ConstraintShape:
     return ConstraintShape(
         id=shape_id,
@@ -57,7 +58,7 @@ def _make_shape(
         description="test shape",
         kind=ShapeKind.OPERATIONAL,
         target=ShapeTarget(resource_type=resource_type, operation=operation),
-        path=PathExpression.parse(path),
+        path=PathExpression.parse(path, max_depth=max_depth),
         constraint=ConstraintExpr(
             field=field,
             operator=operator,
@@ -411,3 +412,111 @@ class TestEdgeCases:
         mock_graph_store.query.return_value = [{"val": 50}]
         results = evaluator.evaluate({"id": "abc", "labels": ["CodeEntity"]}, [Operation.READ])
         assert results[0].triggered is True
+
+
+# =============================================================================
+# allow_set 白名单短路与上游 CALLS 多跳 Shape
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestAllowSetShortCircuit:
+    def test_allow_set_skips_all_shapes(self, mock_graph_store: MagicMock) -> None:
+        """allow_set 命中 → 即使有匹配 Shape 也直接返回空列表。"""
+        registry = ShapeRegistry(
+            valid_labels={"CodeEntity", "DataAsset"},
+            allow_set={"CodeEntity:trusted_module"},
+        )
+        registry.register(_make_shape("s1", operator="in", value=["restricted"]))
+        mock_graph_store.query.return_value = [{"val": "restricted"}]
+        evaluator_local = ShapeEvaluator(shape_registry=registry, graph_store=mock_graph_store)
+
+        results = evaluator_local.evaluate(
+            {"id": "abc", "labels": ["CodeEntity"], "name": "trusted_module"},
+            [Operation.READ],
+        )
+
+        assert results == []
+        mock_graph_store.query.assert_not_called()
+
+    def test_is_allowed_method(self) -> None:
+        """ShapeRegistry.is_allowed 按 'Label:Name' 格式查询。"""
+        registry = ShapeRegistry(
+            valid_labels={"CodeEntity"},
+            allow_set={"CodeEntity:foo", "DataAsset:bar"},
+        )
+        assert registry.is_allowed("CodeEntity", "foo") is True
+        assert registry.is_allowed("DataAsset", "bar") is True
+        assert registry.is_allowed("CodeEntity", "baz") is False
+        assert registry.is_allowed("Unknown", "foo") is False
+
+    def test_allow_set_empty_by_default(self) -> None:
+        """不传 allow_set 时，所有实体都不被允许。"""
+        registry = ShapeRegistry(valid_labels={"CodeEntity"})
+        assert registry.is_allowed("CodeEntity", "anything") is False
+
+
+@pytest.mark.unit
+class TestUpstreamCallChainShape:
+    def test_upstream_risk_multihop_triggered(
+        self, mock_graph_store: MagicMock
+    ) -> None:
+        """^CALLS{1,5} 反向多跳：上游 entryCategory 命中 http_api/rpc_service。"""
+        registry = ShapeRegistry(valid_labels={"CodeEntity"})
+        registry.register(
+            _make_shape(
+                "shape:upstream_call_chain_risk",
+                operation=Operation.UPDATE,
+                path="^CALLS{1,5} -> CodeEntity",
+                field="entryCategory",
+                operator="in",
+                value=["http_api", "rpc_service"],
+                max_depth=5,
+            )
+        )
+        mock_graph_store.query.return_value = [{"val": "http_api"}]
+        evaluator_local = ShapeEvaluator(shape_registry=registry, graph_store=mock_graph_store)
+
+        results = evaluator_local.evaluate(
+            {"id": "abc", "labels": ["CodeEntity"]},
+            [Operation.UPDATE],
+        )
+
+        assert len(results) == 1
+        assert results[0].triggered is True
+        assert results[0].evidence["values"] == ["http_api"]
+
+        mock_graph_store.query.assert_called_once()
+        cypher, params = mock_graph_store.query.call_args.args
+        assert "CALLS" in cypher
+        assert "*1..5" in cypher
+        assert "<-[" in cypher
+        assert "CodeEntity" in cypher
+        assert params == {"entity_id": "abc"}
+
+    def test_upstream_risk_multihop_not_triggered(
+        self, mock_graph_store: MagicMock
+    ) -> None:
+        """^CALLS{1,5} 反向多跳：上游 entryCategory 不在期望集合中 → 不命中。"""
+        registry = ShapeRegistry(valid_labels={"CodeEntity"})
+        registry.register(
+            _make_shape(
+                "shape:upstream_call_chain_risk",
+                operation=Operation.UPDATE,
+                path="^CALLS{1,5} -> CodeEntity",
+                field="entryCategory",
+                operator="in",
+                value=["http_api", "rpc_service"],
+                max_depth=5,
+            )
+        )
+        mock_graph_store.query.return_value = [{"val": "internal"}]
+        evaluator_local = ShapeEvaluator(shape_registry=registry, graph_store=mock_graph_store)
+
+        results = evaluator_local.evaluate(
+            {"id": "abc", "labels": ["CodeEntity"]},
+            [Operation.UPDATE],
+        )
+
+        assert len(results) == 1
+        assert results[0].triggered is False

@@ -22,16 +22,19 @@ class ShapeRegistry:
     倒排索引: ``dict[tuple[str, Operation], list[ConstraintShape]]``。
     """
 
-    def __init__(self, valid_labels: set[str]) -> None:
+    def __init__(self, valid_labels: set[str], allow_set: set[str] | None = None) -> None:
         """初始化注册表。
 
         Args:
             valid_labels: 合法的 Neo4j 实体标签集合（如 {"CodeEntity", "DataAsset"}）。
                 validate_shape 据此校验 target.resource_type 与 path.target_label。
+            allow_set: 白名单集合，格式 ``{"Label:Name"}``。命中条目在 ShapeEvaluator
+                中短路返回（跳过所有 Shape 检查），替代旧 WhitelistGuard。
         """
         self._valid_labels: set[str] = set(valid_labels)
         self._shapes: dict[str, ConstraintShape] = {}
         self._index: dict[tuple[str, Operation], list[ConstraintShape]] = defaultdict(list)
+        self._allow_set: set[str] = set(allow_set) if allow_set else set()
 
     # ------------------------------------------------------------------
     # 注册 / 加载
@@ -168,6 +171,18 @@ class ShapeRegistry:
     def valid_labels(self) -> set[str]:
         """返回合法标签集合（只读副本）。"""
         return set(self._valid_labels)
+
+    def is_allowed(self, entity_label: str, entity_name: str) -> bool:
+        """检查实体是否在白名单中（命中即短路 ALLOW）。
+
+        Args:
+            entity_label: Neo4j 节点标签（如 ``CodeEntity``）。
+            entity_name: 节点 name 属性值。
+
+        Returns:
+            ``"Label:Name"`` 命中 allow_set 时返回 True，否则 False。
+        """
+        return f"{entity_label}:{entity_name}" in self._allow_set
 
     def __len__(self) -> int:
         return len(self._shapes)

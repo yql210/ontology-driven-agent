@@ -84,3 +84,24 @@ shapes:
       (a) 优先拆分为更小的可测试单元
       (b) 确认现有测试覆盖足够
       (c) 评估变更影响范围
+
+  - id: shape:upstream_call_chain_risk
+    name: 上游调用链入口点检查
+    description: "反向遍历CALLS调用链，检查上游是否有HTTP/RPC入口点"
+    kind: operational
+    target:
+      resource_type: CodeEntity
+      operation: UPDATE
+    path: "^CALLS{1,5} -> CodeEntity"
+    max_depth: 5
+    constraint:
+      field: entryCategory
+      operator: in
+      value: [http_api, rpc_service]
+    severity: warn
+    priority: 6
+    tags: [call_chain, entry_point, upstream]
+    suggestion: |
+      调用链上游存在HTTP/RPC入口点。建议:
+      (a) 确认修改不影响API契约
+      (b) 检查下游调用方兼容性
