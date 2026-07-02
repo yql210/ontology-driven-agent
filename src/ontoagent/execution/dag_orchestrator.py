@@ -15,6 +15,7 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from ontoagent.domain.exceptions import OntoAgentError
+from ontoagent.domain.shapes import Severity
 
 __all__ = ["DAGOrchestrator", "CycleError", "NodeResult", "ExecutionResult"]
 
@@ -38,6 +39,7 @@ class NodeResult:
     status: str = "ok"
     output: dict = field(default_factory=dict)
     error: str | None = None
+    shape_results: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -55,6 +57,7 @@ class ExecutionResult:
     node_results: list[NodeResult] = field(default_factory=list)
     failed_node_id: str | None = None
     elapsed_ms: int = 0
+    approval_nodes: list[str] = field(default_factory=list)
 
 
 class DAGOrchestrator:
@@ -65,8 +68,9 @@ class DAGOrchestrator:
                    describing PRODUCES/CONSUMES data flow.
     """
 
-    def __init__(self, relations: list[tuple[str, str, str]] | None = None) -> None:
+    def __init__(self, relations: list[tuple[str, str, str]] | None = None, shape_evaluator: Any | None = None) -> None:
         self._relations = relations or []
+        self._shape_evaluator = shape_evaluator
 
     def _topological_sort(self, nodes: list[str], edges: list[tuple[str, str]]) -> list[str]:
         """Kahn's algorithm: produce topological order with BFS-layer grouping.
@@ -131,12 +135,18 @@ class DAGOrchestrator:
         node has matching 'consumes', the consumer receives the producer's
         output as its payload argument.
 
+        Before each node executes, shape constraints are evaluated if a
+        shape_evaluator is configured. BLOCK severity skips the node and
+        triggers compensation. ESCALATE marks the node for approval.
+
         Args:
             nodes: List of node dicts with keys:
                    - id (str): unique node identifier
                    - capability (callable): function to execute
                    - produces (list[str], optional): data types this node produces
                    - consumes (list[str], optional): data types this node consumes
+                   - entity (dict, optional): entity for shape evaluation
+                   - operations (list, optional): Operation enums for shape matching
             edges: List of (from_id, to_id) dependency pairs.
 
         Returns:
@@ -176,6 +186,7 @@ class DAGOrchestrator:
         outputs: dict[str, dict] = {}  # node_id → output
         failed = False
         failed_node_id: str | None = None
+        approval_nodes: list[str] = []
 
         for node_id in order:
             if failed:
@@ -184,6 +195,17 @@ class DAGOrchestrator:
 
             nd = node_map[node_id]
             cap_fn = nd["capability"]
+
+            # --- V5 Phase 5: Shape constraint check before execution ---
+            shape_allowed, shape_dicts, block_reason = self._check_node_shapes(nd)
+            if not shape_allowed:
+                node_results.append(NodeResult(
+                    node_id=node_id, status="blocked",
+                    error=block_reason, shape_results=shape_dicts,
+                ))
+                failed = True
+                failed_node_id = node_id
+                continue
 
             # Build payload from upstream producers
             payload: dict = {}
@@ -198,20 +220,19 @@ class DAGOrchestrator:
                 if not isinstance(output, dict):
                     output = {"result": output}
                 outputs[node_id] = output
-                node_results.append(NodeResult(node_id=node_id, status="ok", output=output))
+                node_results.append(NodeResult(
+                    node_id=node_id, status="ok", output=output, shape_results=shape_dicts,
+                ))
             except Exception as e:
                 node_results.append(
-                    NodeResult(node_id=node_id, status="failed", error=str(e))
+                    NodeResult(node_id=node_id, status="failed", error=str(e), shape_results=shape_dicts)
                 )
                 failed = True
                 failed_node_id = node_id
 
         # Compensation: reverse-compensate completed predecessors
         if failed and failed_node_id:
-            # Find all completed nodes that are predecessors of the failed node
-            # (transitive predecessors via edges reachable to failed node)
             predecessors = self._find_predecessors(failed_node_id, node_map, edge_set)
-            # Sort predecessors in reverse topological order (closest first)
             completed_predecessors = [
                 nid for nid in order
                 if nid in predecessors and outputs.get(nid) is not None and nid != failed_node_id
@@ -219,11 +240,11 @@ class DAGOrchestrator:
             for node_id in reversed(completed_predecessors):
                 nd = node_map[node_id]
                 cap_fn = nd["capability"]
-                if hasattr(cap_fn, "compensate") and callable(cap_fn.compensate):  # type: ignore[union-attr]
+                if hasattr(cap_fn, "compensate") and callable(cap_fn.compensate):
                     try:
-                        cap_fn.compensate(outputs.get(node_id))  # type: ignore[union-attr]
+                        cap_fn.compensate(outputs.get(node_id))
                     except Exception:
-                        pass  # compensation failure is non-fatal
+                        pass
 
         elapsed = int((time.monotonic() - t0) * 1000)
         return ExecutionResult(
@@ -231,7 +252,39 @@ class DAGOrchestrator:
             node_results=node_results,
             failed_node_id=failed_node_id,
             elapsed_ms=elapsed,
+            approval_nodes=approval_nodes,
         )
+
+    def _check_node_shapes(self, node: dict) -> tuple[bool, list[dict], str | None]:
+        """Evaluate shape constraints for a single DAG node.
+
+        Args:
+            node: Node dict with optional 'entity' and 'operations' keys.
+
+        Returns:
+            Tuple of (allowed: bool, shape_results: list[dict], block_reason: str | None).
+        """
+        if self._shape_evaluator is None:
+            return True, [], None
+
+        entity = node.get("entity")
+        if entity is None:
+            return True, [], None
+
+        operations = node.get("operations", [])
+        results = self._shape_evaluator.evaluate(entity, operations)
+
+        triggered = [r for r in results if r.triggered]
+        shape_dicts = [
+            {"shape_id": r.shape.id, "severity": r.severity.value, "suggestion": r.shape.suggestion}
+            for r in triggered
+        ]
+
+        for r in triggered:
+            if r.severity == Severity.BLOCK:
+                return False, shape_dicts, f"Shape {r.shape.id}: {r.shape.suggestion}"
+
+        return True, shape_dicts, None
 
     def _find_predecessors(
         self,
