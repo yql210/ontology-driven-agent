@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 from ontoagent.domain.shapes import Operation
-from ontoagent.execution.functions.registry import get_capabilities
 from ontoagent.execution.planner.data_types import PlanDAG, PlanNode
 
 
@@ -54,7 +53,6 @@ def _resolve_entity(graph_store: Any, node: PlanNode) -> dict | None:
     Returns None if no entity found.
     """
     description = node.sub_goal.description
-    domain = node.sub_goal.domain
 
     # Try exact match
     try:

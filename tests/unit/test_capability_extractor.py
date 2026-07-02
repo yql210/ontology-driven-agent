@@ -11,7 +11,6 @@ from ontoagent.parsing.extractor.capability_extractor import (
     _parse_type_annotation,
 )
 
-
 # ── 辅助函数 ──────────────────────────────────────────────────────
 
 

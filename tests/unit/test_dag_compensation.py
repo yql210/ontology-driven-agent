@@ -5,10 +5,6 @@ Phase 4.3: On node failure, reverse-compensate completed predecessors.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
-import pytest
-
 
 class TestCompensation:
     """Compensation: on failure, reverse-compensate completed nodes."""
@@ -153,7 +149,7 @@ class TestExecutionResult:
 
     def test_result_summary(self):
         """ExecutionResult has status, node_results, elapsed_ms."""
-        from ontoagent.execution.dag_orchestrator import DAGOrchestrator, ExecutionResult
+        from ontoagent.execution.dag_orchestrator import DAGOrchestrator
 
         orch = DAGOrchestrator()
         result = orch.execute(

@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ontoagent.domain.approval import ApprovalContext, DecisionLevel, PolicyResult
-
-if TYPE_CHECKING:
-    from ontoagent.execution.constraints.guard_pipeline import ActionGuardPipeline
 
 
 class ApprovalPolicy(ABC):
@@ -83,88 +80,6 @@ class ShapeBasedGuardPolicy(ApprovalPolicy):
             policy_name=self.name,
             level=DecisionLevel.APPROVED,
             reason="shape check passed",
-        )
-
-
-class GuardResultPolicy(ApprovalPolicy):
-    """[DEPRECATED] 使用 ShapeBasedGuardPolicy 替代。保留以兼容旧配置。
-
-    根据 Guard Pipeline 结果 + 配置决定是否触发审批。
-
-    配置格式:
-        approval_policy:
-          on_block: "require_approval" | "auto_reject"
-          on_warn: "require_approval" | "auto_allow"
-
-    Pipeline 可以通过 set_pipeline() 延迟注入，解决 _get_action_executor 的时序问题。
-    """
-
-    def __init__(
-        self,
-        pipeline: ActionGuardPipeline | None = None,
-        on_block: str = "require_approval",
-        on_warn: str = "require_approval",
-    ) -> None:
-        self._pipeline = pipeline
-        self._on_block = on_block
-        self._on_warn = on_warn
-
-    def set_pipeline(self, pipeline: ActionGuardPipeline) -> None:
-        """延迟注入 GuardPipeline（解决 ApprovalGate 与 ActionExecutor 的初始化时序）。"""
-        self._pipeline = pipeline
-
-    @property
-    def name(self) -> str:
-        return "GuardResultPolicy"
-
-    def evaluate(self, context: ApprovalContext, **kwargs: Any) -> PolicyResult:
-        config = kwargs.get("config")
-        graph_store = kwargs.get("graph_store")
-        if config is None or graph_store is None:
-            return PolicyResult(
-                policy_name=self.name,
-                level=DecisionLevel.APPROVED,
-                reason="no config or graph_store",
-            )
-
-        # Guard against missing pipeline (not yet wired)
-        if self._pipeline is None:
-            return PolicyResult(
-                policy_name=self.name,
-                level=DecisionLevel.APPROVED,
-                reason="pipeline not yet wired",
-            )
-
-        block_reason, warnings = self._pipeline.check(config, context.entity, graph_store)
-
-        # Check guard results
-        if block_reason:
-            if self._on_block == "auto_reject":
-                return PolicyResult(
-                    policy_name=self.name,
-                    level=DecisionLevel.DENIED,
-                    reason=block_reason,
-                )
-            else:  # require_approval
-                return PolicyResult(
-                    policy_name=self.name,
-                    level=DecisionLevel.PENDING,
-                    reason=block_reason,
-                    details={"guard_block": block_reason, "warnings": warnings},
-                )
-
-        if warnings and self._on_warn == "require_approval":
-            return PolicyResult(
-                policy_name=self.name,
-                level=DecisionLevel.PENDING,
-                reason="WARN 级别约束需要确认",
-                details={"warnings": warnings},
-            )
-
-        return PolicyResult(
-            policy_name=self.name,
-            level=DecisionLevel.APPROVED,
-            reason="guard check passed",
         )
 
 

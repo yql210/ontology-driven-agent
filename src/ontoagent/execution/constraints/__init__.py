@@ -2,20 +2,11 @@
 
 from ontoagent.execution.constraints.approval_gate import ApprovalGate
 from ontoagent.execution.constraints.engine import ConstraintEngine
-from ontoagent.execution.constraints.guard_pipeline import ActionGuard, ActionGuardPipeline
-from ontoagent.execution.constraints.guards import (
-    EntityExistsGuard,
-    EntityPropertyGuard,
-    OntologyPropagationGuard,
-    OntologyTraversalGuard,
-    WhitelistGuard,
-)
 from ontoagent.execution.constraints.loader import OntologyConstraintLoader
 from ontoagent.execution.constraints.policies import (
     ActionApprovalPolicy,
     ApprovalPolicy,
     FunctionDangerPolicy,
-    GuardResultPolicy,
     ShapeBasedGuardPolicy,
 )
 from ontoagent.execution.constraints.propagator import ConstraintPropagator, PropagationResult, PropagationRule
@@ -51,22 +42,14 @@ def aggregate_levels(
 
 __all__ = [
     "ActionApprovalPolicy",
-    "ActionGuard",
-    "ActionGuardPipeline",
     "ApprovalGate",
     "ApprovalPolicy",
     "ConstraintEngine",
     "ConstraintPropagator",
-    "EntityExistsGuard",
-    "EntityPropertyGuard",
     "FunctionDangerPolicy",
-    "GuardResultPolicy",
-    "ShapeBasedGuardPolicy",
     "OntologyConstraintLoader",
-    "OntologyPropagationGuard",
-    "OntologyTraversalGuard",
     "PropagationResult",
     "PropagationRule",
-    "WhitelistGuard",
+    "ShapeBasedGuardPolicy",
     "aggregate_levels",
 ]

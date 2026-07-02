@@ -6,10 +6,6 @@ using PRODUCES/CONSUMES/COMPOSES_INTO relations + pre/post conditions.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
-import pytest
-
 
 class TestComposer:
     """Composer — DAG construction from sub-goals + capability relations."""

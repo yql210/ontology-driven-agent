@@ -13,6 +13,7 @@ from __future__ import annotations
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Any
 
 from ontoagent.domain.exceptions import OntoAgentError
 from ontoagent.domain.shapes import Severity
@@ -190,7 +191,7 @@ class DAGOrchestrator:
         # Topological sort
         try:
             order = self._topological_sort(node_ids, list(edge_set))
-        except CycleError as e:
+        except CycleError:
             return ExecutionResult(
                 status="failed",
                 node_results=[],
@@ -227,7 +228,7 @@ class DAGOrchestrator:
             # Build payload from upstream producers
             payload: dict = {}
             if node_id in consumes_index:
-                for dt, producer_id in consumes_index[node_id].items():
+                for _dt, producer_id in consumes_index[node_id].items():
                     if producer_id in outputs:
                         payload.update(outputs[producer_id])
 

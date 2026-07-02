@@ -5,8 +5,6 @@ Verifies Planner + Composer end-to-end on ≥5 business goals.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from ontoagent.execution.planner.composer import Composer

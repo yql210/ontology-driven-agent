@@ -249,7 +249,7 @@ def service_entity_to_dict(entity: ServiceEntity) -> dict[str, object]:
     return d
 
 
-def capability_entity_to_dict(entity: "CapabilityEntity") -> dict[str, object]:
+def capability_entity_to_dict(entity: CapabilityEntity) -> dict[str, object]:
     """将 CapabilityEntity 转为 Neo4j 属性字典。
 
     Args:

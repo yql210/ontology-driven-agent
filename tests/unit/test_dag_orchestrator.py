@@ -66,7 +66,7 @@ class TestDAGTopologicalSort:
 
     def test_cycle_detection(self):
         """A → B → C → A raises CycleError."""
-        from ontoagent.execution.dag_orchestrator import DAGOrchestrator, CycleError
+        from ontoagent.execution.dag_orchestrator import CycleError, DAGOrchestrator
 
         orch = DAGOrchestrator()
         with pytest.raises(CycleError):
@@ -81,7 +81,7 @@ class TestDAGExecution:
 
     def test_execute_linear_dag(self):
         """Execute A → B → C, all succeed."""
-        from ontoagent.execution.dag_orchestrator import DAGOrchestrator, ExecutionResult
+        from ontoagent.execution.dag_orchestrator import DAGOrchestrator
 
         mock_fn = MagicMock(return_value={"status": "ok"})
         orch = DAGOrchestrator()

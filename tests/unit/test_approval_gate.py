@@ -14,11 +14,10 @@ from ontoagent.domain.approval import (
     generate_token,
 )
 from ontoagent.execution.constraints.approval_gate import ApprovalGate
-from ontoagent.execution.constraints.guard_pipeline import ActionGuardPipeline
 from ontoagent.execution.constraints.policies import (
     ActionApprovalPolicy,
     FunctionDangerPolicy,
-    GuardResultPolicy,
+    ShapeBasedGuardPolicy,
 )
 
 # ---------------------------------------------------------------------------
@@ -210,63 +209,47 @@ def test_token_one_time_use(gate: ApprovalGate, ctx: ApprovalContext) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 9: GuardResultPolicy BLOCK → PENDING (on_block=require_approval)
+# Test 9: ShapeBasedGuardPolicy BLOCK → PENDING (on_block=require_approval)
 # ---------------------------------------------------------------------------
 
 
-def test_guard_result_policy_block_pending(ctx: ApprovalContext) -> None:
-    pipeline = ActionGuardPipeline([])
-    # Mock pipeline.check to return a block reason
-    block_reason = "BLOCK: entity does not exist"
-    pipeline.check = MagicMock(return_value=(block_reason, []))
-
-    policy = GuardResultPolicy(pipeline, on_block="require_approval")
+def test_shape_based_policy_block_pending(ctx: ApprovalContext) -> None:
+    executor = MagicMock()
+    executor._check_with_shapes = MagicMock(return_value=("BLOCK: entity does not exist", []))
+    policy = ShapeBasedGuardPolicy(on_block="require_approval")
     config = MagicMock()
-    graph_store = MagicMock()
-
-    result = policy.evaluate(ctx, config=config, graph_store=graph_store)
+    result = policy.evaluate(ctx, executor=executor, config=config)
     assert result.level == DecisionLevel.PENDING
-    assert result.reason == block_reason
-    assert result.details["guard_block"] == block_reason
+    assert "BLOCK" in result.reason
 
 
 # ---------------------------------------------------------------------------
-# Test 10: GuardResultPolicy BLOCK → DENIED (on_block=auto_reject)
+# Test 10: ShapeBasedGuardPolicy BLOCK → DENIED (on_block=auto_reject)
 # ---------------------------------------------------------------------------
 
 
-def test_guard_result_policy_block_denied(ctx: ApprovalContext) -> None:
-    pipeline = ActionGuardPipeline([])
-    block_reason = "BLOCK: entity does not exist"
-    pipeline.check = MagicMock(return_value=(block_reason, []))
-
-    policy = GuardResultPolicy(pipeline, on_block="auto_reject")
+def test_shape_based_policy_block_denied(ctx: ApprovalContext) -> None:
+    executor = MagicMock()
+    executor._check_with_shapes = MagicMock(return_value=("BLOCK: entity does not exist", []))
+    policy = ShapeBasedGuardPolicy(on_block="auto_reject")
     config = MagicMock()
-    graph_store = MagicMock()
-
-    result = policy.evaluate(ctx, config=config, graph_store=graph_store)
+    result = policy.evaluate(ctx, executor=executor, config=config)
     assert result.level == DecisionLevel.DENIED
-    assert result.reason == block_reason
 
 
 # ---------------------------------------------------------------------------
-# Test 11: GuardResultPolicy WARN → PENDING (on_warn=require_approval)
+# Test 11: ShapeBasedGuardPolicy WARN → PENDING (on_warn=require_approval)
 # ---------------------------------------------------------------------------
 
 
-def test_guard_result_policy_warn_pending(ctx: ApprovalContext) -> None:
-    pipeline = ActionGuardPipeline([])
-    # No block, but some warnings
-    pipeline.check = MagicMock(return_value=(None, ["warning: low confidence"]))
-
-    policy = GuardResultPolicy(pipeline, on_warn="require_approval")
+def test_shape_based_policy_warn_pending(ctx: ApprovalContext) -> None:
+    executor = MagicMock()
+    executor._check_with_shapes = MagicMock(return_value=(None, ["warning: low confidence"]))
+    policy = ShapeBasedGuardPolicy(on_warn="require_approval")
     config = MagicMock()
-    graph_store = MagicMock()
-
-    result = policy.evaluate(ctx, config=config, graph_store=graph_store)
+    result = policy.evaluate(ctx, executor=executor, config=config)
     assert result.level == DecisionLevel.PENDING
     assert "WARN" in result.reason
-    assert result.details["warnings"] == ["warning: low confidence"]
 
 
 # ---------------------------------------------------------------------------
@@ -375,13 +358,12 @@ def test_audit_log_records_decisions(gate: ApprovalGate, ctx: ApprovalContext) -
 
 
 # ---------------------------------------------------------------------------
-# Test 17: GuardResultPolicy no config → APPROVED
+# Test 17: ShapeBasedGuardPolicy no executor → APPROVED
 # ---------------------------------------------------------------------------
 
 
-def test_guard_result_policy_no_config_approved(ctx: ApprovalContext) -> None:
-    pipeline = ActionGuardPipeline([])
-    policy = GuardResultPolicy(pipeline)
+def test_shape_based_policy_no_executor_approved(ctx: ApprovalContext) -> None:
+    policy = ShapeBasedGuardPolicy()
     result = policy.evaluate(ctx)
     assert result.level == DecisionLevel.APPROVED
 
