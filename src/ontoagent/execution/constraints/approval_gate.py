@@ -139,3 +139,59 @@ class ApprovalGate:
         for t in expired:
             del self._pending[t]
         return len(expired)
+
+    # ---- DAG-level approval (V5 Phase 5) ----
+
+    def check_dag(
+        self,
+        preflight: Any,  # PreflightResult
+        context: ApprovalContext,
+    ) -> dict[str, str | None]:
+        """Generate per-node approval tokens from a PreflightResult.
+
+        Each node that triggered ESCALATE gets a one-time approval token.
+        Blocked nodes get None (cannot proceed).
+        Other nodes get None (auto-approved).
+
+        Args:
+            preflight: PreflightResult from DAGOrchestrator.preflight().
+            context: Base ApprovalContext for session scoping.
+
+        Returns:
+            Dict mapping node_id → token (str for approval, None for auto/blocked).
+        """
+        tokens: dict[str, str | None] = {}
+
+        for node_id in preflight.escalate_nodes:
+            token = generate_token(f"dag:{node_id}", context.target, context.session_id)
+            self._pending[token] = PendingApproval(
+                token=token,
+                context=ApprovalContext(
+                    intent_type=f"dag_node:{node_id}",
+                    target=context.target,
+                    params=context.params,
+                    entity=context.entity,
+                    guard_checks=[],
+                    session_id=context.session_id,
+                ),
+                ttl=self._ttl,
+            )
+            tokens[node_id] = token
+
+        for node_id in preflight.blocked_nodes:
+            tokens[node_id] = None
+
+        return tokens
+
+    def resolve_node(self, token: str, approved: bool) -> bool:
+        """Resolve a single DAG node approval token.
+
+        Args:
+            token: Approval token from check_dag().
+            approved: True to approve, False to reject.
+
+        Returns:
+            True if the node can now proceed.
+        """
+        ctx = self.resolve(token, approved)
+        return ctx is not None
