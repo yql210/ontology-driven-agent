@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from ontoagent.domain.exceptions import OntoAgentError
 from ontoagent.domain.shapes import Severity
 
-__all__ = ["DAGOrchestrator", "CycleError", "NodeResult", "ExecutionResult"]
+__all__ = ["DAGOrchestrator", "CycleError", "NodeResult", "ExecutionResult", "PreflightResult"]
 
 
 class CycleError(OntoAgentError):
@@ -58,6 +58,23 @@ class ExecutionResult:
     failed_node_id: str | None = None
     elapsed_ms: int = 0
     approval_nodes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class PreflightResult:
+    """Result of DAG preflight shape evaluation.
+
+    Attributes:
+        all_clear: True if no BLOCK/ESCALATE shapes triggered.
+        blocked_nodes: node_id → list of triggered shape info dicts.
+        warn_nodes: node_id → list of triggered shape info dicts.
+        escalate_nodes: node_id → list of triggered shape info dicts.
+    """
+
+    all_clear: bool = True
+    blocked_nodes: dict[str, list[dict]] = field(default_factory=dict)
+    warn_nodes: dict[str, list[dict]] = field(default_factory=dict)
+    escalate_nodes: dict[str, list[dict]] = field(default_factory=dict)
 
 
 class DAGOrchestrator:
@@ -285,6 +302,51 @@ class DAGOrchestrator:
                 return False, shape_dicts, f"Shape {r.shape.id}: {r.shape.suggestion}"
 
         return True, shape_dicts, None
+
+    def preflight(self, nodes: list[dict]) -> PreflightResult:
+        """Scan all DAG nodes for shape constraints before execution.
+
+        Returns a PreflightResult with blocked/warn/escalate breakdown.
+        Callers can use this to batch-approve escalated nodes before calling execute().
+
+        Args:
+            nodes: Node dicts with optional 'entity' and 'operations' keys.
+
+        Returns:
+            PreflightResult with per-node shape evaluation summary.
+        """
+        blocked: dict[str, list[dict]] = {}
+        warns: dict[str, list[dict]] = {}
+        escalates: dict[str, list[dict]] = {}
+
+        if self._shape_evaluator is None:
+            return PreflightResult(all_clear=True, blocked_nodes={}, warn_nodes={}, escalate_nodes={})
+
+        for nd in nodes:
+            entity = nd.get("entity")
+            if entity is None:
+                continue
+
+            operations = nd.get("operations", [])
+            results = self._shape_evaluator.evaluate(entity, operations)
+
+            for r in results:
+                if not r.triggered:
+                    continue
+                info = {"shape_id": r.shape.id, "severity": r.severity.value, "suggestion": r.shape.suggestion}
+                if r.severity == Severity.BLOCK:
+                    blocked.setdefault(nd["id"], []).append(info)
+                elif r.severity == Severity.ESCALATE:
+                    escalates.setdefault(nd["id"], []).append(info)
+                elif r.severity == Severity.WARN:
+                    warns.setdefault(nd["id"], []).append(info)
+
+        return PreflightResult(
+            all_clear=not blocked and not escalates,
+            blocked_nodes=blocked,
+            warn_nodes=warns,
+            escalate_nodes=escalates,
+        )
 
     def _find_predecessors(
         self,
