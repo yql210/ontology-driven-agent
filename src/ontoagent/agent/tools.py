@@ -456,32 +456,15 @@ def express_intent(
             return json.dumps({"status": "error", "error": f"未知操作类型: {intent_type}"}, ensure_ascii=False)
 
         # --- Approval gate check ---
-        if not skip_approval and approval_gate:
+        if not skip_approval and approval_gate and executor._shape_registry is not None:
             from ontoagent.domain.approval import ApprovalContext, DecisionLevel
-
-            # Run guard pipeline to collect checks
-            pipeline = executor._guard_pipeline
-            _block_reason, _warnings = pipeline.check(config, entity, neo4j) if pipeline else (None, [])
-
-            # Build guard results for context
-            guard_checks = []
-            if pipeline:
-                for guard in pipeline.guards:
-                    decision = guard.evaluate(config, entity, neo4j)
-                    guard_checks.append(
-                        {
-                            "guard": type(guard).__name__,
-                            "level": decision.level.value,
-                            "reason": decision.reason,
-                        }
-                    )
 
             approval_ctx = ApprovalContext(
                 intent_type=intent_type,
                 target=target,
                 params=params or {},
                 entity=entity,
-                guard_checks=guard_checks,
+                guard_checks=[],  # V5: shapes replace guard checks
                 session_id="",
             )
 
@@ -489,6 +472,7 @@ def express_intent(
                 approval_ctx,
                 config=config,
                 graph_store=neo4j,
+                executor=executor,
             )
 
             if decision.level == DecisionLevel.DENIED:
@@ -509,7 +493,7 @@ def express_intent(
                         "status": "approval_required",
                         "approval_id": decision.token,
                         "level": "action",
-                        "checks": guard_checks,
+                        "checks": [],
                         "policies": [
                             {"policy": r.policy_name, "level": r.level.value, "reason": r.reason}
                             for r in decision.results
@@ -563,7 +547,7 @@ def check_operation(intent_type: str, target: str) -> str:
 
     Returns:
         JSON 字符串，包含 {pass: bool, checks: [...], block_reason: str|null}
-        每个 check 包含 {guard: str, level: ALLOW|WARN|BLOCK, reason: str}
+        每个 check 包含 {shape_id: str, severity: ALLOW|WARN|BLOCK, reason: str}
     """
     import logging
 
@@ -572,11 +556,10 @@ def check_operation(intent_type: str, target: str) -> str:
     try:
         graph_store = get_neo4j()
         executor = _get_action_executor(graph_store)
-        pipeline = executor._guard_pipeline
 
-        if pipeline is None:
+        if executor._shape_registry is None:
             return json.dumps(
-                {"pass": True, "checks": [], "note": "约束管线未启用"},
+                {"pass": True, "checks": [], "note": "约束系统未启用"},
                 ensure_ascii=False,
             )
 
@@ -596,29 +579,21 @@ def check_operation(intent_type: str, target: str) -> str:
                 ensure_ascii=False,
             )
 
-        # Run each guard individually and collect results
-        checks = []
-        for guard in pipeline.guards:
-            decision = guard.evaluate(config, entity, graph_store)
-            checks.append(
+        # V5: Use ShapeEvaluator instead of guard pipeline
+        block_reason, warnings = executor._check_with_shapes(entity, config)
+
+        if block_reason:
+            return json.dumps(
                 {
-                    "guard": type(guard).__name__,
-                    "level": decision.level.value,
-                    "reason": decision.reason,
-                }
+                    "pass": False,
+                    "checks": warnings,
+                    "block_reason": block_reason,
+                },
+                ensure_ascii=False,
             )
-            if decision.level.value == "block":
-                return json.dumps(
-                    {
-                        "pass": False,
-                        "checks": checks,
-                        "block_reason": decision.reason,
-                    },
-                    ensure_ascii=False,
-                )
 
         return json.dumps(
-            {"pass": True, "checks": checks},
+            {"pass": True, "checks": warnings if warnings else []},
             ensure_ascii=False,
         )
 
@@ -815,7 +790,7 @@ def _get_intent_map() -> dict[str, Any]:
 def _get_approval_gate() -> object:
     """获取或初始化 ApprovalGate 单例。
 
-    GuardResultPolicy 的 pipeline 将通过 set_pipeline() 延迟注入，
+    ShapeBasedGuardPolicy 通过 executor._check_with_shapes() 实现约束检查，
     由 _get_action_executor 在创建 guard pipeline 后完成。
 
     审批策略配置从 config/approval_policy.yaml 读取。
@@ -830,7 +805,7 @@ def _get_approval_gate() -> object:
             ActionApprovalPolicy,
             ApprovalGate,
             FunctionDangerPolicy,
-            GuardResultPolicy,
+            ShapeBasedGuardPolicy,
         )
         from ontoagent.execution.functions.registry import _meta as function_meta
 
@@ -841,7 +816,7 @@ def _get_approval_gate() -> object:
             with open(config_path) as f:
                 config = yaml.safe_load(f) or {}
 
-        # GuardResultPolicy config
+        # ShapeBasedGuardPolicy config
         guard_config = config.get("guard_result", {})
         on_block = guard_config.get("on_block", "require_approval")
         on_warn = guard_config.get("on_warn", "require_approval")
@@ -857,8 +832,7 @@ def _get_approval_gate() -> object:
         for name in enabled_policies:
             if name == "guard_result":
                 policies.append(
-                    GuardResultPolicy(
-                        pipeline=None,  # 延迟注入：_get_action_executor 创建 pipeline 后 set_pipeline()
+                    ShapeBasedGuardPolicy(
                         on_block=on_block,
                         on_warn=on_warn,
                     )
@@ -951,63 +925,15 @@ def _get_action_executor(graph_store: object) -> ActionExecutor:
     """
     global _action_executor
     if _action_executor is None:
-        import logging
-        from pathlib import Path
 
-        from ontoagent.domain.schema import ONTOLOGY_CONSTRAINT_REGISTRY
         from ontoagent.execution.action_executor import ActionExecutor
-        from ontoagent.execution.constraints import (
-            ActionGuardPipeline,
-            ConstraintEngine,
-            ConstraintPropagator,
-            EntityExistsGuard,
-            EntityPropertyGuard,
-            OntologyPropagationGuard,
-            OntologyTraversalGuard,
-            WhitelistGuard,
-        )
-        from ontoagent.execution.constraints.loader import OntologyConstraintLoader
 
-        constraints_yaml = Path(__file__).parent.parent / "pipeline" / "constraints.yaml"
-        overrides_yaml = Path(__file__).parent.parent / "config" / "constraint_overrides.yaml"
-
-        loader = OntologyConstraintLoader(registry=ONTOLOGY_CONSTRAINT_REGISTRY)
-        traversals, prop_rules, warnings, allow_set = loader.load_all(
-            constraints_yaml=constraints_yaml,
-            overrides_yaml=overrides_yaml,
-        )
-
-        # Log startup warnings/notices from the loader
-        log = logging.getLogger(__name__)
-        for w in warnings:
-            log.warning(w)
-
-        engine = ConstraintEngine(graph_store, traversals)
-        propagator = ConstraintPropagator(graph_store)
-        guard_pipeline = ActionGuardPipeline(
-            [
-                WhitelistGuard(allow_set),
-                EntityExistsGuard(),
-                EntityPropertyGuard(),
-                OntologyTraversalGuard(engine),
-                OntologyPropagationGuard(propagator, rules=prop_rules),
-            ]
-        )
-
-        # Wire pipeline into GuardResultPolicy for approval gate (deferred injection)
-        approval_gate = _get_approval_gate()
-        for policy in approval_gate.policies:
-            if hasattr(policy, "set_pipeline"):
-                policy.set_pipeline(guard_pipeline)
-
-        # V4 Phase 1: 初始化 ShapeRegistry；失败/禁用时返回 None，ActionExecutor 仍持有
-        # 旧 Guard Pipeline 作为 fallback。
+        # V5 Phase 5: Guard Pipeline 退役，Shape 成为唯一约束入口
         shape_registry = _get_shape_registry()
 
         _action_executor = ActionExecutor(
             graph_store,
             function_runner=_get_function_runner(),
-            guard_pipeline=guard_pipeline,
             shape_registry=shape_registry,
         )
     return _action_executor

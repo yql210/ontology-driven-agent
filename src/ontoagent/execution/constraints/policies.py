@@ -20,8 +20,76 @@ class ApprovalPolicy(ABC):
     def evaluate(self, context: ApprovalContext, **kwargs: Any) -> PolicyResult: ...
 
 
+class ShapeBasedGuardPolicy(ApprovalPolicy):
+    """基于 Shape 约束的审批策略（Phase 5）。
+
+    直接复用 ActionExecutor._check_with_shapes() 收集 capabilities 并评估 Shape，
+    不再依赖 ActionGuardPipeline。
+
+    配置格式:
+        approval_policy:
+          on_block: "require_approval" | "auto_reject"
+          on_warn: "require_approval" | "auto_allow"
+    """
+
+    def __init__(
+        self,
+        on_block: str = "require_approval",
+        on_warn: str = "require_approval",
+    ) -> None:
+        self._on_block = on_block
+        self._on_warn = on_warn
+
+    @property
+    def name(self) -> str:
+        return "ShapeBasedGuardPolicy"
+
+    def evaluate(self, context: ApprovalContext, **kwargs: Any) -> PolicyResult:
+        executor = kwargs.get("executor")
+        config = kwargs.get("config")
+        if executor is None or config is None:
+            return PolicyResult(
+                policy_name=self.name,
+                level=DecisionLevel.APPROVED,
+                reason="no executor or config",
+            )
+
+        block_reason, warnings = executor._check_with_shapes(context.entity, config)
+
+        if block_reason:
+            if self._on_block == "auto_reject":
+                return PolicyResult(
+                    policy_name=self.name,
+                    level=DecisionLevel.DENIED,
+                    reason=block_reason,
+                )
+            else:  # require_approval
+                return PolicyResult(
+                    policy_name=self.name,
+                    level=DecisionLevel.PENDING,
+                    reason=block_reason,
+                    details={"guard_block": block_reason, "warnings": warnings},
+                )
+
+        if warnings and self._on_warn == "require_approval":
+            return PolicyResult(
+                policy_name=self.name,
+                level=DecisionLevel.PENDING,
+                reason="WARN 级别约束需要确认",
+                details={"warnings": warnings},
+            )
+
+        return PolicyResult(
+            policy_name=self.name,
+            level=DecisionLevel.APPROVED,
+            reason="shape check passed",
+        )
+
+
 class GuardResultPolicy(ApprovalPolicy):
-    """根据 Guard Pipeline 结果 + 配置决定是否触发审批。
+    """[DEPRECATED] 使用 ShapeBasedGuardPolicy 替代。保留以兼容旧配置。
+
+    根据 Guard Pipeline 结果 + 配置决定是否触发审批。
 
     配置格式:
         approval_policy:

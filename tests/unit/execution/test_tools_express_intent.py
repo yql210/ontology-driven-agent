@@ -129,7 +129,7 @@ def test_action_executor_singleton() -> None:
         assert mock_executor_cls.call_count == 1
         call_kwargs = mock_executor_cls.call_args[1]
         assert "function_runner" in call_kwargs
-        assert "guard_pipeline" in call_kwargs
+        assert "shape_registry" in call_kwargs
 
     # Cleanup
     tools_mod._action_executor = None

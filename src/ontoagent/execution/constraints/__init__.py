@@ -16,6 +16,7 @@ from ontoagent.execution.constraints.policies import (
     ApprovalPolicy,
     FunctionDangerPolicy,
     GuardResultPolicy,
+    ShapeBasedGuardPolicy,
 )
 from ontoagent.execution.constraints.propagator import ConstraintPropagator, PropagationResult, PropagationRule
 
@@ -60,6 +61,7 @@ __all__ = [
     "EntityPropertyGuard",
     "FunctionDangerPolicy",
     "GuardResultPolicy",
+    "ShapeBasedGuardPolicy",
     "OntologyConstraintLoader",
     "OntologyPropagationGuard",
     "OntologyTraversalGuard",

@@ -151,10 +151,5 @@ def test_get_action_executor_has_guard_pipeline() -> None:
         ):
             executor = _get_action_executor(mock_graph_store)
 
-    # Verify guard pipeline is wired
-    assert executor._guard_pipeline is not None, "guard_pipeline should be wired to ActionExecutor"
-    guard_names = [type(g).__name__ for g in executor._guard_pipeline.guards]
-    assert "EntityExistsGuard" in guard_names, f"Expected EntityExistsGuard in {guard_names}"
-    assert "EntityPropertyGuard" in guard_names, f"Expected EntityPropertyGuard in {guard_names}"
-    assert "OntologyTraversalGuard" in guard_names, f"Expected OntologyTraversalGuard in {guard_names}"
-    assert "OntologyPropagationGuard" in guard_names, f"Expected OntologyPropagationGuard in {guard_names}"
+    # V5 Phase 5: Verify shape_registry is wired (Guard Pipeline retired)
+    assert executor._shape_registry is not None, "shape_registry should be wired to ActionExecutor"

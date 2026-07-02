@@ -186,14 +186,14 @@ class TestActionExecutorRefactor:
         assert result.results[0].success is True
 
     def test_execute_refactor_criteria_fail(self, tmp_path):
-        """Entity with lines=50 does NOT satisfy entity.lines > 100."""
+        """Entity with lines=50: function returns 'no split needed' since lines <= 100."""
         store = MockGraphStore(ENTITIES)
         executor = ActionExecutor(store, yaml_path=_make_yaml(tmp_path))
 
         result = executor.execute("refactor", {"target": "Small"})
 
         assert result.success is False
-        assert "不满足条件" in result.error or "<=" in result.error
+        assert "no split needed" in result.error or "lines" in result.error
 
 
 class TestActionExecutorRouting:

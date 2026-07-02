@@ -8,8 +8,6 @@ from typing import Any
 
 from ontoagent.domain.shapes import Operation, Severity
 from ontoagent.execution.action_types import ActionConfig, ActionContext, ActionResult, FunctionResult
-from ontoagent.execution.constraints.guard_pipeline import ActionGuardPipeline
-from ontoagent.execution.constraints.guards import EntityExistsGuard, EntityPropertyGuard
 from ontoagent.execution.decision_fuser import DecisionFuser
 from ontoagent.execution.functions.registry import get_capabilities
 from ontoagent.execution.intent_router import build_intent_map
@@ -24,12 +22,10 @@ class ActionExecutor:
         graph_store: Any,
         yaml_path: Path | None = None,
         function_runner: Any | None = None,
-        guard_pipeline: ActionGuardPipeline | None = None,
         shape_registry: Any | None = None,
     ) -> None:
         self._graph_store = graph_store
         self._function_runner = function_runner
-        self._guard_pipeline = guard_pipeline
         self._shape_registry = shape_registry
         if yaml_path is None:
             yaml_path = Path(__file__).parent.parent / "pipeline" / "ontology_actions.yaml"
@@ -74,12 +70,7 @@ class ActionExecutor:
                 # Phase 3c: shape-based path (ShapeEvaluator + DecisionFuser)
                 block_reason, warnings = self._check_with_shapes(entity, config)
             else:
-                # Legacy guard pipeline fallback
-                pipeline = self._guard_pipeline
-                if pipeline is None:
-                    pipeline = ActionGuardPipeline([EntityExistsGuard(), EntityPropertyGuard()])
-
-                block_reason, warnings = pipeline.check(config, entity, self._graph_store)
+                block_reason, warnings = None, []
             if block_reason:
                 return ActionResult(
                     success=False,
