@@ -98,9 +98,19 @@ class ShapeEvaluator:
 
         triggered = self._should_trigger(shape.constraint, values, entity)
 
+        effective = shape.effective_severity
+        if triggered and effective != shape.severity:
+            logger.info(
+                "Shape %s severity demoted by confidence %.2f: %s → %s",
+                shape.id,
+                shape.confidence,
+                shape.severity.value,
+                effective.value,
+            )
+
         return ShapeResult(
             shape=shape,
-            severity=shape.severity,
+            severity=effective,
             evidence={
                 "field": shape.constraint.field,
                 "values": values,

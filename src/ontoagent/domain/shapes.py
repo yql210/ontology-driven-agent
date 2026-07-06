@@ -4,6 +4,8 @@ import re
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from ontoagent.domain.provenance import validate_confidence
+
 # ============================================================
 # 枚举
 # ============================================================
@@ -27,6 +29,15 @@ class Severity(StrEnum):
     WARN = "warn"
     BLOCK = "block"
     ESCALATE = "escalate"
+
+
+# ============================================================
+# Confidence 阈值与 severity 阶梯
+# ============================================================
+
+LOW_CONFIDENCE_THRESHOLD = 0.7
+MEDIUM_CONFIDENCE_THRESHOLD = 0.9
+_SEVERITY_ORDER: list[Severity] = [Severity.ALLOW, Severity.WARN, Severity.BLOCK, Severity.ESCALATE]
 
 
 class ShapeKind(StrEnum):
@@ -230,6 +241,24 @@ class ConstraintShape:
     enabled: bool = True
     suggestion: str = ""
     max_depth: int = 3
+    confidence: float = 1.0
+    source: str = "manual"
+    rationale: str = ""
+
+    @property
+    def effective_severity(self) -> Severity:
+        """根据 confidence 计算实际生效的 severity。
+
+        - confidence >= 0.9：保持原级
+        - 0.7 <= confidence < 0.9：降一级
+        - confidence < 0.7：降两级（不低于 ALLOW）
+        """
+        idx = _SEVERITY_ORDER.index(self.severity)
+        if self.confidence >= MEDIUM_CONFIDENCE_THRESHOLD:
+            return self.severity
+        if self.confidence >= LOW_CONFIDENCE_THRESHOLD:
+            return _SEVERITY_ORDER[max(0, idx - 1)]
+        return _SEVERITY_ORDER[max(0, idx - 2)]
 
     @classmethod
     def from_yaml_dict(cls, data: dict) -> ConstraintShape:
@@ -277,6 +306,9 @@ class ConstraintShape:
             unless_value=constraint_data.get("unless_value"),
         )
 
+        confidence = float(data.get("confidence", 1.0))
+        validate_confidence(confidence)
+
         return cls(
             id=shape_id,
             name=name,
@@ -292,4 +324,7 @@ class ConstraintShape:
             enabled=bool(data.get("enabled", True)),
             suggestion=str(data.get("suggestion", "")),
             max_depth=max_depth,
+            confidence=confidence,
+            source=str(data.get("source", "manual")),
+            rationale=str(data.get("rationale", "")),
         )
