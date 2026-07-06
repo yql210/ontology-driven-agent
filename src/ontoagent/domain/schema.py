@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -514,6 +515,63 @@ VALID_ENTITY_LABELS: frozenset[str] = frozenset(
         "ProcessEntity",
     }
 )
+
+
+_LABEL_TO_DATACLASS: dict[str, type] = {
+    "CodeEntity": CodeEntity,
+    "ConceptEntity": ConceptEntity,
+    "DocEntity": DocEntity,
+    "ResourceEntity": ResourceEntity,
+    "ModuleEntity": ModuleEntity,
+    "ChangeSetEntity": ChangeSetEntity,
+    "LogEntity": LogEntity,
+    "AlertEntity": AlertEntity,
+    "ServiceEntity": ServiceEntity,
+    "DataAsset": DataAsset,
+    "ComplianceItem": ComplianceItem,
+    "CapabilityEntity": CapabilityEntity,
+    "ProcessEntity": ProcessEntity,
+}
+
+
+def _snake_to_camel(name: str) -> str:
+    """snake_case → camelCase 转换，用于匹配 Neo4j 属性名。"""
+    parts = name.split("_")
+    return parts[0] + "".join(p.capitalize() for p in parts[1:])
+
+
+# Neo4j 动态属性（不是 dataclass 字段，但在构建时写入 Neo4j）
+_EXTRA_FIELDS: dict[str, set[str]] = {
+    "CodeEntity": {"lines", "entryCategory"},
+}
+
+
+def entity_field_names(label: str) -> set[str]:
+    """反射单个实体 dataclass 的字段名集合。
+
+    返回结果为 camelCase（与 shapes.yaml / Neo4j 属性名一致）。
+
+    Args:
+        label: 实体标签（需在 ``_LABEL_TO_DATACLASS`` 中）。
+
+    Returns:
+        该实体所有字段名集合（camelCase）；未知 label 返回空 set。
+    """
+    dataclass_type = _LABEL_TO_DATACLASS.get(label)
+    if dataclass_type is None:
+        return set()
+    fields: set[str] = set()
+    for f in dataclasses.fields(dataclass_type):
+        # dataclass 字段是 Python snake_case → 转 camelCase
+        fields.add(_snake_to_camel(f.name))
+    # 补充 Neo4j 动态属性
+    fields.update(_EXTRA_FIELDS.get(label, set()))
+    return fields
+
+
+def build_entity_field_index() -> dict[str, set[str]]:
+    """遍历 _LABEL_TO_DATACLASS 构建 label→字段名集合的完整缓存。"""
+    return {label: entity_field_names(label) for label in _LABEL_TO_DATACLASS}
 
 
 VALID_RELATION_TYPES = frozenset(
