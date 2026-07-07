@@ -53,6 +53,28 @@ def _resolve_entry_type(source: str) -> str:
     return _DOMAIN_TO_ENTRY_TYPE.get(source, "ResourceEntity")
 
 
+# DDL 外键关系名 → OntoAgent 标准关系类型映射
+# 规则：所有 has*/belongs_to*/references* 类外键关系统一映射到 CONTAINS
+# 因为 DDL 外键语义本质是"从属/包含"，CONTAINS 是标准关系白名单中最接近的
+_RELATION_NAME_MAP: dict[str, str] = {
+    "HAS_CUSTOMER": "CONTAINS",
+    "HAS_ORDER": "CONTAINS",
+    "HAS_PRODUCT": "CONTAINS",
+}
+
+
+def _resolve_relation_type(rel_upper: str) -> str:
+    """将 DDL 生成的关系名映射到 OntoAgent 标准关系类型。
+
+    Args:
+        rel_upper: UPPER_SNAKE 关系名（如 HAS_CUSTOMER）。
+
+    Returns:
+        标准关系类型（如 CONTAINS）。未映射的原样返回。
+    """
+    return _RELATION_NAME_MAP.get(rel_upper, rel_upper)
+
+
 # ---------------------------------------------------------------
 # 工具函数
 # ---------------------------------------------------------------
@@ -136,7 +158,7 @@ def _convert_entity_types(data: dict) -> list[dict]:
                 "path": "SELF",
                 "constraint": {
                     "field": "name",
-                    "operator": "eq",
+                    "operator": "in",
                     "value": [ename],
                 },
                 "severity": "warn",
@@ -174,9 +196,9 @@ def _make_axiom_shape(
         },
         "path": path_expr,
         "constraint": {
-            "field": "_axiom",
-            "operator": "equals",
-            "value": f"{axiom_type}:{to_name}" if to_name else axiom_type,
+            "field": "name",
+            "operator": "in",
+            "value": [f"{axiom_type}:{to_name}" if to_name else axiom_type],
         },
         "severity": severity,
         "suggestion": suggestion or f"{axiom_type} 约束检查",
@@ -336,6 +358,7 @@ def _convert_relations(data: dict) -> list[dict]:
 
         rel_name = rel.get("name", "RELATED_TO")
         rel_upper = _camel_to_upper_snake(rel_name)
+        rel_standard = _resolve_relation_type(rel_upper)
 
         confidence = float(rel.get("confidence", 0.5))
         cardinality = rel.get("cardinality", "1:N")
@@ -355,11 +378,11 @@ def _convert_relations(data: dict) -> list[dict]:
                     "operation": "UPDATE",
                     "ontology_ref": f"{domain_name} --[{rel_upper}]--> {range_name}",
                 },
-                "path": f"{rel_upper} -> ResourceEntity",
+                "path": f"{rel_standard} -> ResourceEntity",
                 "constraint": {
                     "field": "name",
-                    "operator": "equals",
-                    "value": rel_upper,
+                    "operator": "in",
+                    "value": [rel_upper],
                 },
                 "severity": severity,
                 "suggestion": f"实体 '{domain_name}' 与 '{range_name}' 通过关系 '{rel_upper}' 关联",

@@ -433,8 +433,8 @@ class TestConvertRelations:
         assert len(shapes) == 1
         s = shapes[0]
         assert s["id"] == "shape:rel_rel_001"
-        assert "HAS_CUSTOMER" in s["path"]
-        assert s["path"] == "HAS_CUSTOMER -> ResourceEntity"
+        assert "CONTAINS" in s["path"]
+        assert s["path"] == "CONTAINS -> ResourceEntity"
         assert s["target"]["entry_type"] == "ResourceEntity"
         assert s["target"]["ontology_ref"] == "订单 --[HAS_CUSTOMER]--> 客户"
 
