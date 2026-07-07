@@ -23,7 +23,7 @@ shapes:
     description: 仅用于 CLI 测试
     kind: operational
     target:
-      resource_type: CodeEntity
+      entry_type: CodeEntity
       operation: UPDATE
     path: "SELF"
     constraint:
@@ -43,7 +43,7 @@ shapes:
     description: resource_type 不在合法标签集合
     kind: operational
     target:
-      resource_type: NonExistentLabel
+      entry_type: NonExistentLabel
       operation: UPDATE
     path: "SELF"
     constraint:
