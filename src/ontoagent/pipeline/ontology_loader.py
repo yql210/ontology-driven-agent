@@ -56,7 +56,11 @@ def _resolve_entry_type(source: str) -> str:
 # DDL 外键关系名 → OntoAgent 标准关系类型映射
 # 规则：所有 has*/belongs_to*/references* 类外键关系统一映射到 CONTAINS
 # 因为 DDL 外键语义本质是"从属/包含"，CONTAINS 是标准关系白名单中最接近的
+#
+# 映射策略：模式匹配（通用），而非硬编码具体关系名。
+# 任何以 HAS_ 开头的关系名都映射到 CONTAINS，无需为每个新领域手动添加条目。
 _RELATION_NAME_MAP: dict[str, str] = {
+    # 保留显式映射作为文档和向后兼容
     "HAS_CUSTOMER": "CONTAINS",
     "HAS_ORDER": "CONTAINS",
     "HAS_PRODUCT": "CONTAINS",
@@ -66,13 +70,23 @@ _RELATION_NAME_MAP: dict[str, str] = {
 def _resolve_relation_type(rel_upper: str) -> str:
     """将 DDL 生成的关系名映射到 OntoAgent 标准关系类型。
 
+    采用两层策略：
+    1. 显式映射表（_RELATION_NAME_MAP）——向后兼容
+    2. 模式匹配：以 HAS_ 开头的关系名 → CONTAINS（通用规则）
+
     Args:
-        rel_upper: UPPER_SNAKE 关系名（如 HAS_CUSTOMER）。
+        rel_upper: UPPER_SNAKE 关系名（如 HAS_CUSTOMER, HAS_VULNERABILITY）。
 
     Returns:
-        标准关系类型（如 CONTAINS）。未映射的原样返回。
+        标准关系类型（如 CONTAINS）。未匹配的原样返回。
     """
-    return _RELATION_NAME_MAP.get(rel_upper, rel_upper)
+    # 1. 显式映射
+    if rel_upper in _RELATION_NAME_MAP:
+        return _RELATION_NAME_MAP[rel_upper]
+    # 2. 通用模式匹配：HAS_* → CONTAINS
+    if rel_upper.startswith("HAS_"):
+        return "CONTAINS"
+    return rel_upper
 
 
 # ---------------------------------------------------------------
