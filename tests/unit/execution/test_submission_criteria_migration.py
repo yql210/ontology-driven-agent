@@ -78,7 +78,7 @@ def test_migrated_shape_loads_via_from_yaml_dict() -> None:
     shape = ConstraintShape.from_yaml_dict(shape_dict)
 
     assert shape.kind is ShapeKind.STRUCTURAL
-    assert shape.target.resource_type == "CodeEntity"
+    assert shape.target.entry_type == "CodeEntity"
     assert shape.target.operation is Operation.UPDATE
     assert shape.path.is_self() is True
     assert shape.constraint.field == "lines"

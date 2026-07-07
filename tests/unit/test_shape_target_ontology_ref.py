@@ -1,6 +1,8 @@
 """ShapeTarget ontology_ref 字段与 entry_type 重命名 测试。"""
 import pytest
-from ontoagent.domain.shapes import ShapeTarget, Operation, ConstraintShape, ShapeKind
+
+from ontoagent.domain.shapes import ConstraintShape, Operation, ShapeTarget
+
 
 def test_shape_target_accepts_ontology_ref():
     """新增 ontology_ref 字段可正确设置和读取"""

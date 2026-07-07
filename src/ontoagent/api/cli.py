@@ -438,6 +438,6 @@ def validate_shapes(path_opt: Path | None, strict: bool) -> None:
     click.echo(f"Validated {len(registry)} shapes from {shapes_yaml}")
     for shape in registry.all_shapes():
         click.echo(
-            f"  - {shape.id} [{shape.target.resource_type}/{shape.target.operation.value}] "
+            f"  - {shape.id} [{shape.target.entry_type}/{shape.target.operation.value}] "
             f"severity={shape.severity.value} priority={shape.priority}"
         )

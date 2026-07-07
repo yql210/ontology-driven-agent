@@ -27,7 +27,7 @@ def _make_shape(
         name=shape_id,
         description="test shape",
         kind=ShapeKind.OPERATIONAL,
-        target=ShapeTarget(resource_type="CodeEntity", operation=Operation.DELETE),
+        target=ShapeTarget(entry_type="CodeEntity", operation=Operation.DELETE),
         path=PathExpression.parse("SELF"),
         constraint=ConstraintExpr(field="sensitivity", operator="in", value=["high"]),
         severity=severity,

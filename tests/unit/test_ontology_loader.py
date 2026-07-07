@@ -96,7 +96,8 @@ class TestConvertEntityTypes:
         s = shapes[0]
         assert s["id"] == "shape:entity_concept_001"
         assert s["name"] == "实体约束: 客户"
-        assert s["target"]["resource_type"] == "客户"
+        assert s["target"]["entry_type"] == "ResourceEntity"
+        assert s["target"]["ontology_ref"] == "客户"
         assert s["target"]["operation"] == "UPDATE"
         assert s["path"] == "SELF"
         assert s["severity"] == "warn"
@@ -221,9 +222,11 @@ class TestConvertAxioms:
         assert shapes[0]["severity"] == "block"
         assert shapes[1]["severity"] == "block"
         # 正向: A → B
-        assert shapes[0]["target"]["resource_type"] == "A"
+        assert shapes[0]["target"]["entry_type"] == "CodeEntity"
+        assert shapes[0]["target"]["ontology_ref"] == "A"
         # 反向: B → A
-        assert shapes[1]["target"]["resource_type"] == "B"
+        assert shapes[1]["target"]["entry_type"] == "CodeEntity"
+        assert shapes[1]["target"]["ontology_ref"] == "B"
 
     def test_equivalent_class_axiom(self):
         data = {
@@ -317,7 +320,8 @@ class TestConvertProperties:
         assert s["constraint"]["field"] == "status"
         assert s["constraint"]["operator"] == "in"
         assert s["constraint"]["value"] == ["pending", "paid", "shipped"]
-        assert s["target"]["resource_type"] == "订单"
+        assert s["target"]["entry_type"] == "ResourceEntity"
+        assert s["target"]["ontology_ref"] == "订单.status"
         assert s["severity"] == "block"
 
     def test_non_enum_property_skipped(self):
@@ -397,8 +401,9 @@ class TestConvertProperties:
         }
         shapes = _convert_properties(data)
         assert len(shapes) == 1
-        # 回退到 concept_id 作为 resource_type
-        assert shapes[0]["target"]["resource_type"] == "missing_id"
+        # 回退到 concept_id 作为 ontology_ref
+        assert shapes[0]["target"]["entry_type"] == "ResourceEntity"
+        assert shapes[0]["target"]["ontology_ref"] == "missing_id.role"
 
 
 @pytest.mark.unit
@@ -430,7 +435,8 @@ class TestConvertRelations:
         assert s["id"] == "shape:rel_rel_001"
         assert "HAS_CUSTOMER" in s["path"]
         assert s["path"] == "HAS_CUSTOMER -> 客户"
-        assert s["target"]["resource_type"] == "订单"
+        assert s["target"]["entry_type"] == "ResourceEntity"
+        assert s["target"]["ontology_ref"] == "订单 --[HAS_CUSTOMER]--> 客户"
 
     def test_low_confidence_relation_allow_severity(self):
         data = {
@@ -522,7 +528,8 @@ class TestConvertRelations:
         assert len(shapes) == 1
         # 回退到 concept_id
         assert shapes[0]["path"] == "LINKS -> missing_range"
-        assert shapes[0]["target"]["resource_type"] == "missing_domain"
+        assert shapes[0]["target"]["entry_type"] == "ResourceEntity"
+        assert shapes[0]["target"]["ontology_ref"] == "missing_domain --[LINKS]--> missing_range"
 
     def test_empty_relations(self):
         shapes = _convert_relations({"relations": [], "entity_types": []})
@@ -663,7 +670,7 @@ class TestWriteShapesYaml:
                 "name": "test",
                 "description": "desc",
                 "kind": "operational",
-                "target": {"resource_type": "Test", "operation": "READ"},
+                "target": {"entry_type": "Test", "operation": "READ"},
                 "path": "SELF",
                 "constraint": {"field": "x", "operator": "in", "value": ["v"]},
                 "severity": "warn",
@@ -694,7 +701,7 @@ class TestWriteShapesYaml:
                 "name": "x",
                 "description": "x",
                 "kind": "operational",
-                "target": {"resource_type": "X", "operation": "READ"},
+                "target": {"entry_type": "X", "operation": "READ"},
                 "path": "SELF",
                 "constraint": {"field": "x", "operator": "in", "value": ["a"]},
                 "severity": "warn",
@@ -716,7 +723,7 @@ class TestWriteShapesYaml:
                 "name": "roundtrip",
                 "description": "roundtrip test",
                 "kind": "operational",
-                "target": {"resource_type": "CodeEntity", "operation": "UPDATE"},
+                "target": {"entry_type": "CodeEntity", "operation": "UPDATE"},
                 "path": "SELF",
                 "constraint": {"field": "sensitivity", "operator": "in", "value": ["high"]},
                 "severity": "block",

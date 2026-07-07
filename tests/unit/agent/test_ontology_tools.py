@@ -78,7 +78,7 @@ def test_explain_constraint_returns_full_shape(mock_shapes: list) -> None:
     from ontoagent.domain.shapes import Operation, Severity, ShapeKind
 
     target = MagicMock()
-    target.resource_type = "CodeEntity"
+    target.entry_type = "CodeEntity"
     target.operation = Operation.UPDATE
     target.field_filter = None
 
@@ -114,7 +114,7 @@ def test_explain_constraint_returns_full_shape(mock_shapes: list) -> None:
 
     assert data["id"] == "shape:sensitive_data"
     assert data["name"] == "敏感数据保护"
-    assert data["target"]["resource_type"] == "CodeEntity"
+    assert data["target"]["entry_type"] == "CodeEntity"
     assert data["target"]["operation"] == "UPDATE"
     assert data["constraint"]["field"] == "sensitivity"
     assert data["severity"] == "block"

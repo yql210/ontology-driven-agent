@@ -41,7 +41,7 @@ def evaluator(registry: ShapeRegistry, mock_graph_store: MagicMock) -> ShapeEval
 def _make_shape(
     shape_id: str,
     *,
-    resource_type: str = "CodeEntity",
+    entry_type: str = "CodeEntity",
     operation: Operation = Operation.READ,
     path: str = "SELF",
     field: str = "sensitivity",
@@ -57,7 +57,7 @@ def _make_shape(
         name=shape_id,
         description="test shape",
         kind=ShapeKind.OPERATIONAL,
-        target=ShapeTarget(resource_type=resource_type, operation=operation),
+        target=ShapeTarget(entry_type=entry_type, operation=operation),
         path=PathExpression.parse(path, max_depth=max_depth),
         constraint=ConstraintExpr(
             field=field,
@@ -123,7 +123,7 @@ class TestRelationPath:
         registry.register(
             _make_shape(
                 "s1",
-                resource_type="CodeEntity",
+                entry_type="CodeEntity",
                 path="PROCESSES_DATA -> DataAsset",
                 operator="in",
                 value=["restricted"],
@@ -308,7 +308,7 @@ class TestMultiplex:
             name="low",
             description="",
             kind=ShapeKind.OPERATIONAL,
-            target=ShapeTarget(resource_type="CodeEntity", operation=Operation.READ),
+            target=ShapeTarget(entry_type="CodeEntity", operation=Operation.READ),
             path=PathExpression.parse("SELF"),
             constraint=ConstraintExpr(field="sensitivity", operator="in", value=["restricted"]),
             severity=Severity.WARN,
@@ -319,7 +319,7 @@ class TestMultiplex:
             name="high",
             description="",
             kind=ShapeKind.OPERATIONAL,
-            target=ShapeTarget(resource_type="CodeEntity", operation=Operation.READ),
+            target=ShapeTarget(entry_type="CodeEntity", operation=Operation.READ),
             path=PathExpression.parse("SELF"),
             constraint=ConstraintExpr(field="sensitivity", operator="in", value=["restricted"]),
             severity=Severity.BLOCK,
@@ -353,8 +353,8 @@ class TestEdgeCases:
     def test_label_not_in_registry_returns_empty(
         self, evaluator: ShapeEvaluator, registry: ShapeRegistry, mock_graph_store: MagicMock
     ) -> None:
-        """实体标签不匹配任何 Shape 的 resource_type → 不评估。"""
-        registry.register(_make_shape("s1", resource_type="CodeEntity"))
+        """实体标签不匹配任何 Shape 的 entry_type → 不评估。"""
+        registry.register(_make_shape("s1", entry_type="CodeEntity"))
         results = evaluator.evaluate({"id": "abc", "labels": ["DataAsset"]}, [Operation.READ])
         assert results == []
         mock_graph_store.query.assert_not_called()
