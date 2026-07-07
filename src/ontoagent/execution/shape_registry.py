@@ -20,7 +20,7 @@ class ShapeRegistry:
     支持 O(1) 哈希查找匹配的 Shape 列表，按 priority 降序返回。
 
     entry_type 是粗粒度图遍历入口（仅校验标准图标签），
-    ontology_ref 是细粒度语义过滤（由调用方自行 match，不参与索引）。
+    ontology_ref 是细粒度语义过滤（ShapeEvaluator 在 evaluate 时预过滤，不参与索引）。
 
     倒排索引: ``dict[tuple[str, Operation], list[ConstraintShape]]``。
     """
@@ -129,7 +129,7 @@ class ShapeRegistry:
 
         Args:
             entry_type: 实体标签（PascalCase），如 "CodeEntity"。
-                注意：ontology_ref 不参与索引，调用方需自行在候选 Shape 上 match。
+                ontology_ref 预过滤由 ShapeEvaluator.evaluate() 执行，不影响索引查询。
             operation: 操作类型。
 
         Returns:

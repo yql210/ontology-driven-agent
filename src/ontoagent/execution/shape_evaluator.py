@@ -58,10 +58,13 @@ class ShapeEvaluator:
     def evaluate(self, entity: dict[str, Any], capabilities: list[Operation]) -> list[ShapeResult]:
         """对 entity 在指定 capabilities 下评估所有匹配的 Shape。
 
+        ontology_ref 预过滤：当 Shape 声明了 ``ontology_ref``（如 "漏洞"、"客户"）时，
+        仅当 ``entity.name`` 与之匹配才评估；不匹配则跳过——避免跨域误触发。
+        ``ontology_ref=None`` 的 Shape（如存量 demo-service shapes）不受影响，始终评估。
+
         Args:
             entity: 实体字典，需包含 ``id`` 与 ``labels``（Neo4j 标签列表）。
                 ``unless_field`` 也从该字典读取。
-            capabilities: 待评估的操作列表。
 
         Returns:
             ShapeResult 列表（包含未触发的）。顺序：capability → label → priority 降序。
@@ -79,6 +82,9 @@ class ShapeEvaluator:
         for operation in capabilities:
             for label in labels:
                 for shape in self._registry.get_shapes(label, operation):
+                    # ontology_ref 预过滤：跨域 Shape 不评估
+                    if shape.target.ontology_ref is not None and entity_name != shape.target.ontology_ref:
+                        continue
                     results.append(self._evaluate_shape(shape, entity, entity_id))
         return results
 
