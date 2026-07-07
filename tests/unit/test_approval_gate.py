@@ -155,7 +155,12 @@ def test_expired_token_resolve_returns_none(gate: ApprovalGate, ctx: ApprovalCon
 # ---------------------------------------------------------------------------
 
 
-def test_rejected_token_resolve_returns_none(gate: ApprovalGate, ctx: ApprovalContext) -> None:
+def test_rejected_token_resolve_returns_context(gate: ApprovalGate, ctx: ApprovalContext) -> None:
+    """Rejecting a valid token returns the context (not None) so callers can
+    distinguish 'invalid token' from 'valid token, user rejected'.
+
+    The token is still consumed (one-time use) regardless of approve/reject.
+    """
     class PendingPolicy:
         @property
         def name(self) -> str:
@@ -168,8 +173,9 @@ def test_rejected_token_resolve_returns_none(gate: ApprovalGate, ctx: ApprovalCo
     decision = gate.check(ctx)
 
     result = gate.resolve(decision.token, approved=False)
-    assert result is None
-    assert gate.pending_count() == 0
+    assert result is not None, "Rejected token should return context, not None"
+    assert result.intent_type == ctx.intent_type
+    assert gate.pending_count() == 0, "Token should be consumed after rejection"
 
 
 # ---------------------------------------------------------------------------

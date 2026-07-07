@@ -81,7 +81,12 @@ class ApprovalGate:
             approved: True=批准, False=拒绝
 
         Returns:
-            批准的 ApprovalContext（成功时）或 None（拒绝/过期/无效令牌）
+            批准或拒绝时返回 ApprovalContext（含原始操作上下文）；
+            过期/无效令牌返回 None。
+
+        注意：拒绝（approved=False）时也返回 context，以便调用方区分
+        "令牌无效"与"令牌有效但用户拒绝"。调用方应先检查 approved 参数
+        再判断返回值是否为 None。
         """
         pending = self._pending.get(token)
         if pending is None:
@@ -99,7 +104,7 @@ class ApprovalGate:
 
         if not approved:
             self._audit("rejected", pending.context, [], token=token)
-            return None
+            return pending.context
 
         self._audit("resolved", pending.context, [], token=token, approved=True)
         return pending.context

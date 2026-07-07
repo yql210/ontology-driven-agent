@@ -423,15 +423,18 @@ def express_intent(
                 return json.dumps({"status": "error", "error": "审批系统未启用"}, ensure_ascii=False)
 
             ctx = approval_gate.resolve(approval_id, approved)
-            if ctx is None:
+
+            # 拒绝且令牌有效（ctx 非空）→ 返回 rejected
+            if ctx is not None and not approved:
                 return json.dumps(
-                    {"status": "error", "error": "审批令牌无效、已过期或已被使用"},
+                    {"status": "rejected", "message": f"操作 '{ctx.intent_type}' 已被拒绝"},
                     ensure_ascii=False,
                 )
 
-            if not approved:
+            # 令牌无效/过期/已使用
+            if ctx is None:
                 return json.dumps(
-                    {"status": "rejected", "message": f"操作 '{ctx.intent_type}' 已被拒绝"},
+                    {"status": "error", "error": "审批令牌无效、已过期或已被使用"},
                     ensure_ascii=False,
                 )
 
