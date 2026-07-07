@@ -20,19 +20,19 @@ from ontoagent.execution.shape_registry import ShapeRegistry
 
 
 def _make_shape(
-    resource_type: str = "CodeEntity",
+    entry_type: str = "CodeEntity",
     target_label: str = "CodeEntity",
     field: str = "name",
     operator: str = "exists",
 ) -> ConstraintShape:
     """构造最小可用的 ConstraintShape 用于测试。"""
-    path_raw = "SELF" if resource_type == target_label else f"PROCESSES_DATA -> {target_label}"
+    path_raw = "SELF" if entry_type == target_label else f"PROCESSES_DATA -> {target_label}"
     return ConstraintShape(
         id="shape:cross_test",
         name="cross_test",
         description="检验字段存在性",
         kind=ShapeKind.OPERATIONAL,
-        target=ShapeTarget(resource_type=resource_type, operation=Operation.UPDATE),
+        target=ShapeTarget(entry_type=entry_type, operation=Operation.UPDATE),
         path=PathExpression.parse(path_raw),
         constraint=ConstraintExpr(field=field, operator=operator),
         severity=Severity.WARN,
@@ -46,14 +46,14 @@ class TestValidateCrossShape:
         """SELF path + DataAsset + sensitivity 字段应通过。"""
         registry = ShapeRegistry(valid_labels=set(VALID_ENTITY_LABELS))
         field_index = build_entity_field_index()
-        shape = _make_shape(resource_type="DataAsset", target_label="DataAsset", field="sensitivity")
+        shape = _make_shape(entry_type="DataAsset", target_label="DataAsset", field="sensitivity")
         registry.validate_cross_shape(shape, field_index)
 
     def test_self_path_invalid_field_raises(self) -> None:
         """SELF + 不存在的字段应抛 ValueError。"""
         registry = ShapeRegistry(valid_labels=set(VALID_ENTITY_LABELS))
         field_index = build_entity_field_index()
-        shape = _make_shape(resource_type="DataAsset", target_label="DataAsset", field="nonexistent_field_xyz")
+        shape = _make_shape(entry_type="DataAsset", target_label="DataAsset", field="nonexistent_field_xyz")
         with pytest.raises(ValueError, match="nonexistent_field_xyz"):
             registry.validate_cross_shape(shape, field_index)
 
@@ -61,14 +61,14 @@ class TestValidateCrossShape:
         """非 SELF path + target_label=DataAsset + sensitivity 应通过。"""
         registry = ShapeRegistry(valid_labels=set(VALID_ENTITY_LABELS))
         field_index = build_entity_field_index()
-        shape = _make_shape(resource_type="CodeEntity", target_label="DataAsset", field="sensitivity")
+        shape = _make_shape(entry_type="CodeEntity", target_label="DataAsset", field="sensitivity")
         registry.validate_cross_shape(shape, field_index)
 
     def test_rel_path_invalid_field_raises(self) -> None:
         """非 SELF path + 不存在的字段应抛 ValueError。"""
         registry = ShapeRegistry(valid_labels=set(VALID_ENTITY_LABELS))
         field_index = build_entity_field_index()
-        shape = _make_shape(resource_type="CodeEntity", target_label="DataAsset", field="nonexistent_field_xyz")
+        shape = _make_shape(entry_type="CodeEntity", target_label="DataAsset", field="nonexistent_field_xyz")
         with pytest.raises(ValueError, match="nonexistent_field_xyz"):
             registry.validate_cross_shape(shape, field_index)
 
@@ -76,7 +76,7 @@ class TestValidateCrossShape:
         """非 SELF + CodeEntity endpoint + sensitivity(不属于CodeEntity) → 抛。"""
         registry = ShapeRegistry(valid_labels=set(VALID_ENTITY_LABELS))
         field_index = build_entity_field_index()
-        shape = _make_shape(resource_type="DataAsset", target_label="CodeEntity", field="sensitivity")
+        shape = _make_shape(entry_type="DataAsset", target_label="CodeEntity", field="sensitivity")
         with pytest.raises(ValueError, match="sensitivity"):
             registry.validate_cross_shape(shape, field_index)
 

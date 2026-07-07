@@ -39,6 +39,19 @@ AXIOM_TYPE_MAP: dict[str, tuple[str, str, str]] = {
     "EQUIVALENT_CLASS": ("escalate", "SELF", "bidirectional"),
 }
 
+# 本体数据来源 → Neo4j 实体标签（图遍历入口）
+_DOMAIN_TO_ENTRY_TYPE: dict[str, str] = {
+    "rdb": "ResourceEntity",
+    "doc": "DocEntity",
+    "code": "CodeEntity",
+    "unknown": "ResourceEntity",
+}
+
+
+def _resolve_entry_type(source: str) -> str:
+    """根据数据来源决定图入口标签。"""
+    return _DOMAIN_TO_ENTRY_TYPE.get(source, "ResourceEntity")
+
 
 # ---------------------------------------------------------------
 # 工具函数
@@ -96,7 +109,8 @@ def _convert_entity_types(data: dict) -> list[dict]:
 
     规则:
     - is_entity_type=False → 跳过
-    - 使用 entity 的 name 作为 target.resource_type
+    - entry_type 由 entity.source 经 _resolve_entry_type 映射得出
+    - ontology_ref = entity.name（细粒度语义引用）
     """
     shapes: list[dict] = []
     _build_concept_map(data)
@@ -115,8 +129,9 @@ def _convert_entity_types(data: dict) -> list[dict]:
                 "description": desc,
                 "kind": "structural",
                 "target": {
-                    "resource_type": ename,
+                    "entry_type": _resolve_entry_type(entity.get("source", "unknown")),
                     "operation": "UPDATE",
+                    "ontology_ref": ename,
                 },
                 "path": "SELF",
                 "constraint": {
@@ -153,8 +168,9 @@ def _make_axiom_shape(
         "description": f"{axiom_type} 约束: {from_name} → {to_name}",
         "kind": "operational",
         "target": {
-            "resource_type": from_name or "CodeEntity",
+            "entry_type": _resolve_entry_type("code"),
             "operation": "UPDATE",
+            "ontology_ref": from_name or None,
         },
         "path": path_expr,
         "constraint": {
@@ -273,8 +289,9 @@ def _convert_properties(data: dict) -> list[dict]:
                 "description": desc,
                 "kind": "operational",
                 "target": {
-                    "resource_type": concept_name or "CodeEntity",
+                    "entry_type": _resolve_entry_type(prop.get("source", "rdb")),
                     "operation": "UPDATE",
+                    "ontology_ref": f"{concept_name}.{prop_name}",
                 },
                 "path": "SELF",
                 "constraint": {
@@ -334,8 +351,9 @@ def _convert_relations(data: dict) -> list[dict]:
                 "description": (f"{domain_name} --[{rel_upper}]--> {range_name} (基数: {cardinality})"),
                 "kind": "structural",
                 "target": {
-                    "resource_type": domain_name or "CodeEntity",
+                    "entry_type": _resolve_entry_type(rel.get("source", "rdb")),
                     "operation": "UPDATE",
+                    "ontology_ref": f"{domain_name} --[{rel_upper}]--> {range_name}",
                 },
                 "path": f"{rel_upper} -> {range_name}",
                 "constraint": {

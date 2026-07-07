@@ -78,7 +78,7 @@ class MockGraphStore:
 def _make_block_shape(
     shape_id: str = "shape:block_test",
     *,
-    resource_type: str = "CodeEntity",
+    entry_type: str = "CodeEntity",
     operation: Operation = Operation.UPDATE,
     field: str = "sensitivity",
     value: list[str] | None = None,
@@ -89,7 +89,7 @@ def _make_block_shape(
         name=shape_id,
         description="test",
         kind=ShapeKind.OPERATIONAL,
-        target=ShapeTarget(resource_type=resource_type, operation=operation),
+        target=ShapeTarget(entry_type=entry_type, operation=operation),
         path=PathExpression.parse("SELF"),
         constraint=ConstraintExpr(field=field, operator="in", value=value or ["restricted"]),
         severity=severity,
@@ -101,7 +101,7 @@ def _make_block_shape(
 def _make_warn_shape(
     shape_id: str = "shape:warn_test",
     *,
-    resource_type: str = "CodeEntity",
+    entry_type: str = "CodeEntity",
     operation: Operation = Operation.UPDATE,
 ) -> ConstraintShape:
     return ConstraintShape(
@@ -109,7 +109,7 @@ def _make_warn_shape(
         name=shape_id,
         description="test",
         kind=ShapeKind.OPERATIONAL,
-        target=ShapeTarget(resource_type=resource_type, operation=operation),
+        target=ShapeTarget(entry_type=entry_type, operation=operation),
         path=PathExpression.parse("SELF"),
         constraint=ConstraintExpr(field="entryCategory", operator="in", value=["http_api"]),
         severity=Severity.WARN,
@@ -179,7 +179,7 @@ def escalate_registry() -> ShapeRegistry:
         name="escalate_test",
         description="test escalate",
         kind=ShapeKind.OPERATIONAL,
-        target=ShapeTarget(resource_type="CodeEntity", operation=Operation.READ),
+        target=ShapeTarget(entry_type="CodeEntity", operation=Operation.READ),
         path=PathExpression.parse("SELF"),
         constraint=ConstraintExpr(field="sensitivity", operator="in", value=["restricted"]),
         severity=Severity.ESCALATE,

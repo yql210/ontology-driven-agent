@@ -56,7 +56,7 @@ def test_shapes_yaml_contains_structural_refactor_lines_shape() -> None:
         s
         for s in data["shapes"]
         if s.get("kind") == "structural"
-        and s.get("target", {}).get("resource_type") == "CodeEntity"
+        and s.get("target", {}).get("entry_type") == "CodeEntity"
         and s.get("constraint", {}).get("field") == "lines"
         and s.get("constraint", {}).get("operator") == ">"
         and s.get("constraint", {}).get("value") == 100
