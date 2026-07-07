@@ -684,8 +684,9 @@ def explain_constraint(shape_id: str) -> str:
             "suggestion": shape.suggestion,
             "max_depth": shape.max_depth,
             "target": {
-                "resource_type": target.resource_type,
+                "entry_type": target.entry_type,
                 "operation": target.operation.value,
+                "ontology_ref": target.ontology_ref,
                 "field_filter": target.field_filter,
             },
             "path": {
@@ -720,8 +721,11 @@ def suggest_alternatives(intent_type: str, target: str) -> str:
 
     Returns:
         JSON 字符串，格式:
-        {source_intent: str, resource_type: str, count: int,
+        {source_intent: str, entry_type: str, count: int,
          alternatives: [{intent_type, trigger_hint, bind_to}, ...]}
+
+        注意：此处的 resource_type（见下方 line ~749）属于 intent_router 层，
+        与 ShapeTarget.entry_type 是不同层级的概念。为保持意图层 API 稳定，此处不改名。
     """
     intent_map = _get_intent_map()
     source = intent_map.get(intent_type)

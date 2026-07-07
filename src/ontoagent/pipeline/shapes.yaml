@@ -1,4 +1,4 @@
-version: "2.0"
+version: "2.1"
 
 shapes:
   - id: shape:sensitive_data
@@ -6,7 +6,7 @@ shapes:
     description: "操作 restricted/confidential 数据的 CodeEntity 需要额外审查"
     kind: operational
     target:
-      resource_type: CodeEntity
+      entry_type: CodeEntity
       operation: UPDATE
     path: "PROCESSES_DATA -> DataAsset"
     constraint:
@@ -27,7 +27,7 @@ shapes:
     description: "操作 critical/high 级合规要求关联的 CodeEntity"
     kind: operational
     target:
-      resource_type: CodeEntity
+      entry_type: CodeEntity
       operation: UPDATE
     path: "SUBJECT_TO -> ComplianceItem"
     constraint:
@@ -48,7 +48,7 @@ shapes:
     description: "修改 http_api/rpc_service 入口点需发出警告"
     kind: operational
     target:
-      resource_type: CodeEntity
+      entry_type: CodeEntity
       operation: UPDATE
     path: "SELF"
     constraint:
@@ -69,7 +69,7 @@ shapes:
     description: "重构 lines > 100 的 CodeEntity 时发出提示（迁移自 submission_criteria: entity.lines > 100）"
     kind: structural
     target:
-      resource_type: CodeEntity
+      entry_type: CodeEntity
       operation: UPDATE
     path: "SELF"
     constraint:
@@ -90,7 +90,7 @@ shapes:
     description: "反向遍历CALLS调用链，检查上游是否有HTTP/RPC入口点"
     kind: operational
     target:
-      resource_type: CodeEntity
+      entry_type: CodeEntity
       operation: UPDATE
     path: "^CALLS{1,5} -> CodeEntity"
     max_depth: 5

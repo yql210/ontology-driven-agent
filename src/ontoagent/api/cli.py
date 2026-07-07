@@ -411,7 +411,7 @@ def migrate(target: str | None) -> None:
 def validate_shapes(path_opt: Path | None, strict: bool) -> None:
     """校验 shapes.yaml 中的约束 Shape。
 
-    加载 YAML → ShapeRegistry → 对每条 Shape 应用 validate_shape（resource_type、
+    加载 YAML → ShapeRegistry → 对每条 Shape 应用 validate_shape（entry_type、
     path.target_label 必须在合法标签集合中）。失败时打印聚合错误；--strict 时 exit(1)。
     """
     from ontoagent.domain.schema import ONTOLOGY_ENTITY_LABELS

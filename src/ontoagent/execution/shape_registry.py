@@ -1,4 +1,4 @@
-"""Shape registry — 加载、校验、按 (resource_type, operation) 倒排索引。"""
+"""Shape registry — 加载、校验、按 (entry_type, operation) 倒排索引。"""
 
 from __future__ import annotations
 
@@ -16,8 +16,11 @@ logger = logging.getLogger(__name__)
 class ShapeRegistry:
     """约束 Shape 注册表。
 
-    维护 (resource_type, operation) → list[ConstraintShape] 的倒排索引，
+    维护 (entry_type, operation) → list[ConstraintShape] 的倒排索引，
     支持 O(1) 哈希查找匹配的 Shape 列表，按 priority 降序返回。
+
+    entry_type 是粗粒度图遍历入口（仅校验标准图标签），
+    ontology_ref 是细粒度语义过滤（由调用方自行 match，不参与索引）。
 
     倒排索引: ``dict[tuple[str, Operation], list[ConstraintShape]]``。
     """
@@ -27,7 +30,7 @@ class ShapeRegistry:
 
         Args:
             valid_labels: 合法的 Neo4j 实体标签集合（如 {"CodeEntity", "DataAsset"}）。
-                validate_shape 据此校验 target.resource_type 与 path.target_label。
+                validate_shape 据此校验 target.entry_type 与 path.target_label。
             allow_set: 白名单集合，格式 ``{"Label:Name"}``。命中条目在 ShapeEvaluator
                 中短路返回（跳过所有 Shape 检查），替代旧 WhitelistGuard。
         """
@@ -53,7 +56,7 @@ class ShapeRegistry:
             raise ValueError(f"Shape {shape.id!r} already registered")
         self.validate_shape(shape)
         self._shapes[shape.id] = shape
-        key = (shape.target.resource_type, shape.target.operation)
+        key = (shape.target.entry_type, shape.target.operation)
         self._index[key].append(shape)
         logger.debug("Registered shape %s → %s", shape.id, key)
 
@@ -108,7 +111,7 @@ class ShapeRegistry:
             raise ValueError(f"加载 {path} 失败，共 {len(errors)} 条错误:\n" + "\n".join(errors))
 
         for shape in parsed:
-            key = (shape.target.resource_type, shape.target.operation)
+            key = (shape.target.entry_type, shape.target.operation)
             self._shapes[shape.id] = shape
             self._index[key].append(shape)
 
@@ -118,20 +121,21 @@ class ShapeRegistry:
     # 查询
     # ------------------------------------------------------------------
 
-    def get_shapes(self, resource_type: str, operation: Operation) -> list[ConstraintShape]:
-        """按 (resource_type, operation) 查询匹配的 Shape 列表。
+    def get_shapes(self, entry_type: str, operation: Operation) -> list[ConstraintShape]:
+        """按 (entry_type, operation) 查询匹配的 Shape 列表。
 
         O(1) 哈希查找倒排索引，结果按 priority 降序排列。
         disabled 的 Shape 不返回。
 
         Args:
-            resource_type: 实体标签（PascalCase）。
+            entry_type: 实体标签（PascalCase），如 "CodeEntity"。
+                注意：ontology_ref 不参与索引，调用方需自行在候选 Shape 上 match。
             operation: 操作类型。
 
         Returns:
             按 priority 降序、enabled 的 Shape 列表（副本）。
         """
-        key = (resource_type, operation)
+        key = (entry_type, operation)
         candidates = [s for s in self._index.get(key, []) if s.enabled]
         return sorted(candidates, key=lambda s: s.priority, reverse=True)
 
@@ -147,7 +151,7 @@ class ShapeRegistry:
         """校验单条 Shape 的合法性，批量报告所有错误。
 
         校验项:
-            - target.resource_type 必须在 valid_labels 中。
+            - target.entry_type 必须在 valid_labels 中。
             - 若 path 非 SELF，path.target_label 必须在 valid_labels 中。
 
         Args:
@@ -158,8 +162,8 @@ class ShapeRegistry:
         """
         errors: list[str] = []
 
-        if shape.target.resource_type not in self._valid_labels:
-            errors.append(f"target.resource_type {shape.target.resource_type!r} 不在合法标签集合中")
+        if shape.target.entry_type not in self._valid_labels:
+            errors.append(f"target.entry_type {shape.target.entry_type!r} 不在合法标签集合中")
 
         if not shape.path.is_self() and shape.path.target_label and shape.path.target_label not in self._valid_labels:
             errors.append(f"path.target_label {shape.path.target_label!r} 不在合法标签集合中")
@@ -169,7 +173,7 @@ class ShapeRegistry:
 
     def validate_cross_shape(self, shape: ConstraintShape, field_index: dict[str, set[str]]) -> None:
         if shape.path.is_self():
-            target_label = shape.target.resource_type
+            target_label = shape.target.entry_type
         else:
             target_label = shape.path.target_label
         valid_fields = field_index.get(target_label, set())
