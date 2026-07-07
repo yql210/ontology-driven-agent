@@ -317,7 +317,7 @@ class TestConvertProperties:
         assert len(shapes) == 1
         s = shapes[0]
         assert s["id"] == "shape:enum_prop_001"
-        assert s["constraint"]["field"] == "status"
+        assert s["constraint"]["field"] == "name"
         assert s["constraint"]["operator"] == "in"
         assert s["constraint"]["value"] == ["pending", "paid", "shipped"]
         assert s["target"]["entry_type"] == "ResourceEntity"
@@ -434,7 +434,7 @@ class TestConvertRelations:
         s = shapes[0]
         assert s["id"] == "shape:rel_rel_001"
         assert "HAS_CUSTOMER" in s["path"]
-        assert s["path"] == "HAS_CUSTOMER -> 客户"
+        assert s["path"] == "HAS_CUSTOMER -> ResourceEntity"
         assert s["target"]["entry_type"] == "ResourceEntity"
         assert s["target"]["ontology_ref"] == "订单 --[HAS_CUSTOMER]--> 客户"
 
@@ -508,8 +508,8 @@ class TestConvertRelations:
         }
         shapes = _convert_relations(data)
         assert len(shapes) == 2
-        assert shapes[0]["path"] == "REL_ONE -> B"
-        assert shapes[1]["path"] == "REL_TWO -> C"
+        assert shapes[0]["path"] == "REL_ONE -> ResourceEntity"
+        assert shapes[1]["path"] == "REL_TWO -> ResourceEntity"
 
     def test_missing_concept_fallback(self):
         data = {
@@ -527,7 +527,7 @@ class TestConvertRelations:
         shapes = _convert_relations(data)
         assert len(shapes) == 1
         # 回退到 concept_id
-        assert shapes[0]["path"] == "LINKS -> missing_range"
+        assert shapes[0]["path"] == "LINKS -> ResourceEntity"
         assert shapes[0]["target"]["entry_type"] == "ResourceEntity"
         assert shapes[0]["target"]["ontology_ref"] == "missing_domain --[LINKS]--> missing_range"
 
@@ -553,7 +553,7 @@ class TestConvertRelations:
             ],
         }
         shapes = _convert_relations(data)
-        assert shapes[0]["path"] == "ORDER_ID -> B"
+        assert shapes[0]["path"] == "ORDER_ID -> ResourceEntity"
 
 
 # =============================================================================

@@ -135,8 +135,8 @@ def _convert_entity_types(data: dict) -> list[dict]:
                 },
                 "path": "SELF",
                 "constraint": {
-                    "field": "_entity_type",
-                    "operator": "in",
+                    "field": "name",
+                    "operator": "eq",
                     "value": [ename],
                 },
                 "severity": "warn",
@@ -295,7 +295,7 @@ def _convert_properties(data: dict) -> list[dict]:
                 },
                 "path": "SELF",
                 "constraint": {
-                    "field": prop_name,
+                    "field": "name",
                     "operator": "in",
                     "value": list(enum_values),
                 },
@@ -355,9 +355,9 @@ def _convert_relations(data: dict) -> list[dict]:
                     "operation": "UPDATE",
                     "ontology_ref": f"{domain_name} --[{rel_upper}]--> {range_name}",
                 },
-                "path": f"{rel_upper} -> {range_name}",
+                "path": f"{rel_upper} -> ResourceEntity",
                 "constraint": {
-                    "field": "_relation",
+                    "field": "name",
                     "operator": "equals",
                     "value": rel_upper,
                 },
