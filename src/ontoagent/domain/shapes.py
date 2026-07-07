@@ -196,14 +196,16 @@ class ShapeTarget:
     """Shape 的目标：实体标签 × 操作类型 × 可选字段过滤。
 
     Attributes:
-        resource_type: Neo4j 实体标签，如 "CodeEntity"。
+        entry_type: Neo4j 实体标签（图遍历入口），如 "CodeEntity"。
         operation: 触发该 Shape 的 Operation。
         field_filter: 可选的实体属性过滤，键为属性名、值为期望值。
+        ontology_ref: 可选的本体概念引用，如 "客户"、"订单"。不参与图遍历索引。
     """
 
-    resource_type: str
+    entry_type: str
     operation: Operation
     field_filter: dict[str, str] | None = None
+    ontology_ref: str | None = None
 
 
 @dataclass
@@ -281,15 +283,24 @@ class ConstraintShape:
             raise ValueError(f"Shape 缺少必填字段: {exc}") from exc
 
         target_data = data.get("target") or {}
-        if "resource_type" not in target_data or "operation" not in target_data:
-            raise ValueError(f"Shape {shape_id!r} 缺少 target.resource_type / target.operation")
+        if "operation" not in target_data:
+            raise ValueError(f"Shape {shape_id!r} 缺少 target.operation")
+
+        raw_entry = target_data.get("entry_type")
+        if not raw_entry:
+            raw_entry = target_data.get("resource_type")
+        if not raw_entry:
+            raise ValueError(
+                f"Shape {shape_id!r} 缺少 target.entry_type / target.resource_type"
+            )
 
         operation = Operation(target_data["operation"])
         field_filter = target_data.get("field_filter")
         target = ShapeTarget(
-            resource_type=target_data["resource_type"],
+            entry_type=raw_entry,
             operation=operation,
             field_filter=dict(field_filter) if field_filter else None,
+            ontology_ref=target_data.get("ontology_ref"),
         )
 
         max_depth = int(data.get("max_depth", 3))
