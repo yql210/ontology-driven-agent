@@ -62,6 +62,27 @@ class SkillStore:
         self._guard = guard
         self._init_db()
 
+    # Shared column list and row-to-entity converter to eliminate duplication
+    _COLUMNS = "skill_id, name, layer, pattern_json, action_json, confidence, source, status, hit_count, version, parent_id, created_at, updated_at"
+
+    def _row_to_skill(self, row) -> SkillEntity:
+        """Convert a SQLite row to a SkillEntity."""
+        return SkillEntity(
+            skill_id=row[0],
+            name=row[1],
+            layer=SkillLayer(row[2]),
+            pattern=json.loads(row[3]),
+            action=json.loads(row[4]),
+            confidence=row[5],
+            source=row[6],
+            status=row[7],
+            hit_count=row[8],
+            version=row[9],
+            parent_id=row[10],
+            created_at=row[11],
+            updated_at=row[12],
+        )
+
     def _get_db(self) -> sqlite3.Connection:
         """Get a new SQLite connection with WAL mode."""
         db = sqlite3.connect(str(self._db_path))
@@ -188,21 +209,7 @@ class SkillStore:
                 if not row:
                     return None
 
-                return SkillEntity(
-                    skill_id=row[0],
-                    name=row[1],
-                    layer=SkillLayer(row[2]),
-                    pattern=json.loads(row[3]),
-                    action=json.loads(row[4]),
-                    confidence=row[5],
-                    source=row[6],
-                    status=row[7],
-                    hit_count=row[8],
-                    version=row[9],
-                    parent_id=row[10],
-                    created_at=row[11],
-                    updated_at=row[12],
-                )
+                return self._row_to_skill(row)
             finally:
                 db.close()
 
@@ -320,24 +327,7 @@ class SkillStore:
                         (layer.value,),
                     ).fetchall()
 
-                return [
-                    SkillEntity(
-                        skill_id=row[0],
-                        name=row[1],
-                        layer=SkillLayer(row[2]),
-                        pattern=json.loads(row[3]),
-                        action=json.loads(row[4]),
-                        confidence=row[5],
-                        source=row[6],
-                        status=row[7],
-                        hit_count=row[8],
-                        version=row[9],
-                        parent_id=row[10],
-                        created_at=row[11],
-                        updated_at=row[12],
-                    )
-                    for row in rows
-                ]
+                return [self._row_to_skill(row) for row in rows]
             finally:
                 db.close()
 
@@ -390,24 +380,7 @@ class SkillStore:
                     (key, value),
                 ).fetchall()
 
-                return [
-                    SkillEntity(
-                        skill_id=row[0],
-                        name=row[1],
-                        layer=SkillLayer(row[2]),
-                        pattern=json.loads(row[3]),
-                        action=json.loads(row[4]),
-                        confidence=row[5],
-                        source=row[6],
-                        status=row[7],
-                        hit_count=row[8],
-                        version=row[9],
-                        parent_id=row[10],
-                        created_at=row[11],
-                        updated_at=row[12],
-                    )
-                    for row in rows
-                ]
+                return [self._row_to_skill(row) for row in rows]
             finally:
                 db.close()
 
@@ -429,24 +402,7 @@ class SkillStore:
                     (min_confidence,),
                 ).fetchall()
 
-                return [
-                    SkillEntity(
-                        skill_id=row[0],
-                        name=row[1],
-                        layer=SkillLayer(row[2]),
-                        pattern=json.loads(row[3]),
-                        action=json.loads(row[4]),
-                        confidence=row[5],
-                        source=row[6],
-                        status=row[7],
-                        hit_count=row[8],
-                        version=row[9],
-                        parent_id=row[10],
-                        created_at=row[11],
-                        updated_at=row[12],
-                    )
-                    for row in rows
-                ]
+                return [self._row_to_skill(row) for row in rows]
             finally:
                 db.close()
 

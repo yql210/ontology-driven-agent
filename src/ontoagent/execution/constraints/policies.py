@@ -20,7 +20,7 @@ class ApprovalPolicy(ABC):
 class ShapeBasedGuardPolicy(ApprovalPolicy):
     """基于 Shape 约束的审批策略（Phase 5）。
 
-    直接复用 ActionExecutor._check_with_shapes() 收集 capabilities 并评估 Shape，
+    直接复用 ActionExecutor.check_with_shapes() 收集 capabilities 并评估 Shape，
     不再依赖 ActionGuardPipeline。
 
     配置格式:
@@ -51,7 +51,7 @@ class ShapeBasedGuardPolicy(ApprovalPolicy):
                 reason="no executor or config",
             )
 
-        block_reason, warnings = executor._check_with_shapes(context.entity, config)
+        block_reason, warnings = executor.check_with_shapes(context.entity, config)
 
         if block_reason:
             if self._on_block == "auto_reject":

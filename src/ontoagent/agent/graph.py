@@ -142,7 +142,7 @@ async def run_query(question: str, thread_id: str = "default") -> str:
                             return content
             except Exception:
                 pass
-            return "Agent 工具调用次数超限，可能是因为部分数据未构建（如概念实体、模块聚类）。请使用更具体的代码实体名称提问，例如「Cache 类有哪些方法？」。"
+            return "Agent tool call limit exceeded. The knowledge graph may be incomplete (missing concept entities or module clustering). Try a more specific entity name, e.g. \"What methods does the Cache class have?\"."
         if "Unexpected end of JSON" in err_msg or "ConnectionError" in err_msg:
             return "LLM 服务连接中断，请稍后重试。"
         if "400" in err_msg and "tool_calls" in err_msg:

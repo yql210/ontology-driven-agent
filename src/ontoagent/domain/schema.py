@@ -6,7 +6,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 # Backward-compatible re-exports: constraint types moved to domain/constraints.py
-from ontoagent.domain.constraints import GuardDecision, GuardLevel, TraversalConstraint  # noqa: F401
+from ontoagent.domain.constraints import (  # noqa: F401
+    ConstraintFieldDescriptor,
+    GuardDecision,
+    GuardLevel,
+    TraversalConstraint,
+)
 from ontoagent.domain.exceptions import ConstraintViolationError, SchemaValidationError
 
 
@@ -877,7 +882,5 @@ def validate_relation_constraint(
 # FROZEN — V4 Phase 1 迁移到 shapes.yaml + ShapeRegistry。
 # 保留为空 dict 以兼容旧代码的 import；不再接受新增条目。
 # 新规则一律写入 src/ontoagent/pipeline/shapes.yaml。
-
-from ontoagent.domain.ontology_constraints import ConstraintFieldDescriptor  # noqa: E402
 
 ONTOLOGY_CONSTRAINT_REGISTRY: dict[str, ConstraintFieldDescriptor] = {}

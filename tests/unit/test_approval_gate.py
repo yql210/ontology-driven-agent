@@ -221,7 +221,7 @@ def test_token_one_time_use(gate: ApprovalGate, ctx: ApprovalContext) -> None:
 
 def test_shape_based_policy_block_pending(ctx: ApprovalContext) -> None:
     executor = MagicMock()
-    executor._check_with_shapes = MagicMock(return_value=("BLOCK: entity does not exist", []))
+    executor.check_with_shapes = MagicMock(return_value=("BLOCK: entity does not exist", []))
     policy = ShapeBasedGuardPolicy(on_block="require_approval")
     config = MagicMock()
     result = policy.evaluate(ctx, executor=executor, config=config)
@@ -236,7 +236,7 @@ def test_shape_based_policy_block_pending(ctx: ApprovalContext) -> None:
 
 def test_shape_based_policy_block_denied(ctx: ApprovalContext) -> None:
     executor = MagicMock()
-    executor._check_with_shapes = MagicMock(return_value=("BLOCK: entity does not exist", []))
+    executor.check_with_shapes = MagicMock(return_value=("BLOCK: entity does not exist", []))
     policy = ShapeBasedGuardPolicy(on_block="auto_reject")
     config = MagicMock()
     result = policy.evaluate(ctx, executor=executor, config=config)
@@ -250,7 +250,7 @@ def test_shape_based_policy_block_denied(ctx: ApprovalContext) -> None:
 
 def test_shape_based_policy_warn_pending(ctx: ApprovalContext) -> None:
     executor = MagicMock()
-    executor._check_with_shapes = MagicMock(return_value=(None, ["warning: low confidence"]))
+    executor.check_with_shapes = MagicMock(return_value=(None, ["warning: low confidence"]))
     policy = ShapeBasedGuardPolicy(on_warn="require_approval")
     config = MagicMock()
     result = policy.evaluate(ctx, executor=executor, config=config)

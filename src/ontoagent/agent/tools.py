@@ -277,7 +277,7 @@ def get_module_tree() -> str:
         return json.dumps(enriched_tree, ensure_ascii=False, indent=2)
     except Exception as e:
         return json.dumps(
-            {"error": f"获取模块树失败: {e!s}", "suggestion": "请使用 graph_query 查询 CodeEntity 替代"},
+            {"error": f"Failed to get module tree: {e!s}", "suggestion": "Use graph_query to query CodeEntity instead"},
             ensure_ascii=False,
         )
 
