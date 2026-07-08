@@ -298,8 +298,8 @@ class IncrementalUpdater:
         graph_store = self._get_graph_store()
         chroma_store = self._get_chroma_store()
 
-        # 查询匹配 file_path 的节点
-        cypher = "MATCH (n {file_path: $fp}) RETURN n.id AS id"
+        # 查询匹配 filePath 的节点（Neo4j 存 camelCase）
+        cypher = "MATCH (n {filePath: $fp}) RETURN n.id AS id"
         nodes = graph_store.query(cypher, {"fp": change.path})
 
         nodes_deleted = 0
@@ -343,30 +343,15 @@ class IncrementalUpdater:
         graph_store = self._get_graph_store()
         chroma_store = self._get_chroma_store()
 
-        # 查旧节点（同 file_path）
-        cypher = "MATCH (n {file_path: $fp}) RETURN n.id AS id"
+        # 查旧节点（同 filePath — Neo4j 存 camelCase）
+        cypher = "MATCH (n {filePath: $fp}) RETURN n.id AS id"
         old_nodes = graph_store.query(cypher, {"fp": change.path})
 
-        # 对旧节点：只删除关系
+        # 对旧节点：删除旧节点（DETACH DELETE 自动清理关系）
         for node in old_nodes:
             node_id = node.get("id")
             if node_id:
-                # 删除所有 outgoing 和 incoming 关系
-                relations = graph_store.get_relations(source_id=node_id)
-                for rel in relations:
-                    graph_store.delete_relation(
-                        rel["source_id"],
-                        rel["target_id"],
-                        rel["rel_type"],
-                    )
-                # 删除 incoming 关系
-                incoming_rels = graph_store.get_relations(target_id=node_id)
-                for rel in incoming_rels:
-                    graph_store.delete_relation(
-                        rel["source_id"],
-                        rel["target_id"],
-                        rel["rel_type"],
-                    )
+                graph_store.delete_node(node_id)
 
         # 对新解析的 entities：merge_node 写入/更新
         entities = parse_result.entities

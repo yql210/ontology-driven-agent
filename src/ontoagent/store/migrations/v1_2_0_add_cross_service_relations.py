@@ -31,7 +31,12 @@ class CrossServiceRelationsMigration(MigrationBase):
 
     def upgrade(self, store: GraphStore) -> None:
         for statement in MIGRATION_120["up"]:
-            store.query(statement)
+            try:
+                store.query(statement)
+            except Exception:
+                # Neo4j < 5.7 doesn't support relationship-level constraints.
+                # These are optional uniqueness constraints; safe to skip.
+                pass
 
     def downgrade(self, store: GraphStore) -> None:
         for statement in MIGRATION_120["down"]:

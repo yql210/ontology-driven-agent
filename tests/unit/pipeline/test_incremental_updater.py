@@ -852,7 +852,7 @@ class TestApplyModifiedBody:
             os.unlink(temp_path)
 
     def test_body_change_no_delete_relation(self):
-        """BODY change → old relations are deleted before being rebuilt (delete_relation is called)."""
+        """BODY change → old nodes are deleted via delete_node (DETACH DELETE auto-cleans relations)."""
         import os
         import tempfile
 
@@ -880,16 +880,9 @@ class TestApplyModifiedBody:
             mock_extractor.resolve.return_value = []
             updater._extractor = mock_extractor
 
-            # Mock graph_store with old relations
+            # Mock graph_store with old nodes found by filePath query
             mock_graph_store = MagicMock()
             mock_graph_store.query.return_value = [{"id": "old_node1"}]
-            mock_graph_store.get_relations.return_value = [
-                {
-                    "source_id": "old_node1",
-                    "target_id": "other",
-                    "rel_type": "CALLS",
-                }
-            ]
             updater._graph_store = mock_graph_store
 
             # Mock chroma_store
@@ -904,8 +897,8 @@ class TestApplyModifiedBody:
 
             updater._apply_modified(change)
 
-            # Verify delete_relation is called to remove old relations
-            mock_graph_store.delete_relation.assert_called()
+            # Verify delete_node is called to remove old nodes (DETACH DELETE auto-cleans relations)
+            mock_graph_store.delete_node.assert_called_with("old_node1")
         finally:
             os.unlink(temp_path)
 
