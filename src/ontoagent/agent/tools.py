@@ -449,7 +449,7 @@ def express_intent(
             return json.dumps({"status": "error", "error": "intent_type 和 target 不能为空"}, ensure_ascii=False)
 
         # Resolve entity
-        entity = executor._resolve_entity(target)
+        entity = executor.resolve_entity(target)
         if entity is None:
             return json.dumps({"status": "error", "error": f"未找到实体 '{target}'"}, ensure_ascii=False)
 
@@ -459,7 +459,7 @@ def express_intent(
             return json.dumps({"status": "error", "error": f"未知操作类型: {intent_type}"}, ensure_ascii=False)
 
         # --- Approval gate check ---
-        if not skip_approval and approval_gate and executor._shape_registry is not None:
+        if not skip_approval and approval_gate and executor.shape_registry is not None:
             from ontoagent.domain.approval import ApprovalContext, DecisionLevel
 
             approval_ctx = ApprovalContext(
@@ -560,14 +560,14 @@ def check_operation(intent_type: str, target: str) -> str:
         graph_store = get_neo4j()
         executor = _get_action_executor(graph_store)
 
-        if executor._shape_registry is None:
+        if executor.shape_registry is None:
             return json.dumps(
                 {"pass": True, "checks": [], "note": "约束系统未启用"},
                 ensure_ascii=False,
             )
 
         # Resolve entity
-        entity = executor._resolve_entity(target)
+        entity = executor.resolve_entity(target)
         if entity is None:
             return json.dumps(
                 {"pass": False, "checks": [], "block_reason": f"未找到实体 '{target}'"},
@@ -583,7 +583,7 @@ def check_operation(intent_type: str, target: str) -> str:
             )
 
         # V5: Use ShapeEvaluator instead of guard pipeline
-        block_reason, warnings = executor._check_with_shapes(entity, config)
+        block_reason, warnings = executor.check_with_shapes(entity, config)
 
         if block_reason:
             return json.dumps(
@@ -797,7 +797,7 @@ def _get_intent_map() -> dict[str, Any]:
 def _get_approval_gate() -> object:
     """获取或初始化 ApprovalGate 单例。
 
-    ShapeBasedGuardPolicy 通过 executor._check_with_shapes() 实现约束检查，
+    ShapeBasedGuardPolicy 通过 executor.check_with_shapes() 实现约束检查，
     由 _get_action_executor 在创建 guard pipeline 后完成。
 
     审批策略配置从 config/approval_policy.yaml 读取。

@@ -35,6 +35,34 @@ class ActionExecutor:
     def intent_map(self) -> dict[str, ActionConfig]:
         return self._intent_map
 
+    # ------------------------------------------------------------------
+    # Public API — used by agent/tools.py and API layer
+    # ------------------------------------------------------------------
+
+    @property
+    def shape_registry(self) -> Any:
+        """Return the ShapeRegistry (or None if not configured)."""
+        return self._shape_registry
+
+    def resolve_entity(self, target: str) -> dict | None:
+        """Resolve an entity name to its graph record (public API).
+
+        Tries exact match first, then falls back to CONTAINS lookup.
+        Returns None if not found.
+        """
+        return self._resolve_entity(target)
+
+    def check_with_shapes(
+        self,
+        entity: dict,
+        config: ActionConfig,
+    ) -> tuple[str | None, list[str]]:
+        """Run Shape-based constraint evaluation (public API).
+
+        Returns (block_reason | None, warnings).
+        """
+        return self._check_with_shapes(entity, config)
+
     def execute(
         self,
         intent_type: str,
