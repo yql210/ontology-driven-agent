@@ -1,4 +1,4 @@
-# LayerKG V3.4 — Agent 驱动四层架构
+# OntoAgent V3.4 — Agent 驱动四层架构
 
 ## 架构总览
 

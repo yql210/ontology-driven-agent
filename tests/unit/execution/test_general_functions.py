@@ -12,12 +12,22 @@ class MockGraphStore:
     def __init__(self, entities: dict | None = None, query_results: list | None = None):
         self._entities = entities or {}
         self._query_results = query_results or []
+        self.merged_nodes: list[tuple[str, dict]] = []
+        self.merged_relations: list[tuple[str, str, str]] = []
 
     def get_node(self, node_id: str) -> dict | None:
         return self._entities.get(node_id)
 
     def query(self, cypher: str, params: dict | None = None) -> list[dict]:
         return self._query_results
+
+    def merge_node(self, label: str, properties: dict) -> dict:
+        self.merged_nodes.append((label, properties))
+        return {"id": properties.get("id", "mock-id"), **properties}
+
+    def merge_relation(self, from_id: str, to_id: str, rel_type: str, **kwargs) -> dict:
+        self.merged_relations.append((from_id, to_id, rel_type))
+        return {"from": from_id, "to": to_id, "type": rel_type}
 
 
 def _register_general():
@@ -76,12 +86,17 @@ def test_update_entity_success():
     fn = get_function("update_entity")
     assert fn is not None
 
-    ctx = ActionContext(graph_store=MockGraphStore(), match_data={"entity_id": "e-001"})
+    store = MockGraphStore()
+    ctx = ActionContext(graph_store=store, match_data={"entity_id": "e-001", "entity": {"labels": ["CodeEntity"]}})
     result = fn(ctx, properties={"name": "renamed", "status": "active"})
     assert result.success is True
     assert result.data["updated"] == "e-001"
     assert "name" in result.data["properties"]
     assert "status" in result.data["properties"]
+    # Verify actual write occurred
+    assert len(store.merged_nodes) == 1
+    assert store.merged_nodes[0][0] == "CodeEntity"
+    assert store.merged_nodes[0][1]["name"] == "renamed"
 
 
 def test_update_entity_no_entity_id():
@@ -117,11 +132,15 @@ def test_create_entity_success():
     fn = get_function("create_entity")
     assert fn is not None
 
-    ctx = ActionContext(graph_store=MockGraphStore(), match_data={})
+    store = MockGraphStore()
+    ctx = ActionContext(graph_store=store, match_data={})
     result = fn(ctx, label="CodeEntity", properties={"name": "new_func", "entity_type": "function"})
     assert result.success is True
     assert result.data["created"] == "CodeEntity"
     assert result.data["properties"]["name"] == "new_func"
+    # Verify actual write occurred
+    assert len(store.merged_nodes) == 1
+    assert store.merged_nodes[0][0] == "CodeEntity"
 
 
 def test_create_entity_no_label():
@@ -157,12 +176,16 @@ def test_create_relation_success():
     fn = get_function("create_relation")
     assert fn is not None
 
-    ctx = ActionContext(graph_store=MockGraphStore(), match_data={})
+    store = MockGraphStore()
+    ctx = ActionContext(graph_store=store, match_data={})
     result = fn(ctx, rel_type="calls", from_id="e-001", to_id="e-002")
     assert result.success is True
     assert result.data["created_relation"] == "calls"
     assert result.data["from"] == "e-001"
     assert result.data["to"] == "e-002"
+    # Verify actual write occurred
+    assert len(store.merged_relations) == 1
+    assert store.merged_relations[0] == ("e-001", "e-002", "calls")
 
 
 def test_create_relation_missing_params():

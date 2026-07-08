@@ -47,7 +47,7 @@ def test_docker_compose_yaml_valid():
 
 
 def test_docker_compose_neo4j_internal_uri():
-    """docker-compose.yml 中 ontoagent 服务的 NEO4J_URI 使用内部服务名 neo4j。"""
+    """docker-compose.yml 中 ontoagent 服务的 ONTOAGENT_NEO4J_URI 使用内部服务名 neo4j。"""
     import yaml
 
     compose_file = Path(__file__).parent.parent.parent / "docker-compose.yml"
@@ -55,8 +55,8 @@ def test_docker_compose_neo4j_internal_uri():
     config = yaml.safe_load(content)
 
     ontoagent_env = config["services"]["ontoagent"]["environment"]
-    assert ontoagent_env["NEO4J_URI"] == "bolt://neo4j:7687"
-    assert "localhost" not in ontoagent_env["NEO4J_URI"]
+    assert ontoagent_env["ONTOAGENT_NEO4J_URI"] == "bolt://neo4j:7687"
+    assert "localhost" not in ontoagent_env["ONTOAGENT_NEO4J_URI"]
 
 
 def test_docker_compose_has_volumes():

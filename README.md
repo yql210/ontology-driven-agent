@@ -8,9 +8,9 @@
   <a href="https://github.com/anthropics/claude-code">
     <img src="https://img.shields.io/badge/Python-3.13+-blue.svg" alt="Python">
   </a>
-  <img src="https://img.shields.io/badge/tests-1274%20passed%2C%201%20skipped-green.svg" alt="Tests">
-  <img src="https://img.shields.io/badge/src-54%20files%2C%2012K%20LOC-orange.svg" alt="LOC">
-  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License">
+  <img src="https://img.shields.io/badge/tests-1714%20passed-green.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/src-114%20files%2C%2021K%20LOC-orange.svg" alt="LOC">
+  <img src="https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg" alt="License">
 </p>
 
 ---

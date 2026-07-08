@@ -51,6 +51,12 @@ class MockGraphStore:
                 ]
         return []
 
+    def merge_node(self, label: str, properties: dict) -> dict:
+        return {"id": properties.get("id", "mock-id"), **properties}
+
+    def merge_relation(self, from_id: str, to_id: str, rel_type: str, **kwargs) -> dict:
+        return {"from": from_id, "to": to_id, "type": rel_type}
+
 
 @pytest.fixture(autouse=True)
 def _ensure_functions_registered() -> None:

@@ -62,7 +62,7 @@ uv run ontoagent version
 输出示例：
 
 ```
-OntoAgent v0.1.0
+OntoAgent v0.2.0
 Python: 3.13.x
 Neo4j URI: bolt://...
 ```

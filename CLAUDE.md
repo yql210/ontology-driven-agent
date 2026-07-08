@@ -61,7 +61,7 @@ Semantic（语义层）  Schema（6 实体 11 关系）· GraphStore（Neo4j + C
 1. Agent 收到自然语言 → prompt 中的 `trigger_hint` 列表匹配 `intent_type`（prompt 由 `intent_router.build_intent_prompt()` 从 `pipeline/ontology_actions.yaml` 自动生成）。
 2. Agent 调用工具 `express_intent(intent_type, target, params)`（`agent/tools.py`）。
 3. `ActionExecutor.execute()`（`execution/action_executor.py`）：查 `intent_map` → `_resolve_entity` → `_check_criteria`（Submission Criteria）→ 通过 `FunctionRunner` 同步执行对应 Function。
-4. Function 经 `ActionContext` 注入 `graph_store` + `function_runner`，可链式调用其他 Function；写操作走 `TransactionManager` / SAGA 保证原子性与补偿。
+4. Function 经 `ActionContext` 注入 `graph_store` + `function_runner`，可链式调用其他 Function；写操作线性执行（`TransactionManager`/SAGA 为预留代码，尚未接入生产路径）。
 
 ### 各层落地位置（重构后目录结构）
 | 层 | 目录 | 关键文件 |

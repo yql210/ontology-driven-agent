@@ -25,6 +25,11 @@ def update_entity(ctx: ActionContext, **kwargs) -> FunctionResult:
     properties = kwargs.get("properties", {})
     if not properties:
         return FunctionResult(success=False, error="No properties to update")
+    # 执行写入：merge_node 会 MERGE 已有节点并更新属性
+    ctx.graph_store.merge_node(
+        ctx.match_data.get("entity", {}).get("labels", ["CodeEntity"])[0],
+        {"id": entity_id, **properties},
+    )
     return FunctionResult(success=True, data={"updated": entity_id, "properties": list(properties.keys())})
 
 
@@ -38,7 +43,9 @@ def create_entity(ctx: ActionContext, **kwargs) -> FunctionResult:
     if label not in VALID_ENTITY_LABELS:
         return FunctionResult(success=False, error=f"Invalid label: {label}")
     properties = kwargs.get("properties", {})
-    return FunctionResult(success=True, data={"created": label, "properties": properties})
+    # 执行写入
+    created = ctx.graph_store.merge_node(label, properties)
+    return FunctionResult(success=True, data={"created": label, "properties": properties, "id": created.get("id", "")})
 
 
 def create_relation(ctx: ActionContext, **kwargs) -> FunctionResult:
@@ -48,6 +55,8 @@ def create_relation(ctx: ActionContext, **kwargs) -> FunctionResult:
     to_id = kwargs.get("to_id")
     if not rel_type or not from_id or not to_id:
         return FunctionResult(success=False, error="Missing rel_type, from_id or to_id")
+    # 执行写入
+    ctx.graph_store.merge_relation(from_id, to_id, rel_type)
     return FunctionResult(success=True, data={"created_relation": rel_type, "from": from_id, "to": to_id})
 
 

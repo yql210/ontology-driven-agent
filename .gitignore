@@ -24,6 +24,7 @@ chroma.sqlite3
 *.sqlite3
 *.traces.db
 .layerkg/
+.ontoagent/
 
 # 密钥 / 证书
 *.pem
