@@ -164,11 +164,10 @@ src/ontoagent/
 
 | Metric | Value |
 |--------|-------|
-| Source Code | 54 files, 12,157 LOC |
-| Test Code | 72 files, 23,145 LOC |
-| Tests | 1,274 passed, 1 skipped |
-| Latest Commit | 54f5763 |
+| Source Code | 114 files, 21K LOC |
+| Test Code | 72 files, 23K LOC |
+| Tests | 1,714 passed, 3 skipped |
 
 ## License
 
-MIT
+MPL 2.0
