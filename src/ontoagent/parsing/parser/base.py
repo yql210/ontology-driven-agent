@@ -51,30 +51,92 @@ class ParseResult:
 
 
 class BaseParser(ABC):
-    """源码解析器抽象基类。"""
+    """源码解析器抽象基类。
 
-    @abstractmethod
+    Implements a template method pattern: ``parse_source`` and ``parse_file``
+    are concrete methods in the base class. Subclasses provide language-specific
+    hooks (``_create_root_entity``, ``_extract_external_calls``, ``_pre_scan``,
+    ``_walk``, ``_on_parse_error``).
+    """
+
     def parse_file(self, file_path: Path) -> ParseResult:
-        """解析单个文件。
+        """解析单个文件。"""
+        if not file_path.exists():
+            return ParseResult(file_path=str(file_path), error=f"File not found: {file_path}")
+        try:
+            source_bytes = file_path.read_bytes()
+            return self.parse_source(source_bytes, str(file_path))
+        except OSError as e:
+            return ParseResult(file_path=str(file_path), error=f"Failed to read file: {e}")
 
-        Args:
-            file_path: 源文件路径。
+    def parse_source(self, source: bytes, file_path: str = "<string>") -> ParseResult:
+        """解析源码字节流（模板方法）。
 
-        Returns:
-            ParseResult 包含提取的实体和关系。
+        Common skeleton: create root entity → parse AST → walk → extract
+        external calls. Subclasses only implement the hook methods.
         """
+        entities: list[CodeEntity] = []
+        relations: list[ExtractedRelation] = []
+
+        # 创建根实体（module/file）
+        root_entity = self._create_root_entity(source, file_path)
+        entities.append(root_entity)
+
+        try:
+            tree = self._parser.parse(source)
+            root_node = tree.root_node
+
+            # 子类预扫描返回 root_name（Python: module name, Java: package name or None）
+            pre_scan_result = self._pre_scan(root_node, source, file_path, entities, relations)
+            # walk 接收 pre_scan 原始结果（可能为 None）；extract_external_calls 用 fallback
+            root_name = pre_scan_result if pre_scan_result is not None else root_entity.name
+
+            # 递归遍历 AST
+            self._walk(
+                root_node,
+                source,
+                file_path,
+                entities,
+                relations,
+                pre_scan_result,
+                parent_class_name=None,
+            )
+
+            # 外部调用提取
+            relations.extend(self._extract_external_calls(root_node, source, file_path, root_name))
+
+        except Exception as e:
+            self._on_parse_error(file_path, e)
+
+        return ParseResult(
+            file_path=file_path,
+            entities=entities,
+            relations=relations,
+            language=self.language,
+        )
+
+    # -- Hooks for subclasses --
 
     @abstractmethod
-    def parse_source(self, source: bytes, file_path: str = "<string>") -> ParseResult:
-        """解析源码字符串。
+    def _create_root_entity(self, source: bytes, file_path: str) -> CodeEntity:
+        """Create the root entity (module for Python, file for Java)."""
 
-        Args:
-            source: 源码字节流。
-            file_path: 虚拟文件路径（用于定位）。
+    def _pre_scan(self, root_node, source, file_path, entities, relations) -> str | None:
+        """Optional pre-scan before AST walk. Returns root name override or None."""
+        return None
 
-        Returns:
-            ParseResult 包含提取的实体和关系。
-        """
+    @abstractmethod
+    def _walk(self, node, source, file_path, entities, relations, module_name, parent_class_name=None) -> None:
+        """Recursively walk the AST tree and populate entities + relations."""
+
+    @abstractmethod
+    def _extract_external_calls(self, root_node, source, file_path, module_name) -> list[ExtractedRelation]:
+        """Extract external call relations from the AST."""
+
+    def _on_parse_error(self, file_path: str, error: Exception) -> None:
+        """Handle parse errors. Default: log warning."""
+        import logging
+        logging.getLogger(__name__).warning("Parse failed for %s: %s", file_path, error)
 
     @property
     @abstractmethod

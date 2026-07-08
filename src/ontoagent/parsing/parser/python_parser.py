@@ -134,51 +134,16 @@ class PythonParser(BaseParser):
         """返回解析器语言名称。"""
         return "python"
 
-    def parse_file(self, file_path: Path) -> ParseResult:
-        """解析单个文件。
-
-        Args:
-            file_path: 源文件路径。
-
-        Returns:
-            ParseResult 包含提取的实体和关系。
-        """
-        if not file_path.exists():
-            return ParseResult(file_path=str(file_path), error=f"File not found: {file_path}")
-
-        try:
-            source_bytes = file_path.read_bytes()
-            return self.parse_source(source_bytes, str(file_path))
-        except OSError as e:
-            return ParseResult(file_path=str(file_path), error=f"Failed to read file: {e}")
-
-    def parse_source(self, source: bytes, file_path: str = "<string>") -> ParseResult:
-        """解析源码字节流。
-
-        Args:
-            source: 源码字节流。
-            file_path: 虚拟文件路径。
-
-        Returns:
-            ParseResult 包含提取的实体和关系。
-        """
-        entities: list[CodeEntity] = []
-        relations: list[ExtractedRelation] = []
-
-        # 创建 module 实体
+    def _create_root_entity(self, source: bytes, file_path: str) -> CodeEntity:
+        """Create the module entity for this Python file."""
         module_name = Path(file_path).stem
-        # 计算 end_line（0-indexed）：最后一行行号
-        # 换行符数 = n
-        # - 如果以 \n 结尾：有 n 行，end_line = n - 1
-        # - 如果不以 \n 结尾：有 n + 1 行，end_line = n
         if source:
             newline_count = source.count(b"\n")
             end_line = newline_count - 1 if source.endswith(b"\n") else newline_count
         else:
             end_line = 0
-
         source_text = source.decode("utf-8", errors="replace")
-        module_entity = CodeEntity(
+        return CodeEntity(
             name=module_name,
             entity_type="module",
             file_path=file_path,
@@ -187,38 +152,14 @@ class PythonParser(BaseParser):
             language="python",
             source=source_text[:500],
         )
-        entities.append(module_entity)
 
-        try:
-            tree = self._parser.parse(source)
-            root_node = tree.root_node
+    def _pre_scan(self, root_node, source, file_path, entities, relations) -> str | None:
+        """Python pre-scan: return module name (stem of file path)."""
+        return Path(file_path).stem
 
-            # 递归遍历 AST
-            self._walk(
-                root_node,
-                source,
-                file_path,
-                entities,
-                relations,
-                module_name,
-                parent_class_name=None,
-            )
-
-            from ontoagent.parsing.extractor.external_calls import extract_external_calls_python
-
-            external_rels = extract_external_calls_python(root_node, source, module_name, file_path)
-            relations.extend(external_rels)
-
-        except Exception:
-            # 语法错误时返回已有实体（至少有 module）
-            pass
-
-        return ParseResult(
-            file_path=file_path,
-            entities=entities,
-            relations=relations,
-            language=self.language,
-        )
+    def _extract_external_calls(self, root_node, source, file_path, module_name) -> list[ExtractedRelation]:
+        from ontoagent.parsing.extractor.external_calls import extract_external_calls_python
+        return extract_external_calls_python(root_node, source, module_name, file_path)
 
     def _walk(
         self,

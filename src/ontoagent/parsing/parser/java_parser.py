@@ -102,32 +102,16 @@ class JavaParser(BaseParser):
     def language(self) -> str:
         return "java"
 
-    def parse_file(self, file_path: Path) -> ParseResult:
-        if not file_path.exists():
-            return ParseResult(file_path=str(file_path), error=f"File not found: {file_path}")
-
-        try:
-            source_bytes = file_path.read_bytes()
-            return self.parse_source(source_bytes, str(file_path))
-        except OSError as e:
-            return ParseResult(file_path=str(file_path), error=f"Failed to read file: {e}")
-
-    def parse_source(self, source: bytes, file_path: str = "<string>") -> ParseResult:
-        entities: list[CodeEntity] = []
-        relations: list[ExtractedRelation] = []
-
-        # 计算文件行数
+    def _create_root_entity(self, source: bytes, file_path: str) -> CodeEntity:
+        """Create the file entity for this Java file."""
         if source:
             newline_count = source.count(b"\n")
             end_line = newline_count - 1 if source.endswith(b"\n") else newline_count
         else:
             end_line = 0
-
         source_text = source.decode("utf-8", errors="replace")
-
-        # 创建 file 实体（Java 用 file 而非 module）
         file_name = Path(file_path).name
-        file_entity = CodeEntity(
+        return CodeEntity(
             name=file_name,
             entity_type="file",
             file_path=file_path,
@@ -136,41 +120,14 @@ class JavaParser(BaseParser):
             language="java",
             source=source_text[:500] if source_text else None,
         )
-        entities.append(file_entity)
 
-        try:
-            tree = self._parser.parse(source)
-            root_node = tree.root_node
+    def _pre_scan(self, root_node, source, file_path, entities, relations) -> str | None:
+        """Java pre-scan: extract package declaration."""
+        return self._extract_package_first_pass(root_node, source, file_path, entities, relations)
 
-            # 预扫描 package 声明
-            package_name = self._extract_package_first_pass(root_node, source, file_path, entities, relations)
-
-            # 递归遍历 AST，提取实体
-            self._walk(
-                root_node,
-                source,
-                file_path,
-                entities,
-                relations,
-                package_name,
-                parent_class_name=None,
-            )
-
-            from ontoagent.parsing.extractor.external_calls import extract_external_calls_java
-
-            external_rels = extract_external_calls_java(root_node, source, file_path)
-            relations.extend(external_rels)
-
-        except Exception as e:
-            # 语法错误时返回已有实体（至少有 file）
-            _logger.warning("Parse failed for %s: %s", file_path, e)
-
-        return ParseResult(
-            file_path=file_path,
-            entities=entities,
-            relations=relations,
-            language=self.language,
-        )
+    def _extract_external_calls(self, root_node, source, file_path, module_name) -> list[ExtractedRelation]:
+        from ontoagent.parsing.extractor.external_calls import extract_external_calls_java
+        return extract_external_calls_java(root_node, source, file_path)
 
     def _extract_package_first_pass(
         self,
