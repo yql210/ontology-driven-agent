@@ -50,9 +50,9 @@ git add -A && git commit -m "type: description"
 
 ```
 Intent（意图层）    Agent 识别意图 → express_intent 工具路由到 Action
-Control（控制层）   ActionExecutor · Submission Criteria · 审批 · SAGA · TransactionManager
-Capability（能力层）Function 注册表（通用+领域）· FunctionRunner（重试/熔断/并发）· Connector
-Semantic（语义层）  Schema（6 实体 11 关系）· GraphStore（Neo4j + ChromaDB）· 本体约束
+Control（控制层）   ActionExecutor · Shape 约束系统（ShapeEvaluator + DecisionFuser + ShapeRegistry）· 审批（ApprovalGate）
+Capability（能力层）Function 注册表（通用+领域）· FunctionRunner（重试/熔断）
+Semantic（语义层）  Schema（9 实体 13 关系）· GraphStore（Neo4j + ChromaDB）· Shape 规则（shapes.yaml）
 ```
 
 **关键约束：每层只依赖下一层，不跨层不反向。** Action 只引用 Function 名；Function 通过 `graph_store` 操作语义层、通过 `Connector` 访问外部系统；Connector 只搬运数据不含业务逻辑。
@@ -61,7 +61,7 @@ Semantic（语义层）  Schema（6 实体 11 关系）· GraphStore（Neo4j + C
 1. Agent 收到自然语言 → prompt 中的 `trigger_hint` 列表匹配 `intent_type`（prompt 由 `intent_router.build_intent_prompt()` 从 `pipeline/ontology_actions.yaml` 自动生成）。
 2. Agent 调用工具 `express_intent(intent_type, target, params)`（`agent/tools.py`）。
 3. `ActionExecutor.execute()`（`execution/action_executor.py`）：查 `intent_map` → `_resolve_entity` → `_check_criteria`（Submission Criteria）→ 通过 `FunctionRunner` 同步执行对应 Function。
-4. Function 经 `ActionContext` 注入 `graph_store` + `function_runner`，可链式调用其他 Function；写操作线性执行（`TransactionManager`/SAGA 为预留代码，尚未接入生产路径）。
+4. Function 经 `ActionContext` 注入 `graph_store` + `function_runner`，可链式调用其他 Function；写操作线性执行（分布式事务 SAGA/DAG 已在 v0.2 删除，单 Neo4j 场景下线性执行足够）。
 
 ### 各层落地位置（重构后目录结构）
 | 层 | 目录 | 关键文件 |
@@ -70,7 +70,7 @@ Semantic（语义层）  Schema（6 实体 11 关系）· GraphStore（Neo4j + C
 | Store | `store/` | `graph_store.py`（抽象）、`neo4j_store.py`、`chroma_store.py`、`schema_version.py`、`migrations/` |
 | Parsing | `parsing/` | `parser/`（python/java/doc）、`extractor/`（relation、semantic） |
 | Pipeline | `pipeline/` | `builder.py`、`builder_utils.py`、`semantic_linker.py`、`incremental_updater.py`、`change_detector.py`、`impact_propagator.py`、`aligner.py`、`module_clustering.py`、`ontology_actions.yaml` |
-| Execution | `execution/` | `action_executor.py`、`action_types.py`、`intent_router.py`、`function_runner.py`、`circuit_breaker.py`、`execution_policy.py`、`saga.py`、`transaction_manager.py`、`functions/`、`connectors/` |
+| Execution | `execution/` | `action_executor.py`、`action_types.py`、`intent_router.py`、`function_runner.py`、`circuit_breaker.py`、`execution_policy.py`、`shape_evaluator.py`、`shape_registry.py`、`decision_fuser.py`、`path_compiler.py`、`constraints/`（approval_gate, policies）、`functions/` |
 | Agent | `agent/` | `graph.py`、`tools.py`、`prompt.py`、`_helpers.py` |
 | Butler | `butler/` | `engine.py`、`event_bus.py`、`scheduler.py`、`handlers/` |
 | API | `api/` | `cli.py`、`mcp_server.py`、`web/` |
@@ -111,12 +111,13 @@ tests/
 - 详细 TDD / 命名 / AAA / 覆盖率规范见 `.claude/rules/testing.md`。
 
 ## OntoAgent Schema 速查
-**6 实体**（Neo4j Label = dataclass 名）：`CodeEntity`（function/class/interface/module/file/enum/record/field）、`ConceptEntity`（business_concept/design_pattern/api_contract/data_model/process）、`DocEntity`、`ResourceEntity`、`ModuleEntity`、`ChangeSetEntity`。
+**9 实体**（Neo4j Label = dataclass 名）：`CodeEntity`（function/class/interface/module/file/enum/record/field）、`ConceptEntity`（business_concept/design_pattern/api_contract/data_model/process）、`DocEntity`、`ResourceEntity`、`ModuleEntity`、`ChangeSetEntity`、`DataAsset`、`ComplianceItem`、`ServiceEntity`。
 
-**11 关系**（Neo4j Type = UPPER_SNAKE）：
+**13 关系**（Neo4j Type = UPPER_SNAKE）：
 - 结构（AST）：`CALLS` `EXTENDS` `IMPLEMENTS` `IMPORTS` `CONTAINS`
 - 语义（LLM）：`SEMANTIC_IMPACT` `DESCRIBES` `ILLUSTRATES` `DERIVED_FROM`
 - 变更：`CHANGED_IN` `AFFECTS`
+- 业务：`PROCESSES_DATA` `SUBJECT_TO`
 
 属性名 camelCase（`entityType`、`filePath`）；Cypher 必须**参数化**，禁止字符串拼接。约束规范见 `.claude/rules/neo4j.md`。
 
