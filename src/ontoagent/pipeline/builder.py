@@ -528,6 +528,8 @@ class OntoAgentBuilder:
                 raise OntoAgentError(
                     f"Database schema ({db_ver}) is ahead of code ({CURRENT_SCHEMA_VERSION}). Please update OntoAgent."
                 )
+        except OntoAgentError:
+            raise  # Schema mismatch must abort — never swallow
         except Exception as e:
             self._logger.debug("Schema version check skipped (store unavailable or check failed): %s", e)
 
