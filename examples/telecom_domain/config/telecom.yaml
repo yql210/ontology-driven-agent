@@ -1,0 +1,60 @@
+# Telecom domain configuration for ontology auto-generation
+
+domain: telecom
+
+# Business terms -- used for FK business semantic filtering (Algorithm 4.3)
+business_terms:
+  - 用户
+  - 订阅者
+  - 手机
+  - 通话
+  - 流量
+  - 套餐
+  - 账单
+  - 缴费
+  - 基站
+  - 漫游
+
+# Concept synonyms -- used for concept merging (Algorithm 2.3)
+concept_synonyms:
+  - standard: 用户
+    aliases: [订阅者, 手机用户, 持卡人]
+  - standard: 套餐
+    aliases: [产品, 资费计划, 服务包]
+  - standard: 通话
+    aliases: [呼叫, 电话]
+  - standard: 账单
+    aliases: [话费单, 账单记录]
+
+# Relation synonyms -- used for relation normalization
+relation_synonyms:
+  - standard_name: hasCall
+    aliases: [产生通话, 发起呼叫, 拨打]
+    domain: subscriber
+    range: call_record
+    inverse: isCallOf
+  - standard_name: hasBill
+    aliases: [产生账单, 话费记录, 应缴费用]
+    domain: subscriber
+    range: billing_record
+    inverse: isBillOf
+  - standard_name: subscribesProduct
+    aliases: [订购套餐, 订阅产品, 开通服务]
+    domain: subscriber
+    range: telecom_product
+    inverse: isSubscribedBy
+
+# System table tags -- used for FK filtering (Algorithm 4.3, Rule 1)
+system_table_tags:
+  operation_log: system
+  tmp_batch_2026: system
+
+# Taxonomy configuration
+max_taxonomy_depth: 4
+
+# Specialization dimensions -- which dimensions to split concepts by
+specialization_dimensions:
+  subscriber: [type, credit_level]
+  telecom_product: [type]
+  call_record: [call_type]
+  billing_record: [payment_status]

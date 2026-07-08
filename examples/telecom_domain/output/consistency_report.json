@@ -1,0 +1,13 @@
+{
+  "is_consistent": true,
+  "violations": [],
+  "warnings": [],
+  "checks_run": [
+    "taxonomy_cycle",
+    "subclass_transitivity",
+    "domain_range_consistency",
+    "disjoint_violations",
+    "rule_chain_cycles",
+    "swrl_variable_binding"
+  ]
+}

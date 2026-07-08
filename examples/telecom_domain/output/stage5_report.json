@@ -1,0 +1,14 @@
+{
+  "axioms": [],
+  "rules": [],
+  "axiom_classification": {
+    "auto_adopted": [],
+    "needs_review": [],
+    "rejected": [],
+    "summary": {
+      "low": 0,
+      "medium": 0,
+      "high": 0
+    }
+  }
+}

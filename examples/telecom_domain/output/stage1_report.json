@@ -1,0 +1,552 @@
+{
+  "ddl_text": "-- Telecom domain DDL for ontology auto-generation\n-- Domain: telecom billing & customer management\n-- Contains: high-quality business tables, low-quality temp table, system table, M:N relation table\n\n-- High quality: subscriber table (手机用户/订阅者)\nCREATE TABLE subscriber (\n    subscriber_id BIGINT PRIMARY KEY COMMENT '用户ID',\n    msisdn VARCHAR(20) COMMENT '手机号码',\n    imsi VARCHAR(20) COMMENT 'SIM卡标识',\n    subscriber_name VARCHAR(100) COMMENT '用户姓名',\n    id_number VARCHAR(20) COMMENT '身份证号',\n    subscriber_type ENUM('prepaid', 'postpaid') COMMENT '用户类型: 预付费/后付费',\n    register_date DATETIME COMMENT '入网日期',\n    credit_level INT COMMENT '信用等级'\n) COMMENT '手机用户表';\n\n-- High quality: product table (电信套餐/产品)\nCREATE TABLE telecom_product (\n    product_id BIGINT PRIMARY KEY COMMENT '套餐ID',\n    product_name VARCHAR(200) COMMENT '套餐名称',\n    product_type ENUM('voice', 'data', 'combo', 'value_added') COMMENT '套餐类型: 语音/流量/融合/增值',\n    monthly_fee DECIMAL(10,2) COMMENT '月租费',\n    data_quota BIGINT COMMENT '流量配额(MB)',\n    voice_quota INT COMMENT '语音配额(分钟)',\n    description TEXT COMMENT '套餐描述'\n) COMMENT '电信套餐表';\n\n-- High quality: call detail record (通话详单)\nCREATE TABLE call_record (\n    record_id BIGINT PRIMARY KEY COMMENT '记录ID',\n    calling_number VARCHAR(20) COMMENT '主叫号码',\n    called_number VARCHAR(20) COMMENT '被叫号码',\n    subscriber_id BIGINT COMMENT '用户ID',\n    start_time DATETIME COMMENT '通话开始时间',\n    duration INT COMMENT '通话时长(秒)',\n    call_type ENUM('local', 'long_distance', 'roaming', 'international') COMMENT '通话类型: 本地/长途/漫游/国际',\n    charge DECIMAL(10,2) COMMENT '通话费用',\n    FOREIGN KEY (subscriber_id) REFERENCES subscriber(subscriber_id)\n) COMMENT '通话详单表';\n\n-- High quality: billing record (账单)\nCREATE TABLE billing_record (\n    bill_id BIGINT PRIMARY KEY COMMENT '账单ID',\n    subscriber_id BIGINT COMMENT '用户ID',\n    bill_period VARCHAR(10) COMMENT '账期(如202607)',\n    total_amount DECIMAL(12,2) COMMENT '总金额',\n    voice_charge DECIMAL(10,2) COMMENT '语音费用',\n    data_charge DECIMAL(10,2) COMMENT '流量费用',\n    vas_charge DECIMAL(10,2) COMMENT '增值业务费用',\n    payment_status ENUM('unpaid', 'paid', 'overdue') COMMENT '缴费状态: 未缴/已缴/欠费',\n    due_date DATETIME COMMENT '缴费截止日',\n    FOREIGN KEY (subscriber_id) REFERENCES subscriber(subscriber_id)\n) COMMENT '账单表';\n\n-- High quality: data usage record (上网流量记录)\nCREATE TABLE data_usage (\n    usage_id BIGINT PRIMARY KEY COMMENT '流量记录ID',\n    subscriber_id BIGINT COMMENT '用户ID',\n    product_id BIGINT COMMENT '套餐ID',\n    usage_time DATETIME COMMENT '使用时间',\n    data_volume BIGINT COMMENT '流量(MB)',\n    cell_id VARCHAR(50) COMMENT '基站ID',\n    FOREIGN KEY (subscriber_id) REFERENCES subscriber(subscriber_id),\n    FOREIGN KEY (product_id) REFERENCES telecom_product(product_id)\n) COMMENT '上网流量记录表';\n\n-- Low quality: temp table (no comments, meaningless columns) -- tests DDL completion\nCREATE TABLE tmp_batch_2026 (\n    f1 INT,\n    f2 VARCHAR(50),\n    f3 DATE,\n    f4 DECIMAL(10,2)\n);\n\n-- System table: should NOT produce business relations -- tests FK filter\nCREATE TABLE operation_log (\n    log_id BIGINT PRIMARY KEY,\n    op_user VARCHAR(50),\n    op_action VARCHAR(100),\n    op_time DATETIME,\n    subscriber_id BIGINT,\n    FOREIGN KEY (subscriber_id) REFERENCES subscriber(subscriber_id)\n) COMMENT '系统操作日志表';\n\n-- M:N relation table: subscriber subscribes to multiple products\nCREATE TABLE subscriber_product (\n    subscriber_id BIGINT,\n    product_id BIGINT,\n    subscribe_time DATETIME COMMENT '订购时间',\n    PRIMARY KEY (subscriber_id, product_id),\n    FOREIGN KEY (subscriber_id) REFERENCES subscriber(subscriber_id),\n    FOREIGN KEY (product_id) REFERENCES telecom_product(product_id)\n) COMMENT '用户-套餐订购关系表';\n",
+  "parsed_tables": [
+    {
+      "table_name": "subscriber",
+      "comment": "手机用户表",
+      "columns": [
+        {
+          "name": "subscriber_id",
+          "type": "BIGINT",
+          "comment": "用户ID",
+          "enum_values": [],
+          "is_primary_key": true
+        },
+        {
+          "name": "msisdn",
+          "type": "VARCHAR(20)",
+          "comment": "手机号码",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "imsi",
+          "type": "VARCHAR(20)",
+          "comment": "SIM卡标识",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "subscriber_name",
+          "type": "VARCHAR(100)",
+          "comment": "用户姓名",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "id_number",
+          "type": "VARCHAR(20)",
+          "comment": "身份证号",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "subscriber_type",
+          "type": "ENUM('prepaid', 'postpaid')",
+          "comment": "用户类型: 预付费/后付费",
+          "enum_values": [
+            "prepaid",
+            "postpaid"
+          ],
+          "is_primary_key": false
+        },
+        {
+          "name": "register_date",
+          "type": "DATETIME",
+          "comment": "入网日期",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "credit_level",
+          "type": "INT",
+          "comment": "信用等级",
+          "enum_values": [],
+          "is_primary_key": false
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table_name": "telecom_product",
+      "comment": "电信套餐表",
+      "columns": [
+        {
+          "name": "product_id",
+          "type": "BIGINT",
+          "comment": "套餐ID",
+          "enum_values": [],
+          "is_primary_key": true
+        },
+        {
+          "name": "product_name",
+          "type": "VARCHAR(200)",
+          "comment": "套餐名称",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "product_type",
+          "type": "ENUM('voice', 'data', 'combo', 'value_added')",
+          "comment": "套餐类型: 语音/流量/融合/增值",
+          "enum_values": [
+            "voice",
+            "data",
+            "combo",
+            "value_added"
+          ],
+          "is_primary_key": false
+        },
+        {
+          "name": "monthly_fee",
+          "type": "DECIMAL(10,2)",
+          "comment": "月租费",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "data_quota",
+          "type": "BIGINT",
+          "comment": "流量配额(MB)",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "voice_quota",
+          "type": "INT",
+          "comment": "语音配额(分钟)",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "description",
+          "type": "TEXT",
+          "comment": "套餐描述",
+          "enum_values": [],
+          "is_primary_key": false
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table_name": "call_record",
+      "comment": "通话详单表",
+      "columns": [
+        {
+          "name": "record_id",
+          "type": "BIGINT",
+          "comment": "记录ID",
+          "enum_values": [],
+          "is_primary_key": true
+        },
+        {
+          "name": "calling_number",
+          "type": "VARCHAR(20)",
+          "comment": "主叫号码",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "called_number",
+          "type": "VARCHAR(20)",
+          "comment": "被叫号码",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "subscriber_id",
+          "type": "BIGINT",
+          "comment": "用户ID",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "start_time",
+          "type": "DATETIME",
+          "comment": "通话开始时间",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "duration",
+          "type": "INT",
+          "comment": "通话时长(秒)",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "call_type",
+          "type": "ENUM('local', 'long_distance', 'roaming', 'international')",
+          "comment": "通话类型: 本地/长途/漫游/国际",
+          "enum_values": [
+            "local",
+            "long_distance",
+            "roaming",
+            "international"
+          ],
+          "is_primary_key": false
+        },
+        {
+          "name": "charge",
+          "type": "DECIMAL(10,2)",
+          "comment": "通话费用",
+          "enum_values": [],
+          "is_primary_key": false
+        }
+      ],
+      "foreign_keys": [
+        {
+          "fk_column": "subscriber_id",
+          "ref_table": "subscriber",
+          "ref_column": "subscriber_id"
+        }
+      ]
+    },
+    {
+      "table_name": "billing_record",
+      "comment": "账单表",
+      "columns": [
+        {
+          "name": "bill_id",
+          "type": "BIGINT",
+          "comment": "账单ID",
+          "enum_values": [],
+          "is_primary_key": true
+        },
+        {
+          "name": "subscriber_id",
+          "type": "BIGINT",
+          "comment": "用户ID",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "bill_period",
+          "type": "VARCHAR(10)",
+          "comment": "账期(如202607)",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "total_amount",
+          "type": "DECIMAL(12,2)",
+          "comment": "总金额",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "voice_charge",
+          "type": "DECIMAL(10,2)",
+          "comment": "语音费用",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "data_charge",
+          "type": "DECIMAL(10,2)",
+          "comment": "流量费用",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "vas_charge",
+          "type": "DECIMAL(10,2)",
+          "comment": "增值业务费用",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "payment_status",
+          "type": "ENUM('unpaid', 'paid', 'overdue')",
+          "comment": "缴费状态: 未缴/已缴/欠费",
+          "enum_values": [
+            "unpaid",
+            "paid",
+            "overdue"
+          ],
+          "is_primary_key": false
+        },
+        {
+          "name": "due_date",
+          "type": "DATETIME",
+          "comment": "缴费截止日",
+          "enum_values": [],
+          "is_primary_key": false
+        }
+      ],
+      "foreign_keys": [
+        {
+          "fk_column": "subscriber_id",
+          "ref_table": "subscriber",
+          "ref_column": "subscriber_id"
+        }
+      ]
+    },
+    {
+      "table_name": "data_usage",
+      "comment": "上网流量记录表",
+      "columns": [
+        {
+          "name": "usage_id",
+          "type": "BIGINT",
+          "comment": "流量记录ID",
+          "enum_values": [],
+          "is_primary_key": true
+        },
+        {
+          "name": "subscriber_id",
+          "type": "BIGINT",
+          "comment": "用户ID",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "product_id",
+          "type": "BIGINT",
+          "comment": "套餐ID",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "usage_time",
+          "type": "DATETIME",
+          "comment": "使用时间",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "data_volume",
+          "type": "BIGINT",
+          "comment": "流量(MB)",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "cell_id",
+          "type": "VARCHAR(50)",
+          "comment": "基站ID",
+          "enum_values": [],
+          "is_primary_key": false
+        }
+      ],
+      "foreign_keys": [
+        {
+          "fk_column": "subscriber_id",
+          "ref_table": "subscriber",
+          "ref_column": "subscriber_id"
+        },
+        {
+          "fk_column": "product_id",
+          "ref_table": "telecom_product",
+          "ref_column": "product_id"
+        }
+      ]
+    },
+    {
+      "table_name": "tmp_batch_2026",
+      "comment": "",
+      "columns": [
+        {
+          "name": "f1",
+          "type": "INT",
+          "comment": "",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "f2",
+          "type": "VARCHAR(50)",
+          "comment": "",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "f3",
+          "type": "DATE",
+          "comment": "",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "f4",
+          "type": "DECIMAL(10,2)",
+          "comment": "",
+          "enum_values": [],
+          "is_primary_key": false
+        }
+      ],
+      "foreign_keys": []
+    },
+    {
+      "table_name": "operation_log",
+      "comment": "系统操作日志表",
+      "columns": [
+        {
+          "name": "log_id",
+          "type": "BIGINT",
+          "comment": "",
+          "enum_values": [],
+          "is_primary_key": true
+        },
+        {
+          "name": "op_user",
+          "type": "VARCHAR(50)",
+          "comment": "",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "op_action",
+          "type": "VARCHAR(100)",
+          "comment": "",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "op_time",
+          "type": "DATETIME",
+          "comment": "",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "subscriber_id",
+          "type": "BIGINT",
+          "comment": "",
+          "enum_values": [],
+          "is_primary_key": false
+        }
+      ],
+      "foreign_keys": [
+        {
+          "fk_column": "subscriber_id",
+          "ref_table": "subscriber",
+          "ref_column": "subscriber_id"
+        }
+      ]
+    },
+    {
+      "table_name": "subscriber_product",
+      "comment": "用户-套餐订购关系表",
+      "columns": [
+        {
+          "name": "subscriber_id",
+          "type": "BIGINT",
+          "comment": "",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "product_id",
+          "type": "BIGINT",
+          "comment": "",
+          "enum_values": [],
+          "is_primary_key": false
+        },
+        {
+          "name": "subscribe_time",
+          "type": "DATETIME",
+          "comment": "订购时间",
+          "enum_values": [],
+          "is_primary_key": false
+        }
+      ],
+      "foreign_keys": [
+        {
+          "fk_column": "subscriber_id",
+          "ref_table": "subscriber",
+          "ref_column": "subscriber_id"
+        },
+        {
+          "fk_column": "product_id",
+          "ref_table": "telecom_product",
+          "ref_column": "product_id"
+        }
+      ]
+    }
+  ],
+  "quality_scores": [
+    {
+      "table_name": "subscriber",
+      "score": 8,
+      "should_process": true,
+      "has_fk": false,
+      "column_count": 8,
+      "reason": ""
+    },
+    {
+      "table_name": "telecom_product",
+      "score": 8,
+      "should_process": true,
+      "has_fk": false,
+      "column_count": 7,
+      "reason": ""
+    },
+    {
+      "table_name": "call_record",
+      "score": 9,
+      "should_process": true,
+      "has_fk": true,
+      "column_count": 8,
+      "reason": ""
+    },
+    {
+      "table_name": "billing_record",
+      "score": 9,
+      "should_process": true,
+      "has_fk": true,
+      "column_count": 9,
+      "reason": ""
+    },
+    {
+      "table_name": "data_usage",
+      "score": 9,
+      "should_process": true,
+      "has_fk": true,
+      "column_count": 6,
+      "reason": ""
+    },
+    {
+      "table_name": "tmp_batch_2026",
+      "score": 1,
+      "should_process": false,
+      "has_fk": false,
+      "column_count": 4,
+      "reason": "Score 1 < 5, needs data remediation"
+    },
+    {
+      "table_name": "operation_log",
+      "score": 7,
+      "should_process": true,
+      "has_fk": true,
+      "column_count": 5,
+      "reason": ""
+    },
+    {
+      "table_name": "subscriber_product",
+      "score": 8,
+      "should_process": true,
+      "has_fk": true,
+      "column_count": 3,
+      "reason": ""
+    }
+  ],
+  "docs_text": "",
+  "query_log": [],
+  "business_terms": [
+    "用户",
+    "订阅者",
+    "手机",
+    "通话",
+    "流量",
+    "套餐",
+    "账单",
+    "缴费",
+    "基站",
+    "漫游"
+  ],
+  "system_table_tags": {
+    "operation_log": "system",
+    "tmp_batch_2026": "system"
+  }
+}
