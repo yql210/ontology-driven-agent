@@ -587,93 +587,10 @@ class OntoAgentBuilder:
             )
 
         # 写入 ServiceEntity 和 Topic ConceptEntity 及相关关系
-        service_entity_count = 0
-        service_rel_count = 0
-        topic_entity_count = 0
-        topic_rel_count = 0
-
-        try:
-            name_to_id = {e.name: e.id for e in all_entities}
-
-            # 写入 ServiceEntity 节点
-            if service_entities:
-                svc_dicts = [
-                    add_provenance(service_entity_to_dict(se), extracted_at=batch_time) for se in service_entities
-                ]
-                graph_store.merge_nodes_batch("ServiceEntity", svc_dicts, batch_size=200)
-                service_entity_count = len(service_entities)
-                self._logger.info("[Neo4j] Merged %d ServiceEntities", service_entity_count)
-
-            # 写入 calls_service 关系（解析源名称 → UUID）
-            if svc_relations:
-                svc_rel_data = []
-                for rel in svc_relations:
-                    source_uuid = name_to_id.get(rel.source_id)
-                    if source_uuid:
-                        svc_rel_data.append(
-                            {
-                                "source_id": source_uuid,
-                                "target_id": rel.target_id,
-                                "rel_type": rel.relation_type,
-                                "source_label": "CodeEntity",
-                                "target_label": "ServiceEntity",
-                                "properties": add_provenance(
-                                    {"weight": rel.weight},
-                                    source="ast_parser",
-                                    confidence=1.0,
-                                    extracted_at=batch_time,
-                                ),
-                            }
-                        )
-                if svc_rel_data:
-                    service_rel_count = graph_store.merge_relations_batch(svc_rel_data, batch_size=200)
-                self._logger.info("[Neo4j] Wrote %d service relations", service_rel_count)
-
-            # 写入 topic ConceptEntity 节点
-            if topic_entities:
-                topic_dicts = [
-                    add_provenance(
-                        {
-                            "id": t.id,
-                            "name": t.name,
-                            "entity_type": t.entity_type,
-                            "description": t.description or "",
-                        },
-                        extracted_at=batch_time,
-                    )
-                    for t in topic_entities
-                ]
-                graph_store.merge_nodes_batch("ConceptEntity", topic_dicts, batch_size=200)
-                topic_entity_count = len(topic_entities)
-                self._logger.info("[Neo4j] Merged %d topic ConceptEntities", topic_entity_count)
-
-            # 写入 topic 关系（publishes_to 需解析源名称 → UUID；consumed_by 已使用 UUID）
-            if topic_relations:
-                topic_rel_data = []
-                for rel in topic_relations:
-                    source_uuid = name_to_id.get(rel.source_id, rel.source_id)
-                    topic_rel_data.append(
-                        {
-                            "source_id": source_uuid,
-                            "target_id": rel.target_id,
-                            "rel_type": rel.relation_type,
-                            "source_label": "CodeEntity",
-                            "target_label": "ConceptEntity",
-                            "properties": add_provenance(
-                                {"weight": rel.weight},
-                                source="ast_parser",
-                                confidence=1.0,
-                                extracted_at=batch_time,
-                            ),
-                        }
-                    )
-                if topic_rel_data:
-                    topic_rel_count = graph_store.merge_relations_batch(topic_rel_data, batch_size=200)
-                self._logger.info("[Neo4j] Wrote %d topic relations", topic_rel_count)
-
-        except Exception as e:
-            self._logger.warning("Service/Topic write failed (non-critical): %s", e)
-            all_errors.append(f"Service/Topic write error: {e}")
+        service_entity_count, service_rel_count, topic_entity_count, topic_rel_count = self._write_service_topic_entities(
+            graph_store, service_entities, svc_relations, topic_entities, topic_relations,
+            all_entities, batch_time,
+        )
 
         # Stage 2.5: 文档→代码关联
         self._logger.info("═══ Stage 2.5/5: Doc-Code Link ═══")
@@ -698,58 +615,9 @@ class OntoAgentBuilder:
 
         # Stage 2.6: 业务本体
         self._logger.info("═══ Stage 2.6/5: Business Ontology ═══")
-        data_asset_count = 0
-        compliance_item_count = 0
-        processes_data_count = 0
-        yaml_path = repo_path / "ontoagent.yaml"
-        if yaml_path.exists():
-            try:
-                from ontoagent.pipeline.business_loader import load_business_ontology
-                from ontoagent.pipeline.data_mapper import map_code_to_data_assets
-
-                data_assets, compliance_items = load_business_ontology(yaml_path)
-
-                if data_assets:
-                    asset_dicts = [
-                        add_provenance(data_asset_to_dict(asset), extracted_at=batch_time) for asset in data_assets
-                    ]
-                    graph_store.merge_nodes_batch("DataAsset", asset_dicts, batch_size=200)
-                    data_asset_count = len(data_assets)
-
-                if compliance_items:
-                    item_dicts = [
-                        add_provenance(compliance_item_to_dict(item), extracted_at=batch_time)
-                        for item in compliance_items
-                    ]
-                    graph_store.merge_nodes_batch("ComplianceItem", item_dicts, batch_size=200)
-                    compliance_item_count = len(compliance_items)
-
-                if data_assets and all_entities:
-                    asset_pairs = map_code_to_data_assets(all_entities, data_assets)
-                    if asset_pairs:
-                        pd_rel_data = []
-                        for code_id, asset_id in asset_pairs:
-                            pd_rel_data.append(
-                                {
-                                    "source_id": code_id,
-                                    "target_id": asset_id,
-                                    "rel_type": "processes_data",
-                                    "source_label": "CodeEntity",
-                                    "target_label": "DataAsset",
-                                    "properties": add_provenance(
-                                        {},
-                                        source="manual",
-                                        confidence=1.0,
-                                        extracted_at=batch_time,
-                                    ),
-                                }
-                            )
-                        processes_data_count = graph_store.merge_relations_batch(pd_rel_data, batch_size=200)
-            except Exception as e:
-                self._logger.warning("Business ontology loading failed (non-critical): %s", e)
-                all_errors.append(f"Business ontology error: {e}")
-        else:
-            self._logger.info("No ontoagent.yaml found, skipping business ontology")
+        data_asset_count, compliance_item_count, processes_data_count = self._write_business_ontology(
+            repo_path, graph_store, all_entities, batch_time,
+        )
 
         # Stage 2.7: Capability Extraction (V5 Phase 1, non-critical)
         capability_count = 0
@@ -830,6 +698,177 @@ class OntoAgentBuilder:
             elapsed_ms=elapsed,
             errors=all_errors,
         )
+
+    def _write_service_topic_entities(
+        self,
+        graph_store,
+        service_entities,
+        svc_relations,
+        topic_entities,
+        topic_relations,
+        all_entities,
+        batch_time: str,
+    ) -> tuple[int, int, int, int]:
+        """Write ServiceEntity and Topic ConceptEntity nodes + relations to Neo4j.
+
+        Returns (service_entity_count, service_rel_count, topic_entity_count, topic_rel_count).
+        Non-critical: failures are logged, not raised.
+        """
+        service_entity_count = 0
+        service_rel_count = 0
+        topic_entity_count = 0
+        topic_rel_count = 0
+
+        try:
+            name_to_id = {e.name: e.id for e in all_entities}
+
+            # 写入 ServiceEntity 节点
+            if service_entities:
+                svc_dicts = [
+                    add_provenance(service_entity_to_dict(se), extracted_at=batch_time) for se in service_entities
+                ]
+                graph_store.merge_nodes_batch("ServiceEntity", svc_dicts, batch_size=200)
+                service_entity_count = len(service_entities)
+                self._logger.info("[Neo4j] Merged %d ServiceEntities", service_entity_count)
+
+            # 写入 calls_service 关系（解析源名称 → UUID）
+            if svc_relations:
+                svc_rel_data = []
+                for rel in svc_relations:
+                    source_uuid = name_to_id.get(rel.source_id)
+                    if source_uuid:
+                        svc_rel_data.append(
+                            {
+                                "source_id": source_uuid,
+                                "target_id": rel.target_id,
+                                "rel_type": rel.relation_type,
+                                "source_label": "CodeEntity",
+                                "target_label": "ServiceEntity",
+                                "properties": add_provenance(
+                                    {"weight": rel.weight},
+                                    source="ast_parser",
+                                    confidence=1.0,
+                                    extracted_at=batch_time,
+                                ),
+                            }
+                        )
+                if svc_rel_data:
+                    service_rel_count = graph_store.merge_relations_batch(svc_rel_data, batch_size=200)
+                self._logger.info("[Neo4j] Wrote %d service relations", service_rel_count)
+
+            # 写入 topic ConceptEntity 节点
+            if topic_entities:
+                topic_dicts = [
+                    add_provenance(
+                        {
+                            "id": t.id,
+                            "name": t.name,
+                            "entity_type": t.entity_type,
+                            "description": t.description or "",
+                        },
+                        extracted_at=batch_time,
+                    )
+                    for t in topic_entities
+                ]
+                graph_store.merge_nodes_batch("ConceptEntity", topic_dicts, batch_size=200)
+                topic_entity_count = len(topic_entities)
+                self._logger.info("[Neo4j] Merged %d topic ConceptEntities", topic_entity_count)
+
+            # 写入 topic 关系
+            if topic_relations:
+                topic_rel_data = []
+                for rel in topic_relations:
+                    source_uuid = name_to_id.get(rel.source_id, rel.source_id)
+                    topic_rel_data.append(
+                        {
+                            "source_id": source_uuid,
+                            "target_id": rel.target_id,
+                            "rel_type": rel.relation_type,
+                            "source_label": "CodeEntity",
+                            "target_label": "ConceptEntity",
+                            "properties": add_provenance(
+                                {"weight": rel.weight},
+                                source="ast_parser",
+                                confidence=1.0,
+                                extracted_at=batch_time,
+                            ),
+                        }
+                    )
+                if topic_rel_data:
+                    topic_rel_count = graph_store.merge_relations_batch(topic_rel_data, batch_size=200)
+                self._logger.info("[Neo4j] Wrote %d topic relations", topic_rel_count)
+
+        except Exception as e:
+            self._logger.warning("Service/Topic write failed (non-critical): %s", e)
+
+        return service_entity_count, service_rel_count, topic_entity_count, topic_rel_count
+
+    def _write_business_ontology(
+        self,
+        repo_path: Path,
+        graph_store,
+        all_entities,
+        batch_time: str,
+    ) -> tuple[int, int, int]:
+        """Load and write business ontology from ontoagent.yaml.
+
+        Returns (data_asset_count, compliance_item_count, processes_data_count).
+        Non-critical: failures are logged, not raised.
+        """
+        data_asset_count = 0
+        compliance_item_count = 0
+        processes_data_count = 0
+        yaml_path = repo_path / "ontoagent.yaml"
+        if not yaml_path.exists():
+            self._logger.info("No ontoagent.yaml found, skipping business ontology")
+            return 0, 0, 0
+
+        try:
+            from ontoagent.pipeline.business_loader import load_business_ontology
+            from ontoagent.pipeline.data_mapper import map_code_to_data_assets
+
+            data_assets, compliance_items = load_business_ontology(yaml_path)
+
+            if data_assets:
+                asset_dicts = [
+                    add_provenance(data_asset_to_dict(asset), extracted_at=batch_time) for asset in data_assets
+                ]
+                graph_store.merge_nodes_batch("DataAsset", asset_dicts, batch_size=200)
+                data_asset_count = len(data_assets)
+
+            if compliance_items:
+                item_dicts = [
+                    add_provenance(compliance_item_to_dict(item), extracted_at=batch_time)
+                    for item in compliance_items
+                ]
+                graph_store.merge_nodes_batch("ComplianceItem", item_dicts, batch_size=200)
+                compliance_item_count = len(compliance_items)
+
+            if data_assets and all_entities:
+                asset_pairs = map_code_to_data_assets(all_entities, data_assets)
+                if asset_pairs:
+                    pd_rel_data = []
+                    for code_id, asset_id in asset_pairs:
+                        pd_rel_data.append(
+                            {
+                                "source_id": code_id,
+                                "target_id": asset_id,
+                                "rel_type": "processes_data",
+                                "source_label": "CodeEntity",
+                                "target_label": "DataAsset",
+                                "properties": add_provenance(
+                                    {},
+                                    source="manual",
+                                    confidence=1.0,
+                                    extracted_at=batch_time,
+                                ),
+                            }
+                        )
+                    processes_data_count = graph_store.merge_relations_batch(pd_rel_data, batch_size=200)
+        except Exception as e:
+            self._logger.warning("Business ontology loading failed (non-critical): %s", e)
+
+        return data_asset_count, compliance_item_count, processes_data_count
 
     def query(
         self,
