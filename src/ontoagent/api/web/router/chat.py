@@ -152,16 +152,10 @@ async def chat_approval(req: ApprovalRequest) -> ApprovalResponse:
             )
 
         # 继续执行
-        import os
-
+        from ontoagent.agent._helpers import get_neo4j
         from ontoagent.agent.tools import _get_action_executor
-        from ontoagent.store.neo4j_store import Neo4jGraphStore
 
-        uri = os.environ.get("ONTOAGENT_NEO4J_URI", "bolt://localhost:7687")
-        user = os.environ.get("ONTOAGENT_NEO4J_USER", "neo4j")
-        password = os.environ.get("ONTOAGENT_NEO4J_PASSWORD", "")
-
-        graph_store = Neo4jGraphStore(uri=uri, user=user, password=password)
+        graph_store = get_neo4j()
         executor = _get_action_executor(graph_store)
 
         # 记录 trace: 审批开始
