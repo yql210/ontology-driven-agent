@@ -95,8 +95,9 @@ class TraceCollector:
                 if log:
                     self._traces[thread_id] = log
                     self._step_counters[thread_id] = len(log.steps)
-        except Exception:
-            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Failed to load trace history from SQLite: %s", e)
 
     @staticmethod
     def _trace_to_dict(log: TraceLog) -> dict:

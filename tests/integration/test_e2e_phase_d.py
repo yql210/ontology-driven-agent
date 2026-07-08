@@ -1,7 +1,7 @@
-"""End-to-end integration tests for V3.4 Phase D — Connectors + general Functions.
+"""End-to-end integration tests for V3.4 Phase D — general Functions.
 
 Tests the full chain: express_intent → ActionExecutor → Function via registry.
-Uses MockGraphStore and MockConnector — no external services required.
+Uses MockGraphStore — no external services required.
 """
 
 from __future__ import annotations
@@ -12,8 +12,6 @@ import pytest
 
 from ontoagent.execution.action_executor import ActionExecutor
 from ontoagent.execution.action_types import ActionContext
-from ontoagent.execution.connectors.base import ConnectorRegistry
-from ontoagent.execution.connectors.mock_connector import MockConnector
 from ontoagent.execution.functions import registry as fn_registry
 
 # ---------------------------------------------------------------------------
@@ -150,28 +148,6 @@ def test_e2e_general_check_condition() -> None:
     result = fn(ctx, field="lines", operator=">", value=100)
     assert result.success is True
     assert result.data["condition_met"] is True
-
-
-# ---------------------------------------------------------------------------
-# test_e2e_connector_registry
-# ---------------------------------------------------------------------------
-
-
-def test_e2e_connector_registry() -> None:
-    """ConnectorRegistry: register, retrieve, and list connectors."""
-    reg = ConnectorRegistry()
-    mock = MockConnector()
-    mock.add_mock_data([{"id": "log-1", "level": "ERROR", "message": "timeout"}])
-
-    reg.register("mock", mock)
-
-    assert reg.get("mock") is mock
-    assert "mock" in reg.list_connectors()
-
-    connector = reg.get("mock")
-    assert connector is not None
-    assert connector.health_check() is True
-    assert len(connector.fetch({})) == 1
 
 
 # ---------------------------------------------------------------------------

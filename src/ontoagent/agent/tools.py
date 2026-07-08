@@ -923,12 +923,8 @@ def _get_shape_registry() -> Any:
 def _get_action_executor(graph_store: object) -> ActionExecutor:
     """获取或初始化 ActionExecutor 单例。
 
-    Uses OntologyConstraintLoader for three-layer constraint loading:
-    Layer 1: auto-derive value_mapping from ONTOLOGY_CONSTRAINT_REGISTRY
-    Layer 2: apply overrides from constraint_overrides.yaml
-
-    V4 Phase 1: 同时初始化 ShapeRegistry 并注入 ActionExecutor。ShapeRegistry 不可用
-    时（feature flag 关闭 / shapes.yaml 缺失 / 加载失败）回落到旧 Guard Pipeline。
+    同时初始化 ShapeRegistry 并注入 ActionExecutor。ShapeRegistry 不可用
+    时（shapes.yaml 缺失 / 加载失败）降级为无约束模式。
     """
     global _action_executor
     if _action_executor is None:
