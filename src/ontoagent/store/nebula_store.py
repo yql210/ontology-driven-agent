@@ -13,12 +13,28 @@ from ontoagent.store.cypher_adapter import CypherToNgqlAdapter
 from ontoagent.store.graph_store import GraphStore
 from ontoagent.store.nebula_schema import _escape_prop_name
 
+logger = logging.getLogger(__name__)
+
+
+def safe_error_msg(result: Any) -> str:
+    """从 NebulaGraph ResultSet 取错误信息，兼容方法/属性两种形态。
+
+    nebula3-python 不同版本里 ``error_msg`` 既可能是方法也可能是属性；
+    MagicMock 测试里也可能直接赋为字符串。统一安全取值。
+    """
+    raw = getattr(result, "error_msg", "unknown error")
+    if callable(raw):
+        try:
+            return str(raw())
+        except Exception:
+            return "unknown error"
+    return str(raw)
+
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from nebula3.gclient.net.SessionPool import Session
-
-logger = logging.getLogger(__name__)
 
 
 def _snake_to_camel(name: str) -> str:
@@ -46,20 +62,19 @@ def _keys_to_camel_case(d: dict) -> dict:
 def _format_value(value: Any) -> str:
     """把 Python 值转成 nGQL 字面量。
 
-    - str → ``"..."``（双引号；对内部双引号不做转义，调用方需保证不含双引号）
-    - bool → ``true`` / ``false``
-    - None → ``null``（NebulaGraph 用 NULL，UPSERT 时跳过该字段）
-    - int/float → 数值字面量
-    - 其他 → str(value)（best-effort）
+    OntoAgent 的 NebulaGraph schema 所有字段定义为 ``string`` 类型，
+    因此所有非 None 值都转为带引号的字符串字面量（bool/int/float 也如此），
+    避免 "Invalid data, may be wrong value type" 错误。
+
+    - None → ``null``（UPSERT 时跳过该字段）
+    - 其他 → ``"..."``（转义反斜杠和双引号后用双引号包裹）
     """
     if value is None:
         return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int | float):
-        return str(value)
-    # 默认按字符串处理（用双引号包裹）
-    return f'"{value}"'
+    # bool/int/float/str 统一按字符串处理（schema 字段全是 string 类型）
+    s = str(value)
+    s = s.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{s}"'
 
 
 class NebulaGraphStore(GraphStore):
@@ -156,17 +171,35 @@ class NebulaGraphStore(GraphStore):
         set_parts = [f"{k} = {_format_value(v)}" for k, v in props.items() if k != "id"]
         set_clause = ", ".join(set_parts) if set_parts else ""
 
-        if set_clause:
-            stmt = f'UPSERT VERTEX ON {label} "{vid}" SET {set_clause};'
-        else:
-            # 无属性可设 → 仅 INSERT 占位（保证点存在）
-            stmt = f'INSERT VERTEX {label}() VALUES "{vid}":();'
-
         with self._session_scope() as session:
-            result = session.execute(stmt)
-            if not result.is_succeeded():
-                msg = f"NebulaGraph merge_node failed: {result.error_msg} | stmt={stmt}"
-                raise RuntimeError(msg)
+            if set_clause:
+                stmt = f'UPSERT VERTEX ON `{label}` "{vid}" SET {set_clause};'
+                result = session.execute(stmt)
+                if not result.is_succeeded():
+                    err = safe_error_msg(result)
+                    # 容错：schema 字段不匹配（entity_to_dict 产出 schema 未定义的字段）
+                    # 降级为 INSERT 占位节点，保证图结构完整，未知字段丢弃。
+                    if "Tag prop not found" in err or "wrong value type" in err:
+                        logger.warning(
+                            "[NebulaStore] merge_node UPSERT failed (%s), "
+                            "fallback to INSERT placeholder for %s:%s",
+                            err, label, vid,
+                        )
+                        stmt = f'INSERT VERTEX `{label}`() VALUES "{vid}":();'
+                        result = session.execute(stmt)
+                        if not result.is_succeeded():
+                            msg = f"NebulaGraph merge_node INSERT fallback failed: {safe_error_msg(result)} | stmt={stmt}"
+                            raise RuntimeError(msg)
+                    else:
+                        msg = f"NebulaGraph merge_node failed: {err} | stmt={stmt}"
+                        raise RuntimeError(msg)
+            else:
+                # 无属性可设 → 仅 INSERT 占位（保证点存在）
+                stmt = f'INSERT VERTEX `{label}`() VALUES "{vid}":();'
+                result = session.execute(stmt)
+                if not result.is_succeeded():
+                    msg = f"NebulaGraph merge_node failed: {safe_error_msg(result)} | stmt={stmt}"
+                    raise RuntimeError(msg)
 
         logger.debug("[NebulaStore] merged node %s:%s", label, vid)
         return props
@@ -177,7 +210,7 @@ class NebulaGraphStore(GraphStore):
             stmt = f'FETCH PROP ON * "{node_id}" YIELD id(vertex) AS id, properties(vertex) AS props;'
             result = session.execute(stmt)
             if not result.is_succeeded():
-                logger.error("[NebulaStore] get_node failed: %s", result.error_msg)
+                logger.error("[NebulaStore] get_node failed: %s", safe_error_msg(result))
                 return None
             if result.is_empty():
                 return None
@@ -256,12 +289,13 @@ class NebulaGraphStore(GraphStore):
         # 若后续 Edge type 加属性，可在此扩展 SET
         with self._session_scope() as session:
             # 先 DELETE 保证幂等（NebulaGraph 的 INSERT EDGE 是追加语义，rank 相同时旧值保留）
-            delete_stmt = f'DELETE EDGE {neo4j_rel_type} "{source_id}"->"{target_id}"@0;'
-            insert_stmt = f'INSERT EDGE {neo4j_rel_type}() VALUES "{source_id}"->"{target_id}"@0:();'
+            # Edge 名加反引号：CONTAINS/IMPORTS 等是 nGQL 保留字，不加反引号会 EdgeNotFound
+            delete_stmt = f'DELETE EDGE `{neo4j_rel_type}` "{source_id}"->"{target_id}"@0;'
+            insert_stmt = f'INSERT EDGE `{neo4j_rel_type}`() VALUES "{source_id}"->"{target_id}"@0:();'
             session.execute(delete_stmt)
             result = session.execute(insert_stmt)
             if not result.is_succeeded():
-                msg = f"NebulaGraph merge_relation failed: {result.error_msg}"
+                msg = f"NebulaGraph merge_relation failed: {safe_error_msg(result)}"
                 raise RuntimeError(msg)
 
         logger.debug("[NebulaStore] merged edge %s-[%s]->%s", source_id, neo4j_rel_type, target_id)
@@ -303,7 +337,7 @@ class NebulaGraphStore(GraphStore):
         with self._session_scope() as session:
             result = session.execute(stmt)
             if not result.is_succeeded():
-                logger.error("[NebulaStore] get_relations failed: %s", result.error_msg)
+                logger.error("[NebulaStore] get_relations failed: %s", safe_error_msg(result))
                 return []
             if result.is_empty():
                 return []
@@ -344,9 +378,9 @@ class NebulaGraphStore(GraphStore):
                     "[NebulaStore] query failed | original=%r | adapted=%r | error=%s",
                     ngql,
                     adapted,
-                    result.error_msg,
+                    safe_error_msg(result),
                 )
-                msg = f"NebulaGraph query failed: {result.error_msg} | stmt={final_stmt}"
+                msg = f"NebulaGraph query failed: {safe_error_msg(result)} | stmt={final_stmt}"
                 raise RuntimeError(msg)
             if result.is_empty():
                 return []
@@ -431,7 +465,7 @@ class NebulaGraphStore(GraphStore):
             if not update_result.is_succeeded():
                 logger.error(
                     "[NebulaStore] update_node_property failed: %s | stmt=%s",
-                    update_result.error_msg,
+                    safe_error_msg(update_result),
                     update_stmt,
                 )
                 return False

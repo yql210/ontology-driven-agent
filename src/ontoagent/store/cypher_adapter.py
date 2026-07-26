@@ -200,7 +200,10 @@ class CypherToNgqlAdapter:
         """``n.field`` → ``n.Tag.field``；``n.id`` → ``id(n)``。
 
         - 已有 ``n.Tag.`` 前缀的不动。
-        - ``n.id`` 优先转成 ``id(n)``（NebulaGraph 中 id 是函数不是属性）。
+        - ``var.id`` 优先转成 ``id(var)``（NebulaGraph 中 id 是函数不是属性）。
+          此规则对**所有变量**生效（不限于 var_tag_map），因为 NebulaGraph 中
+          没有名为 ``id`` 的通用属性——它只能通过 ``id(var)`` 函数取 VID。
+        - 其余 ``n.field`` 只在 ``n`` 有已知 Tag 时补前缀。
 
         Args:
             cypher: Cypher 语句。
@@ -210,14 +213,14 @@ class CypherToNgqlAdapter:
             转换后的语句。
         """
         result = cypher
+        # 1) 全局 var.id → id(var)（匹配任意变量名，但不动 var.id() 函数调用）
+        result = re.sub(
+            r"\b([A-Za-z_]\w*)\.id\b(?!\()",
+            r"id(\1)",
+            result,
+        )
         for var, tag in var_tag_map.items():
-            # 1) n.id → id(n)（但 n.id(  ) 函数调用形式不动，虽然 n.id() 不是合法 Cypher）
-            result = re.sub(
-                rf"\b{re.escape(var)}\.id\b(?!\()",
-                f"id({var})",
-                result,
-            )
-            # 2) n.field → n.Tag.field（但 n.Tag.field 已前缀的不动；n.id 已被替换）
+            # 2) n.field → n.Tag.field（n.Tag.field 已前缀的不动；n.id 已被全局规则替换）
             result = re.sub(
                 rf"\b{re.escape(var)}\.(?!{re.escape(tag)}\b)(\w+)\b",
                 rf"{var}.{tag}.\1",

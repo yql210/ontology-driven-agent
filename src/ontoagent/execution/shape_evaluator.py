@@ -146,7 +146,10 @@ class ShapeEvaluator:
             raise ValueError(f"非法 constraint.field: {field_name!r}")
 
         if shape.path.is_self():
-            return f"MATCH (n) WHERE n.id = $entity_id RETURN n.{field_name} AS val"
+            # 带上 entry_type Tag：对 NebulaGraph 是必需的（强 schema，RETURN n.field 需 Tag 前缀）；
+            # 对 Neo4j 无副作用（MATCH (n:Label) 只是额外过滤，entry_type 已是 entity 的标签）。
+            label = shape.target.entry_type
+            return f"MATCH (n:{label}) WHERE n.id = $entity_id RETURN n.{field_name} AS val"
 
         match_clause, _ = self._compiler.compile(shape.path)
         return f"{match_clause} WHERE n.id = $entity_id RETURN collected.{field_name} AS val"

@@ -94,16 +94,23 @@ class NebulaSchemaInitializer:
         """为 13 个实体创建 Tag DDL（不执行，仅返回语句列表）。
 
         属性从 ``entity_field_names(label)`` 反射获取，全部使用 ``string`` 类型。
+        额外追加 builder/pipeline 实际写入的通用字段：
+
+        - provenance: ``provenanceSource``、``confidence``、``extractedAt``（来自 ``add_provenance()``）
+        - ``codeParameters``（``entity_to_dict`` 将 ``entity.parameters`` 映射到此 key，
+          与 schema 的 ``parameters`` 字段命名不同，需单独声明）
+
+        所有字段统一用 ``string`` 类型，避免 ``_format_value`` 的类型不匹配错误。
         """
+        common_fields = {
+            "provenanceSource", "confidence", "extractedAt",
+            "codeParameters",  # entity_to_dict 产出的 key（不同于 schema.parameters）
+        }
         ddl_list: list[str] = []
         for label in VALID_ENTITY_LABELS:
-            field_names = sorted(entity_field_names(label))
-            if not field_names:
-                # 实体无字段时，Tag 也需至少创建（空 Tag）
-                ddl = f"CREATE TAG IF NOT EXISTS `{label}` ();"
-            else:
-                props = ", ".join(f"{_escape_prop_name(f)} string" for f in field_names)
-                ddl = f"CREATE TAG IF NOT EXISTS `{label}` ({props});"
+            field_names = sorted(set(entity_field_names(label)) | common_fields)
+            props = ", ".join(f"{_escape_prop_name(f)} string" for f in field_names)
+            ddl = f"CREATE TAG IF NOT EXISTS `{label}` ({props});"
             ddl_list.append(ddl)
         return ddl_list
 

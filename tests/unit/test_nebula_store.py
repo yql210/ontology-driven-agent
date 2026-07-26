@@ -63,7 +63,7 @@ class TestNebulaStoreMergeNode:
 
         mock_session.execute.assert_called()
         stmt = mock_session.execute.call_args.args[0]
-        assert "UPSERT VERTEX ON CodeEntity" in stmt
+        assert "UPSERT VERTEX ON `CodeEntity`" in stmt
         assert '"uuid-1"' in stmt
 
     def test_merge_node_converts_keys_to_camel_case(
