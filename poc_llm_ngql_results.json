@@ -1,0 +1,128 @@
+[
+  {
+    "q": "查找名为 process_order 的函数",
+    "ngql": "MATCH (n:CodeEntity) WHERE n.CodeEntity.name == \"process_order\" RETURN n.CodeEntity.name AS name, n.CodeEntity.filePath AS file_path",
+    "status": "pass",
+    "rows": 1
+  },
+  {
+    "q": "查找名为 validate_input 的函数的文件路径",
+    "ngql": "MATCH (n:CodeEntity) WHERE n.CodeEntity.name == \"validate_input\" RETURN n.CodeEntity.filePath AS file_path",
+    "status": "pass",
+    "rows": 1
+  },
+  {
+    "q": "查找所有 function 类型的 CodeEntity",
+    "ngql": "MATCH (n:CodeEntity) WHERE n.CodeEntity.entityType == \"function\" RETURN n.CodeEntity.name AS name, n.CodeEntity.filePath AS file_path",
+    "status": "pass",
+    "rows": 104
+  },
+  {
+    "q": "查找 docstring 包含 database 的函数",
+    "ngql": "MATCH (n:CodeEntity) WHERE n.CodeEntity.docstring CONTAINS \"database\" AND n.CodeEntity.entityType == \"function\" RETURN n.CodeEntity.name AS name, n.CodeEntity.filePath AS file_path, n.CodeEntity.docstring AS docstring LIMIT",
+    "status": "fail",
+    "error": "SyntaxError: syntax error near `LIMIT'",
+    "error_type": "syntax"
+  },
+  {
+    "q": "查找名为 订单处理 的概念实体",
+    "ngql": "MATCH (n:ConceptEntity) WHERE n.ConceptEntity.name == \"订单处理\" RETURN n.ConceptEntity.name AS name, n.ConceptEntity.description AS description, n.ConceptEntity.category AS category",
+    "status": "pass",
+    "rows": 1
+  },
+  {
+    "q": "查找 process_order 调用了哪些函数（3跳内）",
+    "ngql": "MATCH (n)-[:CALLS*1..3]->(callee) WHERE n.CodeEntity.name == \"process_order\" RETURN callee.CodeEntity.name AS callee_name",
+    "status": "pass",
+    "rows": 3
+  },
+  {
+    "q": "查找谁调用了 save_to_db（反向1跳）",
+    "ngql": "MATCH (caller:CodeEntity)-[:CALLS]->(callee:CodeEntity) WHERE callee.CodeEntity.name == \"save_to_db\" RETURN caller.CodeEntity.name AS caller_name",
+    "status": "pass",
+    "rows": 1
+  },
+  {
+    "q": "查找 process_order 到 send_notification 的调用链",
+    "ngql": "",
+    "status": "fail",
+    "error": "空查询",
+    "error_type": "unknown"
+  },
+  {
+    "q": "查找 process_order 的所有下游函数（不限跳数，上限10）",
+    "ngql": "",
+    "status": "fail",
+    "error": "空查询",
+    "error_type": "unknown"
+  },
+  {
+    "q": "查找所有 CALLS 关系，返回调用者和被调用者的名字",
+    "ngql": "MATCH (a:CodeEntity)-[r:CALLS]->(b:CodeEntity) RETURN a.CodeEntity.name AS caller, b.CodeEntity.name AS callee",
+    "status": "pass",
+    "rows": 3
+  },
+  {
+    "q": "查找 DESCRIBES 关系连接的代码和概念",
+    "ngql": "MATCH (c:CodeEntity)-[:DESCRIBES]->(con:ConceptEntity) RETURN c.CodeEntity.name AS code, con.ConceptEntity.name AS concept",
+    "status": "pass",
+    "rows": 1
+  },
+  {
+    "q": "查找所有处理了 DataAsset 的代码",
+    "ngql": "MATCH (c:CodeEntity)-[:PROCESSES_DATA]->(d:DataAsset) RETURN c.CodeEntity.name AS code_name, c.CodeEntity.filePath AS file_path",
+    "status": "pass",
+    "rows": 1
+  },
+  {
+    "q": "查找处理了客户订单数据的代码，以及该数据受哪些合规条款约束",
+    "ngql": "MATCH (c:CodeEntity)-[:PROCESSES_DATA]->(d:DataAsset)-[:GOVERNED_BY]->(ci:ComplianceItem) WHERE d.DataAsset.name == \"客户订单数据\" RETURN c.CodeEntity.name AS code, d.DataAsset.name AS data, ci.ComplianceItem.name AS compliance",
+    "status": "pass",
+    "rows": 1
+  },
+  {
+    "q": "查找 process_order 描述了哪些概念",
+    "ngql": "MATCH (n:CodeEntity)-[:DESCRIBES]->(c:ConceptEntity) WHERE n.CodeEntity.name == \"process_order\" RETURN c.ConceptEntity.name AS concept_name, c.ConceptEntity.description AS description",
+    "status": "pass",
+    "rows": 1
+  },
+  {
+    "q": "查找所有 ComplianceItem 以及约束的数据资产",
+    "ngql": "",
+    "status": "fail",
+    "error": "空查询",
+    "error_type": "unknown"
+  },
+  {
+    "q": "统计每种实体类型有多少个节点",
+    "ngql": "",
+    "status": "fail",
+    "error": "空查询",
+    "error_type": "unknown"
+  },
+  {
+    "q": "统计有多少条 CALLS 边",
+    "ngql": "MATCH ()-[r:CALLS]->() RETURN count(r) AS cnt;",
+    "status": "pass",
+    "rows": 1
+  },
+  {
+    "q": "查找每个 CodeEntity 调用了多少个其他函数",
+    "ngql": "MATCH (c:CodeEntity)-[:CALLS]->(called:CodeEntity) RETURN c.CodeEntity.name AS caller_name, count(DISTINCT called) AS call_count",
+    "status": "pass",
+    "rows": 3
+  },
+  {
+    "q": "查找同时描述了概念且处理了数据的代码",
+    "ngql": "MATCH (c:CodeEntity)-[:DESCRIBES]->(:ConceptEntity), (c)-[:PROCESSES_DATA]->(:DataAsset) RETURN c.CodeEntity.name AS name, c.CodeEntity.filePath AS file_path",
+    "status": "pass",
+    "rows": 1
+  },
+  {
+    "q": "查找没有被任何其他函数调用的函数",
+    "ngql": "",
+    "status": "fail",
+    "error": "空查询",
+    "error_type": "unknown"
+  }
+]

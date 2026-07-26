@@ -188,11 +188,15 @@ class NebulaGraphStore(GraphStore):
                     return None
                 row: dict = {}
                 for key in keys:
-                    value_wrapper = result.column_values(key)
-                    row[key] = _unwrap_value(value_wrapper)
-                # 如果存在 props 列（map），合并展开
+                    col_values = result.column_values(key)  # list of ValueWrapper
+                    value_wrapper = col_values[0] if col_values else None
+                    row[key] = _unwrap_value(value_wrapper) if value_wrapper is not None else None
+                # 如果存在 props 列（map），合并展开（递归解包 ValueWrapper）
                 if "props" in row and isinstance(row["props"], dict):
-                    props = dict(row["props"])
+                    props_raw = row["props"]
+                    props = {}
+                    for k, v in props_raw.items():
+                        props[k] = _unwrap_value(v) if hasattr(v, "as_string") else v
                     props.setdefault("id", node_id)
                     return props
                 row.setdefault("id", node_id)
@@ -345,8 +349,10 @@ class NebulaGraphStore(GraphStore):
             if not result.is_succeeded() or result.is_empty():
                 return 0
             try:
-                vw = result.column_values("deleted")
-                return _unwrap_int(vw)
+                col_values = result.column_values("deleted")  # list of ValueWrapper
+                if not col_values:
+                    return 0
+                return _unwrap_int(col_values[0])
             except Exception:
                 logger.exception("[NebulaStore] cleanup_orphan_nodes decode failed")
                 return 0
@@ -371,7 +377,8 @@ def _unwrap_value(value_wrapper: Any) -> Any:
             pass
     if hasattr(value_wrapper, "as_map"):
         try:
-            return value_wrapper.as_map()
+            raw_map = value_wrapper.as_map()
+            return {k: _unwrap_value(v) if hasattr(v, "as_string") else v for k, v in raw_map.items()}
         except Exception:
             pass
     return None
@@ -397,12 +404,13 @@ def _resultset_to_dicts(result: Any) -> list[dict]:
         keys = result.keys()
         rows: list[dict] = []
         row_size = result.row_size() if hasattr(result, "row_size") else 0
-        for _i in range(row_size):
+        for row_idx in range(row_size):
             row_dict: dict = {}
             for key in keys:
                 try:
-                    vw = result.column_values(key)
-                    row_dict[key] = _unwrap_value(vw)
+                    col_values = result.column_values(key)  # list of ValueWrapper
+                    vw = col_values[row_idx] if row_idx < len(col_values) else None
+                    row_dict[key] = _unwrap_value(vw) if vw is not None else None
                 except Exception:
                     row_dict[key] = None
             rows.append(row_dict)

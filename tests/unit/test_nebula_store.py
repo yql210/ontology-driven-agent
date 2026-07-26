@@ -116,12 +116,12 @@ class TestNebulaStoreGetNode:
     ) -> None:
         # 构造一个 ResultSet：包含一行，列名为 id/name，值通过 ValueWrapper 包装
         success = _make_successful_result(rows=[{"id": "uuid-1", "name": "foo"}])
-        # 模拟 column_values(key) 返回 ValueWrapper，as_string() 取真实值
-        vw = MagicMock()
-        vw.as_string = MagicMock(return_value="foo")
-        vw_list = MagicMock()
-        vw_list.as_string = MagicMock(return_value="uuid-1")
-        success.column_values = MagicMock(side_effect=lambda key: vw if key == "name" else vw_list)
+        # 模拟 column_values(key) 返回 list[ValueWrapper]（真实 NebulaGraph 行为）
+        vw_name = MagicMock()
+        vw_name.as_string = MagicMock(return_value="foo")
+        vw_id = MagicMock()
+        vw_id.as_string = MagicMock(return_value="uuid-1")
+        success.column_values = MagicMock(side_effect=lambda key: [vw_name] if key == "name" else [vw_id])
         success.keys = MagicMock(return_value=["id", "name"])
         success.is_empty = MagicMock(return_value=False)
         success.row_size = MagicMock(return_value=1)
@@ -136,6 +136,45 @@ class TestNebulaStoreGetNode:
         stmt = mock_session.execute.call_args.args[0]
         assert "FETCH PROP ON" in stmt
         assert '"uuid-1"' in stmt
+
+    def test_get_node_unwraps_props_map_values(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """FETCH PROP ... YIELD properties(vertex) AS props 返回的 map 中 value 是 ValueWrapper。
+
+        本测试构造 props 列为 dict[str, ValueWrapper]，验证 get_node 返回的 dict
+        中每个 value 已被递归解包为 Python 原始类型。
+        """
+        # 真实 NebulaGraph 流程：YIELD id(vertex) AS id, properties(vertex) AS props
+        # column_values("props")[0] 是一个 ValueWrapper，其 as_map() 返回 {key: ValueWrapper}
+        success = _make_successful_result(rows=[{"id": "uuid-1", "props": {}}])
+        vw_id = MagicMock()
+        vw_id.as_string = MagicMock(return_value="uuid-1")
+        vw_name = MagicMock()
+        vw_name.as_string = MagicMock(return_value="process_order")
+        vw_path = MagicMock()
+        vw_path.as_string = MagicMock(return_value="/x/y.py")
+        props_map = {"name": vw_name, "filePath": vw_path}
+        vw_props = MagicMock()
+        vw_props.as_string = MagicMock(side_effect=Exception("not a string"))
+        vw_props.as_int = MagicMock(side_effect=Exception("not an int"))
+        vw_props.as_double = MagicMock(side_effect=Exception("not a double"))
+        vw_props.as_bool = MagicMock(side_effect=Exception("not a bool"))
+        vw_props.as_list = MagicMock(side_effect=Exception("not a list"))
+        vw_props.as_map = MagicMock(return_value=props_map)
+        success.column_values = MagicMock(side_effect=lambda key: [vw_props] if key == "props" else [vw_id])
+        success.keys = MagicMock(return_value=["id", "props"])
+        success.is_empty = MagicMock(return_value=False)
+        success.row_size = MagicMock(return_value=1)
+        mock_session.execute = MagicMock(return_value=success)
+
+        result = store_with_mock_pool.get_node("uuid-1")
+
+        assert result is not None
+        # map 内的 value 必须被解包成 str，而不是 ValueWrapper/MagicMock
+        assert result["name"] == "process_order"
+        assert result["filePath"] == "/x/y.py"
+        assert result["id"] == "uuid-1"
 
 
 @pytest.mark.unit
@@ -267,7 +306,7 @@ class TestNebulaStoreQuery:
         success = _make_successful_result(rows=[{"col1": "v1"}])
         vw = MagicMock()
         vw.as_string = MagicMock(return_value="v1")
-        success.column_values = MagicMock(return_value=vw)
+        success.column_values = MagicMock(return_value=[vw])
         success.keys = MagicMock(return_value=["col1"])
         success.is_empty = MagicMock(return_value=False)
         success.row_size = MagicMock(return_value=1)
@@ -367,7 +406,7 @@ class TestNebulaStoreCleanupOrphanNodes:
         success.is_empty = MagicMock(return_value=False)
         vw = MagicMock()
         vw.as_int = MagicMock(return_value=3)
-        success.column_values = MagicMock(return_value=vw)
+        success.column_values = MagicMock(return_value=[vw])
         success.keys = MagicMock(return_value=["deleted"])
         success.row_size = MagicMock(return_value=1)
         mock_session.execute = MagicMock(return_value=success)

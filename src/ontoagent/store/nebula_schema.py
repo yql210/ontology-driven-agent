@@ -16,14 +16,17 @@ logger = logging.getLogger(__name__)
 
 
 # NebulaGraph 保留字（部分），属性名出现时需用反引号包裹
-# 来源：NebulaGraph 3.x 关键字列表，本处只列 OntoAgent schema 实际命中的
+# 实测在 NebulaGraph 3.7.0 上，以下字段名会导致 SyntaxError（必须反引号）：
+#   steps, order, timestamp, path, rank, source
+# 注意：name/config/type/key/label/value 实测不需要反引号
 _RESERVED_WORDS: frozenset[str] = frozenset(
     {
         "path",
         "rank",
         "source",
         "timestamp",
-        "name",
+        "steps",
+        "order",
         "tag",
         "edge",
         "vertex",
