@@ -9,6 +9,7 @@ from nebula3.Config import Config
 from nebula3.gclient.net import ConnectionPool
 
 from ontoagent.domain.schema import RELATION_TYPE_TO_NEO4J
+from ontoagent.store.cypher_adapter import CypherToNgqlAdapter
 from ontoagent.store.graph_store import GraphStore
 
 if TYPE_CHECKING:
@@ -310,11 +311,15 @@ class NebulaGraphStore(GraphStore):
     def query(self, ngql: str, params: dict | None = None) -> list[dict]:
         """执行原生 nGQL 查询。
 
+        接受 Cypher 风格的查询（OntoAgent 内部各模块普遍使用的语法），先经
+        :class:`CypherToNgqlAdapter` 自动转换为 nGQL，再交给 NebulaGraph 执行。
+        转换是 best-effort：无法识别的查询原样下发。
+
         NebulaGraph 不支持参数化查询，``params`` 仅做简单字符串替换（``{key}`` → 值）。
         调用方需自行保证语句安全。
 
         Args:
-            ngql: nGQL 查询语句。
+            ngql: Cypher/nGQL 查询语句。
             params: 简单 ``{key}`` 模板替换字典（可选）。
 
         Returns:
@@ -323,7 +328,10 @@ class NebulaGraphStore(GraphStore):
         Raises:
             RuntimeError: 当查询失败时。
         """
-        final_stmt = ngql
+        adapter = CypherToNgqlAdapter()
+        adapted = adapter.adapt(ngql, params)
+
+        final_stmt = adapted
         if params:
             for key, value in params.items():
                 final_stmt = final_stmt.replace("{" + key + "}", str(value))
@@ -331,6 +339,12 @@ class NebulaGraphStore(GraphStore):
         with self._session_scope() as session:
             result = session.execute(final_stmt)
             if not result.is_succeeded():
+                logger.warning(
+                    "[NebulaStore] query failed | original=%r | adapted=%r | error=%s",
+                    ngql,
+                    adapted,
+                    result.error_msg,
+                )
                 msg = f"NebulaGraph query failed: {result.error_msg} | stmt={final_stmt}"
                 raise RuntimeError(msg)
             if result.is_empty():

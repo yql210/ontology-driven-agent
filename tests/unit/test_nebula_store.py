@@ -338,6 +338,69 @@ class TestNebulaStoreQuery:
         with pytest.raises(RuntimeError, match="NebulaGraph query failed"):
             store_with_mock_pool.query("INVALID STATEMENT")
 
+    def test_query_invokes_cypher_adapter(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """query() 必须把 Cypher 经过 CypherToNgqlAdapter 转换后再下发。
+
+        用一条含 ``labels(n)`` 的查询作为探针，验证下发给 session.execute 的语句
+        中 ``labels`` 已被替换为 ``tags``。
+        """
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        store_with_mock_pool.query("MATCH (n) WHERE size(labels(n)) > 0 RETURN n")
+
+        # session.execute 至少被调用过一次（USE SPACE + 查询）；找到含 MATCH 的那次
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        match_stmts = [s for s in stmts if "MATCH" in s]
+        assert match_stmts, f"Expected MATCH in execute stmts: {stmts}"
+        # adapter 应当把 labels → tags
+        assert any("tags(n)" in s for s in match_stmts), f"Expected tags(n) in {match_stmts}"
+        assert all("labels(" not in s for s in match_stmts), f"labels( should be converted: {match_stmts}"
+
+    def test_query_cypher_property_access_converted(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """带 Tag 信息的 Cypher（``n.field``）应被转成 ``n.Tag.field``。"""
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        store_with_mock_pool.query(
+            "MATCH (n:CodeEntity) WHERE n.id = $eid RETURN n.name AS name",
+            {"eid": "uuid-1"},
+        )
+
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        match_stmt = next(s for s in stmts if "MATCH" in s)
+        # n.id → id(n)，= → ==，n.name → n.CodeEntity.name
+        assert "id(n) ==" in match_stmt
+        assert "n.CodeEntity.name" in match_stmt
+
+    def test_query_failure_logs_original_and_adapted(
+        self,
+        store_with_mock_pool: NebulaGraphStore,
+        mock_session: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """查询失败时，原始 Cypher 与转换后的 nGQL 都应记录到日志（便于排查）。"""
+        failed = MagicMock()
+        failed.is_succeeded = MagicMock(return_value=False)
+        failed.error_msg = "syntax error"
+        mock_session.execute = MagicMock(return_value=failed)
+
+        original_cypher = "MATCH (n:CodeEntity) WHERE n.id = $eid RETURN n.name"
+        with caplog.at_level("WARNING"), pytest.raises(RuntimeError):
+            store_with_mock_pool.query(original_cypher, {"eid": "uuid-1"})
+
+        # 日志中应有原始语句和转换后的语句
+        log_text = caplog.text
+        assert "MATCH (n:CodeEntity) WHERE n.id" in log_text  # 原始
+        # 转换后的语句也应记录（id(n) == 是 adapter 的产物）
+        assert "id(n) ==" in log_text
+
 
 @pytest.mark.unit
 class TestNebulaStoreSessionScope:
