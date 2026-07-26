@@ -93,6 +93,14 @@ class OntoAgentConfig:
     agent_api_key: str = ""
     agent_base_url: str = "https://open.bigmodel.cn/api/anthropic"
 
+    # Graph 后端选择 + NebulaGraph 配置（Phase 1 新增）
+    graph_backend: str = "neo4j"  # "neo4j" | "nebula"
+    nebula_host: str = "127.0.0.1"
+    nebula_port: int = 9669
+    nebula_user: str = "root"
+    nebula_password: str = "nebula"
+    nebula_space: str = "ontoagent"
+
     @classmethod
     def from_env(cls) -> OntoAgentConfig:
         """从环境变量创建配置（自动加载 .env 文件）。
@@ -105,7 +113,9 @@ class OntoAgentConfig:
             ONTOAGENT_BUILD_DOC_MAX_LENGTH, ONTOAGENT_SEMANTIC_LLM_PROVIDER,
             ONTOAGENT_SEMANTIC_API_KEY, ONTOAGENT_SEMANTIC_BASE_URL,
             ONTOAGENT_AGENT_LLM_PROVIDER, ONTOAGENT_AGENT_LLM_MODEL,
-            ONTOAGENT_AGENT_API_KEY, ONTOAGENT_AGENT_BASE_URL
+            ONTOAGENT_AGENT_API_KEY, ONTOAGENT_AGENT_BASE_URL,
+            ONTOAGENT_GRAPH_BACKEND, ONTOAGENT_NEBULA_HOST, ONTOAGENT_NEBULA_PORT,
+            ONTOAGENT_NEBULA_USER, ONTOAGENT_NEBULA_PASSWORD, ONTOAGENT_NEBULA_SPACE
         """
         _load_dotenv()
 
@@ -147,4 +157,10 @@ class OntoAgentConfig:
             agent_llm_model=os.getenv("ONTOAGENT_AGENT_LLM_MODEL", cls.agent_llm_model),
             agent_api_key=os.getenv("ONTOAGENT_AGENT_API_KEY", cls.agent_api_key),
             agent_base_url=os.getenv("ONTOAGENT_AGENT_BASE_URL", cls.agent_base_url),
+            graph_backend=os.getenv("ONTOAGENT_GRAPH_BACKEND", cls.graph_backend),
+            nebula_host=os.getenv("ONTOAGENT_NEBULA_HOST", cls.nebula_host),
+            nebula_port=int(os.getenv("ONTOAGENT_NEBULA_PORT", str(cls.nebula_port))),
+            nebula_user=os.getenv("ONTOAGENT_NEBULA_USER", cls.nebula_user),
+            nebula_password=os.getenv("ONTOAGENT_NEBULA_PASSWORD", cls.nebula_password),
+            nebula_space=os.getenv("ONTOAGENT_NEBULA_SPACE", cls.nebula_space),
         )
