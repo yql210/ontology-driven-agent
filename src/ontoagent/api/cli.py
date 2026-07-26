@@ -9,9 +9,9 @@ import click
 from ontoagent.config import OntoAgentConfig
 from ontoagent.pipeline.builder import OntoAgentBuilder
 from ontoagent.pipeline.incremental_updater import IncrementalUpdater
+from ontoagent.store.factory import create_graph_store
 from ontoagent.store.migrations.registry import MigrationRegistry
 from ontoagent.store.migrations.runner import MigrationRunner
-from ontoagent.store.neo4j_store import Neo4jGraphStore
 from ontoagent.store.schema_version import check_schema_version
 
 
@@ -378,7 +378,7 @@ def status() -> None:
 def migrate(target: str | None) -> None:
     """运行 schema 迁移。"""
     config = OntoAgentConfig.from_env()
-    store = Neo4jGraphStore(config.neo4j_uri, config.neo4j_user, config.neo4j_password)
+    store = create_graph_store(config)
     registry = MigrationRegistry()
     runner = MigrationRunner(store, registry)
 

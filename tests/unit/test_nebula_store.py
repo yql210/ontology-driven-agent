@@ -46,7 +46,9 @@ def store_with_mock_pool(mock_pool: MagicMock, mock_session: MagicMock) -> Nebul
     """构造 NebulaGraphStore，但替换 _pool 为 mock，每次 _session_scope yield mock_session。"""
     mock_pool.get_session = MagicMock(return_value=mock_session)
     with patch("ontoagent.store.nebula_store.ConnectionPool", return_value=mock_pool):
-        store = NebulaGraphStore(host="127.0.0.1", port=9669, user="root", password="nebula", space="test_space")
+        # 跳过 schema 初始化（探针会尝试真实 SHOW TAGS，在 mock 下无意义）
+        with patch.object(NebulaGraphStore, "_ensure_schema_ready"):
+            store = NebulaGraphStore(host="127.0.0.1", port=9669, user="root", password="nebula", space="test_space")
     return store
 
 
@@ -401,6 +403,166 @@ class TestNebulaStoreQuery:
         # 转换后的语句也应记录（id(n) == 是 adapter 的产物）
         assert "id(n) ==" in log_text
 
+    def test_query_dollar_param_string_substituted_as_quoted_literal(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """``$name`` 形式的 string 参数应被替换为带引号的字面量（nGQL map value 语法）。
+
+        上层代码（agent/tools.py、incremental_updater.py 等）大量使用
+        ``MATCH (n {name: $name})`` 形式，NebulaGraph 不支持参数化查询，
+        需要把 ``$name`` 替换为字面量 ``"foo"``。
+        """
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        store_with_mock_pool.query("MATCH (n {name: $name}) RETURN n", {"name": "foo"})
+
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        match_stmt = next(s for s in stmts if "MATCH" in s)
+        # 字符串值替换为带引号字面量
+        assert '"foo"' in match_stmt
+        assert "$name" not in match_stmt
+
+    def test_query_dollar_param_int_substituted_without_quotes(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """``$limit`` 形式的 int 参数应被替换为不带引号的数字字面量。
+
+        ``LIMIT $limit`` 在 nGQL 里必须是 ``LIMIT 10``（数字）而非 ``LIMIT "10"``。
+        """
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        store_with_mock_pool.query("MATCH (n) RETURN n LIMIT $limit", {"limit": 10})
+
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        match_stmt = next(s for s in stmts if "MATCH" in s)
+        assert "LIMIT 10" in match_stmt
+        assert 'LIMIT "10"' not in match_stmt
+        assert "$limit" not in match_stmt
+
+    def test_query_dollar_param_none_substituted_as_null(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """``$key`` 值为 None 时替换为 ``null`` 字面量。"""
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        store_with_mock_pool.query("MATCH (n) WHERE n.x = $x RETURN n", {"x": None})
+
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        match_stmt = next(s for s in stmts if "MATCH" in s)
+        assert "= null" in match_stmt
+        assert "$x" not in match_stmt
+
+    def test_query_dollar_param_list_raises_type_error(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """``$ids`` 值为 list 时抛 TypeError（强制上层走语义化 API）。"""
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        with pytest.raises(TypeError, match="ids"):
+            store_with_mock_pool.query(
+                "MATCH (n) WHERE n.id IN $ids RETURN n", {"ids": ["a", "b"]}
+            )
+
+    def test_query_dollar_param_dict_raises_type_error(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """``$cfg`` 值为 dict 时抛 TypeError。"""
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        with pytest.raises(TypeError, match="cfg"):
+            store_with_mock_pool.query("RETURN $cfg", {"cfg": {"k": "v"}})
+
+    def test_query_dollar_param_tuple_raises_type_error(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """``$ids`` 值为 tuple 时抛 TypeError。"""
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        with pytest.raises(TypeError, match="ids"):
+            store_with_mock_pool.query(
+                "MATCH (n) WHERE n.id IN $ids RETURN n", {"ids": ("a", "b")}
+            )
+
+    def test_query_dollar_param_set_raises_type_error(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """``$ids`` 值为 set 时抛 TypeError。"""
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        with pytest.raises(TypeError, match="ids"):
+            store_with_mock_pool.query(
+                "MATCH (n) WHERE n.id IN $ids RETURN n", {"ids": {"a", "b"}}
+            )
+
+    def test_query_dollar_param_logs_warning(
+        self,
+        store_with_mock_pool: NebulaGraphStore,
+        mock_session: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """``$key`` 替换时应打 warning 日志（标记需要后续迁移到 {key} 或语义化 API）。"""
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        with caplog.at_level("WARNING"):
+            store_with_mock_pool.query("MATCH (n {name: $name}) RETURN n", {"name": "foo"})
+
+        assert "$param fallback" in caplog.text or "param substitution" in caplog.text.lower()
+        assert "name" in caplog.text
+
+    def test_query_dollar_param_not_in_stmt_no_warning(
+        self,
+        store_with_mock_pool: NebulaGraphStore,
+        mock_session: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """``params`` 中有 key 但语句里没出现 ``$key`` 时不打 warning（也不替换）。"""
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        with caplog.at_level("WARNING"):
+            store_with_mock_pool.query("MATCH (n) RETURN n", {"name": "foo"})
+
+        # 没有 $name 替换发生 → 没有 warning
+        assert "$-param" not in caplog.text
+        assert "param substitution" not in caplog.text.lower()
+
+    def test_query_brace_and_dollar_params_coexist(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """同一语句里 ``{limit}`` 与 ``$name`` 共存时两者都要被替换。"""
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        store_with_mock_pool.query(
+            "MATCH (n {name: $name}) RETURN n LIMIT {limit}",
+            {"name": "foo", "limit": 5},
+        )
+
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        match_stmt = next(s for s in stmts if "MATCH" in s)
+        assert '"foo"' in match_stmt
+        assert "LIMIT 5" in match_stmt
+        assert "$name" not in match_stmt
+        assert "{limit}" not in match_stmt
+
 
 @pytest.mark.unit
 class TestNebulaStoreSessionScope:
@@ -449,6 +611,7 @@ class TestNebulaStoreClose:
         mock_pool.get_session = MagicMock(return_value=mock_session)
         with (
             patch("ontoagent.store.nebula_store.ConnectionPool", return_value=mock_pool),
+            patch.object(NebulaGraphStore, "_ensure_schema_ready"),
             NebulaGraphStore(host="127.0.0.1") as store,
         ):
             assert store is not None
@@ -479,3 +642,197 @@ class TestNebulaStoreCleanupOrphanNodes:
         stmt = mock_session.execute.call_args.args[0]
         assert "MATCH" in stmt
         assert "DELETE" in stmt
+
+
+@pytest.mark.unit
+class TestNebulaStoreMergeNodesBatch:
+    """merge_nodes_batch 测试。"""
+
+    def test_batch_writes_multiple_nodes_in_one_insert(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """3 个节点应在一条 INSERT VERTEX 语句中批量写入。"""
+        nodes = [
+            {"id": "uuid-1", "name": "foo", "entity_type": "function"},
+            {"id": "uuid-2", "name": "bar", "entity_type": "function"},
+            {"id": "uuid-3", "name": "baz", "entity_type": "function"},
+        ]
+
+        count = store_with_mock_pool.merge_nodes_batch("CodeEntity", nodes)
+
+        assert count == 3
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        insert_stmts = [s for s in stmts if "INSERT VERTEX" in s]
+        assert len(insert_stmts) == 1
+        stmt = insert_stmts[0]
+        assert "`CodeEntity`" in stmt
+        assert '"uuid-1"' in stmt
+        assert '"uuid-2"' in stmt
+        assert '"uuid-3"' in stmt
+        # 属性列表不带类型，仅名称
+        assert "entityType" in stmt
+        assert "entity_type" not in stmt
+        # 属性列表不应包含 id（id 已作为 VID）
+        # 检查 prop 列表括号内不含 id
+        prop_clause = stmt.split("VALUES")[0]
+        assert "id" not in prop_clause
+
+    def test_batch_empty_list_returns_zero(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """空列表返回 0，且不调用 INSERT VERTEX。"""
+        count = store_with_mock_pool.merge_nodes_batch("CodeEntity", [])
+
+        assert count == 0
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        assert not any("INSERT VERTEX" in s for s in stmts)
+
+    def test_batch_missing_id_raises(self, store_with_mock_pool: NebulaGraphStore) -> None:
+        """任一 dict 缺 id → ValueError。"""
+        nodes = [{"id": "uuid-1", "name": "foo"}, {"name": "no-id"}]
+
+        with pytest.raises(ValueError, match="must contain 'id'"):
+            store_with_mock_pool.merge_nodes_batch("CodeEntity", nodes)
+
+    def test_batch_invalid_label_raises(self, store_with_mock_pool: NebulaGraphStore) -> None:
+        """非法 label → ValueError。"""
+        with pytest.raises(ValueError, match="Invalid label"):
+            store_with_mock_pool.merge_nodes_batch("Bad;Label", [{"id": "x"}])
+
+    def test_batch_splits_by_batch_size(self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock) -> None:
+        """5 个节点 batch_size=2 → 3 条 INSERT VERTEX（2+2+1）。"""
+        nodes = [{"id": f"uuid-{i}", "name": f"n{i}"} for i in range(5)]
+
+        count = store_with_mock_pool.merge_nodes_batch("CodeEntity", nodes, batch_size=2)
+
+        assert count == 5
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        insert_stmts = [s for s in stmts if "INSERT VERTEX" in s]
+        assert len(insert_stmts) == 3
+
+    def test_batch_failure_raises_runtime_error(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """INSERT 失败 → RuntimeError。"""
+        failed = MagicMock()
+        failed.is_succeeded = MagicMock(return_value=False)
+        failed.error_msg = "syntax error"
+        mock_session.execute = MagicMock(return_value=failed)
+
+        with pytest.raises(RuntimeError, match="merge_nodes_batch failed"):
+            store_with_mock_pool.merge_nodes_batch("CodeEntity", [{"id": "x"}])
+
+
+@pytest.mark.unit
+class TestNebulaStoreMergeRelationsBatch:
+    """merge_relations_batch 测试。"""
+
+    def test_batch_writes_multiple_edges_in_one_insert(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """3 条同类型关系应在一条 INSERT EDGE 中批量写入。"""
+        rels = [
+            {"source_id": "s1", "target_id": "t1", "rel_type": "calls"},
+            {"source_id": "s2", "target_id": "t2", "rel_type": "calls"},
+            {"source_id": "s3", "target_id": "t3", "rel_type": "calls"},
+        ]
+
+        count = store_with_mock_pool.merge_relations_batch(rels)
+
+        assert count == 3
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        insert_stmts = [s for s in stmts if "INSERT EDGE" in s]
+        assert len(insert_stmts) == 1
+        stmt = insert_stmts[0]
+        assert "`CALLS`" in stmt
+        assert '"s1"->"t1"' in stmt
+        assert '"s2"->"t2"' in stmt
+        assert '"s3"->"t3"' in stmt
+
+    def test_batch_rel_type_mapping(self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock) -> None:
+        """snake_case rel_type 应映射为 UPPER_SNAKE（contains → CONTAINS）。"""
+        rels = [{"source_id": "s1", "target_id": "t1", "rel_type": "contains"}]
+
+        store_with_mock_pool.merge_relations_batch(rels)
+
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        insert_stmt = next(s for s in stmts if "INSERT EDGE" in s)
+        assert "`CONTAINS`" in insert_stmt
+
+    def test_batch_splits_by_batch_size(self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock) -> None:
+        """5 条关系 batch_size=2 → 3 条 INSERT EDGE。"""
+        rels = [{"source_id": f"s{i}", "target_id": f"t{i}", "rel_type": "calls"} for i in range(5)]
+
+        count = store_with_mock_pool.merge_relations_batch(rels, batch_size=2)
+
+        assert count == 5
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        insert_stmts = [s for s in stmts if "INSERT EDGE" in s]
+        assert len(insert_stmts) == 3
+
+    def test_batch_invalid_rel_type_raises(self, store_with_mock_pool: NebulaGraphStore) -> None:
+        """非法 rel_type → ValueError。"""
+        with pytest.raises(ValueError, match="Invalid relation type"):
+            store_with_mock_pool.merge_relations_batch([{"source_id": "s1", "target_id": "t1", "rel_type": "BAD;REL"}])
+
+    def test_batch_empty_list_returns_zero(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """空列表返回 0，不调用 INSERT EDGE。"""
+        count = store_with_mock_pool.merge_relations_batch([])
+
+        assert count == 0
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        assert not any("INSERT EDGE" in s for s in stmts)
+
+
+@pytest.mark.unit
+class TestNebulaStoreEnsureConstraints:
+    """ensure_constraints 测试。"""
+
+    def test_succeeds_when_schema_init_ok(self, store_with_mock_pool: NebulaGraphStore) -> None:
+        """schema 初始化成功时不抛异常。"""
+        store_with_mock_pool.ensure_constraints()
+
+    def test_raises_when_schema_init_fails(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """schema 初始化失败时抛 RuntimeError。"""
+        failed = MagicMock()
+        failed.is_succeeded = MagicMock(return_value=False)
+        failed.error_msg = "create space failed"
+        mock_session.execute = MagicMock(return_value=failed)
+
+        with pytest.raises(RuntimeError, match="initialize"):
+            store_with_mock_pool.ensure_constraints()
+
+
+@pytest.mark.unit
+class TestNebulaStoreClearAll:
+    """clear_all 测试。"""
+
+    def test_executes_clear_space(self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock) -> None:
+        """clear_all 应执行 CLEAR SPACE 语句，space 名带反引号。"""
+        store_with_mock_pool.clear_all()
+
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        clear_stmts = [s for s in stmts if "CLEAR SPACE" in s]
+        assert len(clear_stmts) == 1
+        assert "`test_space`" in clear_stmts[0]
+
+    def test_returns_int(self, store_with_mock_pool: NebulaGraphStore) -> None:
+        """返回值是 int。"""
+        result = store_with_mock_pool.clear_all()
+        assert isinstance(result, int)
+
+    def test_failure_raises_runtime_error(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """CLEAR SPACE 失败 → RuntimeError。"""
+        failed = MagicMock()
+        failed.is_succeeded = MagicMock(return_value=False)
+        failed.error_msg = "permission denied"
+        mock_session.execute = MagicMock(return_value=failed)
+
+        with pytest.raises(RuntimeError, match="clear_all failed"):
+            store_with_mock_pool.clear_all()

@@ -248,7 +248,7 @@ def graph_client():
 
     with (
         patch("ontoagent.store.neo4j_store.GraphDatabase"),
-        patch("ontoagent.api.web.app.Neo4jGraphStore", return_value=mock_store),
+        patch("ontoagent.api.web.app.create_graph_store", return_value=mock_store),
     ):
         from ontoagent.api.web.app import create_app
 
@@ -282,7 +282,7 @@ class TestGraphStats:
 
         with (
             patch("ontoagent.store.neo4j_store.GraphDatabase"),
-            patch("ontoagent.api.web.app.Neo4jGraphStore", return_value=mock_store),
+            patch("ontoagent.api.web.app.create_graph_store", return_value=mock_store),
         ):
             from ontoagent.api.web.app import create_app
 
@@ -333,7 +333,7 @@ class TestGetGraph:
 
         with (
             patch("ontoagent.store.neo4j_store.GraphDatabase"),
-            patch("ontoagent.api.web.app.Neo4jGraphStore", return_value=mock_store),
+            patch("ontoagent.api.web.app.create_graph_store", return_value=mock_store),
         ):
             from ontoagent.api.web.app import create_app
 
@@ -370,7 +370,7 @@ class TestGetGraph:
 
         with (
             patch("ontoagent.store.neo4j_store.GraphDatabase"),
-            patch("ontoagent.api.web.app.Neo4jGraphStore", return_value=mock_store),
+            patch("ontoagent.api.web.app.create_graph_store", return_value=mock_store),
         ):
             from ontoagent.api.web.app import create_app
 

@@ -6,7 +6,7 @@ import pytest
 
 from ontoagent.domain.schema import ConceptEntity
 from ontoagent.pipeline.aligner import NO_MATCH, AlignResult, ConceptAligner
-from ontoagent.store.neo4j_store import Neo4jGraphStore
+from ontoagent.store.graph_store import GraphStore
 
 
 @pytest.fixture
@@ -19,8 +19,8 @@ def mock_chroma_store() -> MagicMock:
 
 @pytest.fixture
 def mock_neo4j_store() -> MagicMock:
-    """Mock Neo4jGraphStore 实例。"""
-    store = MagicMock(spec=Neo4jGraphStore)
+    """Mock GraphStore 实例。"""
+    store = MagicMock(spec=GraphStore)
     return store
 
 

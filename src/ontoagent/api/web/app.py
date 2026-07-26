@@ -8,7 +8,7 @@ from ontoagent.agent.trace import TraceCollector
 from ontoagent.api.web.router import chat as chat_router
 from ontoagent.api.web.router.graph import router as graph_router
 from ontoagent.config import OntoAgentConfig
-from ontoagent.store.neo4j_store import Neo4jGraphStore
+from ontoagent.store.factory import create_graph_store
 
 # TraceCollector 单例
 _trace_collector = TraceCollector()
@@ -17,7 +17,7 @@ _trace_collector = TraceCollector()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = OntoAgentConfig.from_env()
-    store = Neo4jGraphStore(uri=config.neo4j_uri, user=config.neo4j_user, password=config.neo4j_password)
+    store = create_graph_store(config)
     app.state.graph_store = store
     yield
     store.close()

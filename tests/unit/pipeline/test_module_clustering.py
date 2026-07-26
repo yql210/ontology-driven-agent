@@ -6,7 +6,7 @@ import pytest
 
 from ontoagent.domain.schema import ModuleEntity
 from ontoagent.pipeline.module_clustering import ModuleCluster, ModuleClustering
-from ontoagent.store.neo4j_store import Neo4jGraphStore
+from ontoagent.store.graph_store import GraphStore
 
 # =============================================================================
 # Task 1: ModuleCluster dataclass (2 tests)
@@ -57,7 +57,7 @@ class TestModuleClusteringInit:
 
     def test_init_successfully(self) -> None:
         """测试正常初始化。"""
-        mock_store = MagicMock(spec=Neo4jGraphStore)
+        mock_store = MagicMock(spec=GraphStore)
         clustering = ModuleClustering(mock_store, algorithm="label_propagation")
 
         assert clustering._neo4j_store is mock_store
@@ -65,7 +65,7 @@ class TestModuleClusteringInit:
 
     def test_init_invalid_algorithm_raises_value_error(self) -> None:
         """测试不支持的算法抛 ValueError。"""
-        mock_store = MagicMock(spec=Neo4jGraphStore)
+        mock_store = MagicMock(spec=GraphStore)
 
         with pytest.raises(ValueError, match="Unsupported algorithm"):
             ModuleClustering(mock_store, algorithm="unknown_algo")
@@ -81,7 +81,7 @@ class TestLoadGraph:
 
     def test_load_graph_returns_adj_and_entity_data(self) -> None:
         """测试正常加载图结构。"""
-        mock_store = MagicMock(spec=Neo4jGraphStore)
+        mock_store = MagicMock(spec=GraphStore)
 
         # Mock 实体查询返回
         mock_store.query.side_effect = [
@@ -115,7 +115,7 @@ class TestLoadGraph:
 
     def test_load_graph_empty_graph(self) -> None:
         """测试空图（无实体）。"""
-        mock_store = MagicMock(spec=Neo4jGraphStore)
+        mock_store = MagicMock(spec=GraphStore)
         mock_store.query.side_effect = [[], []]  # 无实体，无关系
 
         clustering = ModuleClustering(mock_store)
@@ -126,7 +126,7 @@ class TestLoadGraph:
 
     def test_load_graph_with_isolated_nodes(self) -> None:
         """测试孤立节点（有实体无关系）。"""
-        mock_store = MagicMock(spec=Neo4jGraphStore)
+        mock_store = MagicMock(spec=GraphStore)
 
         mock_store.query.side_effect = [
             [
@@ -150,7 +150,7 @@ class TestLoadGraph:
 
     def test_load_graph_with_same_file_entities(self) -> None:
         """测试同文件实体两两互连（虚拟边）。"""
-        mock_store = MagicMock(spec=Neo4jGraphStore)
+        mock_store = MagicMock(spec=GraphStore)
 
         # 同文件 src/module1.py 有 3 个实体：e1, e2, e3
         # 不同文件 src/module2.py 有 1 个实体：e4
@@ -189,7 +189,7 @@ class TestLoadGraph:
 
     def test_load_graph_combines_virtual_and_structural_edges(self) -> None:
         """测试虚拟边和结构边合并。"""
-        mock_store = MagicMock(spec=Neo4jGraphStore)
+        mock_store = MagicMock(spec=GraphStore)
 
         # e1, e2 同文件 src/file1.py（虚拟边）
         # e1 -> e3 有结构关系 CALLS
@@ -232,7 +232,7 @@ class TestLabelPropagation:
             "C": {"A", "B"},
         }
 
-        clustering = ModuleClustering(MagicMock(spec=Neo4jGraphStore))
+        clustering = ModuleClustering(MagicMock(spec=GraphStore))
         labels = clustering._label_propagation(adj)
 
         # 所有节点应该属于同一个社区
@@ -249,7 +249,7 @@ class TestLabelPropagation:
             "D": {"C"},
         }
 
-        clustering = ModuleClustering(MagicMock(spec=Neo4jGraphStore))
+        clustering = ModuleClustering(MagicMock(spec=GraphStore))
         labels = clustering._label_propagation(adj)
 
         # A 和 B 同社区，C 和 D 同社区，但两个社区不同
@@ -259,7 +259,7 @@ class TestLabelPropagation:
 
     def test_empty_graph_returns_empty_dict(self) -> None:
         """测试空图 {} → 返回 {}。"""
-        clustering = ModuleClustering(MagicMock(spec=Neo4jGraphStore))
+        clustering = ModuleClustering(MagicMock(spec=GraphStore))
         labels = clustering._label_propagation({})
 
         assert labels == {}
@@ -272,7 +272,7 @@ class TestLabelPropagation:
             "C": {"B"},
         }
 
-        clustering = ModuleClustering(MagicMock(spec=Neo4jGraphStore))
+        clustering = ModuleClustering(MagicMock(spec=GraphStore))
         labels = clustering._label_propagation(adj, max_iterations=10)
 
         # 链式图会收敛到单一社区
@@ -287,7 +287,7 @@ class TestLabelPropagation:
             "C": {"B"},
         }
 
-        clustering = ModuleClustering(MagicMock(spec=Neo4jGraphStore))
+        clustering = ModuleClustering(MagicMock(spec=GraphStore))
         labels = clustering._label_propagation(adj)
 
         # A 应该保持自身标签（无邻居，无法传播）
@@ -313,7 +313,7 @@ class TestComputeCohesion:
         }
         entity_ids = ["A", "B", "C"]
 
-        clustering = ModuleClustering(MagicMock(spec=Neo4jGraphStore))
+        clustering = ModuleClustering(MagicMock(spec=GraphStore))
         cohesion = clustering._compute_cohesion(entity_ids, adj)
 
         # 完全连通图：3 条边，最大可能边数 = 3*(3-1)/2 = 3
@@ -328,7 +328,7 @@ class TestComputeCohesion:
         }
         entity_ids = ["A", "B", "C"]
 
-        clustering = ModuleClustering(MagicMock(spec=Neo4jGraphStore))
+        clustering = ModuleClustering(MagicMock(spec=GraphStore))
         cohesion = clustering._compute_cohesion(entity_ids, adj)
 
         # 链式：A-B, B-C = 2 条边，max = 3
@@ -339,7 +339,7 @@ class TestComputeCohesion:
         adj = {"A": set()}
         entity_ids = ["A"]
 
-        clustering = ModuleClustering(MagicMock(spec=Neo4jGraphStore))
+        clustering = ModuleClustering(MagicMock(spec=GraphStore))
         cohesion = clustering._compute_cohesion(entity_ids, adj)
 
         assert cohesion == 0.0
@@ -349,7 +349,7 @@ class TestComputeCohesion:
         adj = {}
         entity_ids: list[str] = []
 
-        clustering = ModuleClustering(MagicMock(spec=Neo4jGraphStore))
+        clustering = ModuleClustering(MagicMock(spec=GraphStore))
         cohesion = clustering._compute_cohesion(entity_ids, adj)
 
         assert cohesion == 0.0
@@ -372,7 +372,7 @@ class TestGenerateModuleName:
         }
         entity_ids = ["e1", "e2", "e3"]
 
-        clustering = ModuleClustering(MagicMock(spec=Neo4jGraphStore))
+        clustering = ModuleClustering(MagicMock(spec=GraphStore))
         name = clustering._generate_module_name(entity_ids, entity_data)
 
         assert name == "parser"
@@ -385,7 +385,7 @@ class TestGenerateModuleName:
         }
         entity_ids = ["e1", "e2"]
 
-        clustering = ModuleClustering(MagicMock(spec=Neo4jGraphStore))
+        clustering = ModuleClustering(MagicMock(spec=GraphStore))
         name = clustering._generate_module_name(entity_ids, entity_data)
 
         assert name == "module_0"
@@ -399,14 +399,14 @@ class TestGenerateModuleName:
         }
         entity_ids = ["e1", "e2", "e3"]
 
-        clustering = ModuleClustering(MagicMock(spec=Neo4jGraphStore))
+        clustering = ModuleClustering(MagicMock(spec=GraphStore))
         name = clustering._generate_module_name(entity_ids, entity_data)
 
         assert name == "module_0"
 
     def test_counter_increments_on_multiple_calls(self) -> None:
         """测试计数器在多次调用时递增。"""
-        clustering = ModuleClustering(MagicMock(spec=Neo4jGraphStore))
+        clustering = ModuleClustering(MagicMock(spec=GraphStore))
 
         # 第一次调用：无 file_path
         name1 = clustering._generate_module_name(["e1"], {"e1": {"file_path": None}})
@@ -431,7 +431,7 @@ class TestDetectModules:
 
     def test_detect_modules_returns_two_clusters(self) -> None:
         """测试 4 节点 2 组件图 → 返回 2 个 ModuleCluster。"""
-        mock_store = MagicMock(spec=Neo4jGraphStore)
+        mock_store = MagicMock(spec=GraphStore)
 
         # Mock _load_graph 返回两个分离的组件
         adj = {
@@ -465,7 +465,7 @@ class TestDetectModules:
 
     def test_detect_modules_empty_graph_returns_empty_list(self) -> None:
         """测试空图 → 返回空列表。"""
-        mock_store = MagicMock(spec=Neo4jGraphStore)
+        mock_store = MagicMock(spec=GraphStore)
 
         clustering = ModuleClustering(mock_store)
         clustering._load_graph = MagicMock(return_value=({}, {}))
@@ -485,7 +485,7 @@ class TestSaveModules:
 
     def test_save_modules_creates_nodes_and_relations(self) -> None:
         """测试保存模块 → 正确调用 merge_node 和 merge_relation。"""
-        mock_store = MagicMock(spec=Neo4jGraphStore)
+        mock_store = MagicMock(spec=GraphStore)
         clustering = ModuleClustering(mock_store)
 
         module1 = ModuleEntity(name="module1")
@@ -520,7 +520,7 @@ class TestSaveModules:
 
     def test_save_modules_empty_list_returns_zero(self) -> None:
         """测试空列表 → 返回 0。"""
-        mock_store = MagicMock(spec=Neo4jGraphStore)
+        mock_store = MagicMock(spec=GraphStore)
         clustering = ModuleClustering(mock_store)
 
         count = clustering.save_modules([])
@@ -540,7 +540,7 @@ class TestGetModuleTree:
 
     def test_get_module_tree_returns_correct_structure(self) -> None:
         """测试返回正确的层次结构。"""
-        mock_store = MagicMock(spec=Neo4jGraphStore)
+        mock_store = MagicMock(spec=GraphStore)
 
         clustering = ModuleClustering(mock_store)
 
@@ -567,7 +567,7 @@ class TestGetModuleTree:
 
     def test_get_module_tree_empty_returns_empty_dict(self) -> None:
         """测试空模块列表 → 返回 {}。"""
-        mock_store = MagicMock(spec=Neo4jGraphStore)
+        mock_store = MagicMock(spec=GraphStore)
 
         clustering = ModuleClustering(mock_store)
         clustering.detect_modules = MagicMock(return_value=[])
@@ -587,7 +587,7 @@ class TestBoundaryCases:
 
     def test_single_node_graph_returns_one_module(self) -> None:
         """测试单节点图 → 1 个模块，cohesion=0.0，entity_count=1。"""
-        mock_store = MagicMock(spec=Neo4jGraphStore)
+        mock_store = MagicMock(spec=GraphStore)
 
         adj = {"e1": set()}
         entity_data = {"e1": {"name": "Entity1", "file_path": "src/file.py"}}

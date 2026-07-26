@@ -9,7 +9,7 @@ from itertools import combinations
 
 from ontoagent.domain.provenance import add_provenance
 from ontoagent.domain.schema import CodeEntity, ModuleEntity
-from ontoagent.store.neo4j_store import Neo4jGraphStore
+from ontoagent.store.graph_store import GraphStore
 
 
 @dataclass
@@ -39,7 +39,7 @@ class ModuleClustering:
 
     def __init__(
         self,
-        neo4j_store: Neo4jGraphStore,
+        neo4j_store: GraphStore,
         algorithm: str = "label_propagation",
     ) -> None:
         """初始化。

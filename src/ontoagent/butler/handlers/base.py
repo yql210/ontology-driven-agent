@@ -23,15 +23,11 @@ class HandlerContext:
     _graph_store: GraphStore | None = field(default=None, init=False, repr=False)
 
     def get_graph_store(self) -> GraphStore:
-        """Lazy-init GraphStore (Neo4j)。"""
+        """Lazy-init GraphStore（根据 config.graph_backend 自动路由）。"""
         if self._graph_store is None:
-            from ontoagent.store.neo4j_store import Neo4jGraphStore
+            from ontoagent.store.factory import create_graph_store
 
-            self._graph_store = Neo4jGraphStore(
-                uri=self.config.neo4j_uri,
-                user=self.config.neo4j_user,
-                password=self.config.neo4j_password,
-            )
+            self._graph_store = create_graph_store(self.config)
         return self._graph_store
 
 

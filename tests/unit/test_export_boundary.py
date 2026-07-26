@@ -27,7 +27,7 @@ def test_export_graph_dot_format():
 
     mock_neo4j.query.side_effect = mock_query
 
-    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_graph_store", return_value=mock_neo4j):
         result = mcp_server.export_graph(format="dot")
 
         # 验证返回结构
@@ -65,7 +65,7 @@ def test_export_graph_cytoscape_format():
 
     mock_neo4j.query.side_effect = mock_query
 
-    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_graph_store", return_value=mock_neo4j):
         result = mcp_server.export_graph(format="cytoscape")
 
         # 验证返回结构

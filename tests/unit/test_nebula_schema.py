@@ -63,15 +63,26 @@ class TestNebulaSchemaTags:
     """Tag 创建测试。"""
 
     def test_creates_all_13_tags(self, mock_session: MagicMock) -> None:
-        """13 个实体（VALID_ENTITY_LABELS）全部生成 Tag DDL。"""
+        """13 个实体（VALID_ENTITY_LABELS）+ SchemaVersion 全部生成 Tag DDL。"""
         initializer = NebulaSchemaInitializer(mock_session)
         ddl_list = initializer.create_tags()
 
         # 验证每个 VALID_ENTITY_LABELS 都出现在 DDL 中
         for label in VALID_ENTITY_LABELS:
             assert any("CREATE TAG" in ddl and label in ddl for ddl in ddl_list), f"Missing CREATE TAG for {label}"
-        # 数量匹配
-        assert len(ddl_list) == len(VALID_ENTITY_LABELS)
+        # 数量匹配：13 实体 + 1 SchemaVersion
+        assert len(ddl_list) == len(VALID_ENTITY_LABELS) + 1
+
+    def test_creates_schema_version_tag(self, mock_session: MagicMock) -> None:
+        """SchemaVersion Tag 必须含 version/description/applied_at 三个 string 字段。"""
+        initializer = NebulaSchemaInitializer(mock_session)
+        ddl_list = initializer.create_tags()
+
+        sv_ddl = next(ddl for ddl in ddl_list if "SchemaVersion" in ddl)
+        assert "CREATE TAG IF NOT EXISTS `SchemaVersion`" in sv_ddl
+        assert "`version` string" in sv_ddl
+        assert "`description` string" in sv_ddl
+        assert "`applied_at` string" in sv_ddl
 
     def test_tag_ddl_uses_string_type(self, mock_session: MagicMock) -> None:
         """所有 Tag 属性用 string 类型（POC 简化策略）。"""
@@ -165,9 +176,9 @@ class TestNebulaSchemaInitialize:
         calls = [call.args[0] for call in mock_session.execute.call_args_list]
         # 至少 1 个 CREATE SPACE
         assert any("CREATE SPACE" in c for c in calls)
-        # 13 个 CREATE TAG（不含 TAG INDEX — 用精确字符串边界）
+        # 13 个 CREATE TAG（不含 TAG INDEX — 用精确字符串边界）+ 1 SchemaVersion
         tag_calls = [c for c in calls if "CREATE TAG IF NOT EXISTS" in c and "INDEX" not in c]
-        assert len(tag_calls) == len(VALID_ENTITY_LABELS)
+        assert len(tag_calls) == len(VALID_ENTITY_LABELS) + 1
         # 26 个 CREATE EDGE
         edge_calls = [c for c in calls if "CREATE EDGE IF NOT EXISTS" in c]
         assert len(edge_calls) == len(RELATION_TYPE_TO_NEO4J)

@@ -54,8 +54,8 @@ def test_get_config():
     assert result.neo4j_uri == "bolt://test:7687"
 
 
-def test_get_neo4j_lazy():
-    """测试 _get_neo4j 首次创建并缓存。"""
+def test_get_graph_store_lazy():
+    """测试 _get_graph_store 首次创建并缓存。"""
     from ontoagent.api import mcp_server
     from ontoagent.config import OntoAgentConfig
 
@@ -67,22 +67,22 @@ def test_get_neo4j_lazy():
     )
     mcp_server._components["config"] = config
 
-    # mock Neo4jGraphStore 避免真实连接
+    # mock create_graph_store 避免真实连接
     import unittest.mock
 
-    with unittest.mock.patch("ontoagent.api.mcp_server.Neo4jGraphStore") as mock_neo4j:
+    with unittest.mock.patch("ontoagent.api.mcp_server.create_graph_store") as mock_create:
         mock_instance = unittest.mock.MagicMock()
-        mock_neo4j.return_value = mock_instance
+        mock_create.return_value = mock_instance
 
         # 首次调用
-        result1 = mcp_server._get_neo4j()
+        result1 = mcp_server._get_graph_store()
         assert result1 is mock_instance
-        mock_neo4j.assert_called_once_with("bolt://test:7687", "test", "test")
+        mock_create.assert_called_once_with(config)
 
         # 二次调用应返回缓存
-        result2 = mcp_server._get_neo4j()
+        result2 = mcp_server._get_graph_store()
         assert result2 is result1
-        assert mock_neo4j.call_count == 1
+        assert mock_create.call_count == 1
 
 
 def test_reset_recreates():
@@ -99,10 +99,10 @@ def test_reset_recreates():
 
     import unittest.mock
 
-    with unittest.mock.patch("ontoagent.api.mcp_server.Neo4jGraphStore") as mock_neo4j:
+    with unittest.mock.patch("ontoagent.api.mcp_server.create_graph_store") as mock_create:
         # 首次创建
-        mcp_server._get_neo4j()
-        assert mock_neo4j.call_count == 1
+        mcp_server._get_graph_store()
+        assert mock_create.call_count == 1
 
         # 重置
         mcp_server._reset_components()
@@ -110,9 +110,9 @@ def test_reset_recreates():
         mcp_server._components["config"] = config
 
         # 重新创建
-        mcp_server._get_neo4j()
-        # 应该再次调用 Neo4jGraphStore
-        assert mock_neo4j.call_count == 2
+        mcp_server._get_graph_store()
+        # 应该再次调用 create_graph_store
+        assert mock_create.call_count == 2
 
 
 def test_semantic_search_default():
@@ -174,7 +174,7 @@ def test_graph_query_basic():
     mock_neo4j = unittest.mock.MagicMock()
     mock_neo4j.query.return_value = [{"id": "1", "name": "foo"}]
 
-    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_graph_store", return_value=mock_neo4j):
         result = mcp_server.graph_query("MATCH (n) RETURN n")
 
         mock_neo4j.query.assert_called_once_with("MATCH (n) RETURN n")
@@ -190,7 +190,7 @@ def test_graph_query_empty():
     mock_neo4j = unittest.mock.MagicMock()
     mock_neo4j.query.return_value = []
 
-    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_graph_store", return_value=mock_neo4j):
         result = mcp_server.graph_query("MATCH (n) RETURN n")
 
         assert result == []
@@ -219,7 +219,7 @@ def test_impact_analysis_basic():
         },
     ]
 
-    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_graph_store", return_value=mock_neo4j):
         result = mcp_server.impact_analysis(entity_id="func1")
 
         # 验证返回格式
@@ -244,7 +244,7 @@ def test_impact_analysis_with_depth():
     mock_neo4j = unittest.mock.MagicMock()
     mock_neo4j.query.return_value = []
 
-    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_graph_store", return_value=mock_neo4j):
         result = mcp_server.impact_analysis(entity_id="func1", depth=2)
 
         # 验证 depth 参数传递到 Cypher
@@ -264,7 +264,7 @@ def test_impact_analysis_not_found():
     mock_neo4j = unittest.mock.MagicMock()
     mock_neo4j.query.return_value = []
 
-    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_graph_store", return_value=mock_neo4j):
         result = mcp_server.impact_analysis(entity_id="nonexistent")
 
         assert result["entity"] == "nonexistent"
@@ -305,7 +305,7 @@ def test_get_context_basic():
     mock_chroma.search.return_value = [{"id": "func2", "text": "similar code", "metadata": {}, "distance": 0.3}]
 
     with (
-        unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j),
+        unittest.mock.patch("ontoagent.api.mcp_server._get_graph_store", return_value=mock_neo4j),
         unittest.mock.patch("ontoagent.api.mcp_server._get_chroma", return_value=mock_chroma),
     ):
         result = mcp_server.get_context(entity_id="func1")
@@ -333,7 +333,7 @@ def test_get_context_not_found():
     mock_chroma.search.return_value = []
 
     with (
-        unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j),
+        unittest.mock.patch("ontoagent.api.mcp_server._get_graph_store", return_value=mock_neo4j),
         unittest.mock.patch("ontoagent.api.mcp_server._get_chroma", return_value=mock_chroma),
     ):
         result = mcp_server.get_context(entity_id="nonexistent")
@@ -481,7 +481,7 @@ def test_export_graph_json():
 
     mock_neo4j.query.side_effect = mock_query
 
-    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_graph_store", return_value=mock_neo4j):
         result = mcp_server.export_graph(format="json")
 
         assert "nodes" in result
@@ -502,7 +502,7 @@ def test_export_graph_empty():
     mock_neo4j = unittest.mock.MagicMock()
     mock_neo4j.query.return_value = []
 
-    with unittest.mock.patch("ontoagent.api.mcp_server._get_neo4j", return_value=mock_neo4j):
+    with unittest.mock.patch("ontoagent.api.mcp_server._get_graph_store", return_value=mock_neo4j):
         result = mcp_server.export_graph(format="json")
 
         assert result["nodes"] == []

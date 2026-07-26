@@ -7,11 +7,17 @@ from typing import TYPE_CHECKING, Any
 
 from nebula3.Config import Config
 from nebula3.gclient.net import ConnectionPool
+from tenacity import (
+    Retrying,
+    retry_if_result,
+    stop_after_delay,
+    wait_fixed,
+)
 
 from ontoagent.domain.schema import RELATION_TYPE_TO_NEO4J
 from ontoagent.store.cypher_adapter import CypherToNgqlAdapter
 from ontoagent.store.graph_store import GraphStore
-from ontoagent.store.nebula_schema import _escape_prop_name
+from ontoagent.store.nebula_schema import NebulaSchemaInitializer, _escape_prop_name
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +93,13 @@ class NebulaGraphStore(GraphStore):
     标签、关系类型、ID 通过白名单校验。
     """
 
+    #: SHOW TAGS 探针的最长等待时间（秒）。NebulaGraph DDL 异步生效，初次创建
+    #: Space/Tag 后需要等待 ~20s；120s 给足裕量。测试时可被 patch 为更小值。
+    _SCHEMA_PROBE_TIMEOUT_SECONDS: int = 120
+
+    #: 探针重试间隔（秒）。
+    _SCHEMA_PROBE_WAIT_SECONDS: int = 2
+
     def __init__(
         self,
         host: str,
@@ -96,7 +109,7 @@ class NebulaGraphStore(GraphStore):
         space: str = "ontoagent",
         max_connection_pool_size: int = 10,
     ) -> None:
-        """初始化连接池（不在这里 USE SPACE）。
+        """初始化连接池并自动确保 schema 就绪（Space/Tag/Edge/Index 已创建且 DDL 生效）。
 
         Args:
             host: NebulaGraph 服务地址。
@@ -120,6 +133,85 @@ class NebulaGraphStore(GraphStore):
             msg = f"Failed to init NebulaGraph connection pool to {host}:{port}"
             raise RuntimeError(msg)
         logger.debug("[NebulaStore] connection pool initialized to %s:%d", host, port)
+
+        # 自动初始化 schema + 探针等待 DDL 生效；失败仅 warning，不阻塞实例化
+        self._schema_ready: bool = False
+        self._ensure_schema_ready()
+
+    def _ensure_schema_ready(self) -> None:
+        """首次实例化时确保 NebulaGraph Space/Tag/Edge/Index 已创建且 DDL 生效。
+
+        流程：
+        1. 若 ``self._schema_ready`` 已为 True，直接返回（缓存避免重复初始化）。
+        2. 用原始 session（不走 ``_session_scope``，因为 space 可能尚未创建）调用
+           :class:`NebulaSchemaInitializer.initialize()` 创建 Space + Tag + Edge + Index。
+        3. 用 SHOW TAGS 探针重试等待 DDL 异步生效：``stop_after_delay=120s``、
+           ``wait_fixed=2s``；succeeded 且非 empty 才视为 ready。
+        4. 任何失败（initialize 返回 False 或探针超时）只打 ``warning``，不抛异常。
+
+        设计理由：实例化失败会导致 CLI/Web/MCP 入口整体崩溃，远比"schema 未就绪"
+        的下游错误更难诊断。允许后续操作自行报错，由调用方决定是否重试。
+        """
+        if self._schema_ready:
+            return
+
+        session = self._pool.get_session(self._user, self._password)
+        try:
+            initializer = NebulaSchemaInitializer(session, space_name=self._space)
+            ok = initializer.initialize()
+            if not ok:
+                logger.warning(
+                    "[NebulaStore] schema initialization failed for space '%s' (continuing anyway)",
+                    self._space,
+                )
+                return
+
+            if self._wait_for_schema_probe(session):
+                self._schema_ready = True
+                logger.info("[NebulaStore] schema ready for space '%s'", self._space)
+            else:
+                logger.warning(
+                    "[NebulaStore] schema probe did not become ready within %ds for space '%s' (continuing anyway)",
+                    self._SCHEMA_PROBE_TIMEOUT_SECONDS,
+                    self._space,
+                )
+        finally:
+            session.release()
+
+    def _wait_for_schema_probe(self, session: Any) -> bool:
+        """SHOW TAGS 探针：succeeded 且非 empty 视为 schema 生效。
+
+        使用 tenacity ``Retrying`` 重试，``retry_if_result`` 在结果为 True（未 ready）
+        时继续重试。返回最终探针结果（True=ready，False=超时未 ready）。
+        """
+        # 探针：SHOW TAGS succeeded 且非 empty → schema 已生效
+        def _probe_not_ready() -> bool:
+            """返回 True 表示 schema 还没 ready（需重试），False 表示 ready。"""
+            try:
+                result = session.execute("SHOW TAGS;")
+            except Exception as exc:
+                logger.debug("[NebulaStore] SHOW TAGS probe exception: %s", exc)
+                return True
+            if not result.is_succeeded():
+                return True
+            try:
+                return bool(result.is_empty())
+            except Exception:
+                return True
+
+        retryer = Retrying(
+            retry=retry_if_result(lambda not_ready: not_ready),
+            stop=stop_after_delay(self._SCHEMA_PROBE_TIMEOUT_SECONDS),
+            wait=wait_fixed(self._SCHEMA_PROBE_WAIT_SECONDS),
+            reraise=False,
+        )
+        try:
+            final_result = retryer(_probe_not_ready)
+            # Retrying 在成功时返回最后一次调用结果；探针返回 False 表示 ready
+            return final_result is False
+        except Exception as exc:
+            logger.debug("[NebulaStore] schema probe retry exhausted: %s", exc)
+            return False
 
     def close(self) -> None:
         """关闭连接池。"""
@@ -181,14 +273,17 @@ class NebulaGraphStore(GraphStore):
                     # 降级为 INSERT 占位节点，保证图结构完整，未知字段丢弃。
                     if "Tag prop not found" in err or "wrong value type" in err:
                         logger.warning(
-                            "[NebulaStore] merge_node UPSERT failed (%s), "
-                            "fallback to INSERT placeholder for %s:%s",
-                            err, label, vid,
+                            "[NebulaStore] merge_node UPSERT failed (%s), fallback to INSERT placeholder for %s:%s",
+                            err,
+                            label,
+                            vid,
                         )
                         stmt = f'INSERT VERTEX `{label}`() VALUES "{vid}":();'
                         result = session.execute(stmt)
                         if not result.is_succeeded():
-                            msg = f"NebulaGraph merge_node INSERT fallback failed: {safe_error_msg(result)} | stmt={stmt}"
+                            msg = (
+                                f"NebulaGraph merge_node INSERT fallback failed: {safe_error_msg(result)} | stmt={stmt}"
+                            )
                             raise RuntimeError(msg)
                     else:
                         msg = f"NebulaGraph merge_node failed: {err} | stmt={stmt}"
@@ -369,7 +464,33 @@ class NebulaGraphStore(GraphStore):
         final_stmt = adapted
         if params:
             for key, value in params.items():
+                # {key} 模板替换（已有逻辑）
                 final_stmt = final_stmt.replace("{" + key + "}", str(value))
+                # $key 参数化替换（兜底：NebulaGraph 不支持 $param 语法）
+                dollar_key = "$" + key
+                if dollar_key in final_stmt:
+                    if isinstance(value, (list, dict, tuple, set)):
+                        msg = (
+                            f"NebulaGraph does not support list/dict $param: {dollar_key}. "
+                            "Use semantic API (find_nodes/find_neighbors) instead."
+                        )
+                        raise TypeError(msg)
+                    # 按 Python 类型序列化：str 带引号，数值/bool 不带
+                    if isinstance(value, str):
+                        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+                        formatted = f'"{escaped}"'
+                    elif isinstance(value, bool):
+                        formatted = "true" if value else "false"
+                    elif value is None:
+                        formatted = "null"
+                    else:
+                        formatted = str(value)
+                    final_stmt = final_stmt.replace(dollar_key, formatted)
+                    logger.warning(
+                        '[NebulaStore] $param fallback used for key="%s" in query. '
+                        "This should be migrated to semantic API.",
+                        key,
+                    )
 
         with self._session_scope() as session:
             result = session.execute(final_stmt)
@@ -472,6 +593,208 @@ class NebulaGraphStore(GraphStore):
 
         logger.debug("[NebulaStore] updated vertex %s %s.%s = %s", node_id, tag, camel_key, value)
         return True
+
+    # ---- 批量 / 维护方法（GraphStore ABC 之外的扩展，与 Neo4jGraphStore 接口对齐） ----
+
+    def merge_nodes_batch(
+        self,
+        label: str,
+        properties_list: list[dict],
+        batch_size: int = 200,
+    ) -> int:
+        """批量 ``INSERT VERTEX`` 写入节点。
+
+        NebulaGraph 的 INSERT VERTEX 对同一 VID 是覆盖语义，等效于 MERGE 的幂等性。
+        每批生成一条多值 INSERT VERTEX 语句，属性列表只列名称（不带类型），
+        值通过 :func:`_format_value` 序列化为 nGQL 字面量。
+
+        Args:
+            label: 实体标签，必须为合法标识符（防注入）。
+            properties_list: 节点属性字典列表，每项必须包含 ``id``。
+            batch_size: 每批处理数量，默认 200。
+
+        Returns:
+            写入的节点总数。
+
+        Raises:
+            ValueError: 当 ``label`` 含非法字符，或任一 dict 缺 ``id``。
+            RuntimeError: 当 NebulaGraph 执行失败。
+        """
+        if not re.match(r"^[A-Za-z_]\w*$", label):
+            msg = f"Invalid label: {label}"
+            raise ValueError(msg)
+
+        if not properties_list:
+            return 0
+
+        # 校验所有 dict 含 id（提前 fail-fast，避免半成功）
+        for i, props in enumerate(properties_list):
+            if "id" not in props:
+                msg = f"properties_list[{i}] must contain 'id'"
+                raise ValueError(msg)
+
+        total = len(properties_list)
+        written = 0
+
+        with self._session_scope() as session:
+            for i in range(0, total, batch_size):
+                batch = properties_list[i : i + batch_size]
+                batch_camel = [_keys_to_camel_case(p) for p in batch]
+
+                # 收集本批所有属性名（除 id）的并集；缺失字段写 null。
+                # NebulaGraph INSERT VERTEX 要求所有 VALUES 的属性列表一致，
+                # 因此取并集而非首 dict 的 keys（避免丢字段）。
+                all_keys: list[str] = []
+                seen: set[str] = set()
+                for d in batch_camel:
+                    for k in d:
+                        if k != "id" and k not in seen:
+                            seen.add(k)
+                            all_keys.append(k)
+
+                # 构造 VALUES 子句：每个节点一行 "vid":(v1, v2, ...)
+                values_parts: list[str] = []
+                for d in batch_camel:
+                    vid = d["id"]
+                    values = [_format_value(d.get(k)) for k in all_keys]
+                    values_str = ", ".join(values) if values else ""
+                    values_parts.append(f'"{vid}":({values_str})')
+
+                props_clause = f"({', '.join(all_keys)})" if all_keys else "()"
+                values_clause = ", ".join(values_parts)
+                stmt = f"INSERT VERTEX `{label}`{props_clause} VALUES {values_clause};"
+
+                result = session.execute(stmt)
+                if not result.is_succeeded():
+                    err = safe_error_msg(result)
+                    msg = f"NebulaGraph merge_nodes_batch failed: {err} | stmt={stmt}"
+                    raise RuntimeError(msg)
+
+                written += len(batch_camel)
+                logger.info("[NebulaStore] batch wrote %d/%d %s", written, total, label)
+
+        return written
+
+    def merge_relations_batch(
+        self,
+        relations: list[dict],
+        batch_size: int = 200,
+    ) -> int:
+        """批量 ``INSERT EDGE`` 写入关系。
+
+        按 ``rel_type`` 分组（NebulaGraph INSERT EDGE 按 edge type 批量），
+        每组按 ``batch_size`` 分批执行。NebulaGraph Edge type 当前无属性
+        （Phase 6.1 才扩展），``properties`` 字段被忽略。
+
+        Args:
+            relations: 关系数据列表，每项含 ``source_id``/``target_id``/``rel_type``，
+                可选 ``source_label``/``target_label``/``properties``。
+            batch_size: 每批处理数量，默认 200。
+
+        Returns:
+            写入的关系总数。
+
+        Raises:
+            ValueError: 当 ``rel_type`` 或 label 含非法字符。
+            RuntimeError: 当 NebulaGraph 执行失败。
+        """
+        if not relations:
+            return 0
+
+        # 按 rel_type 分组（NebulaGraph INSERT EDGE 按 edge type 批量）
+        groups: dict[str, list[dict]] = {}
+        for rel in relations:
+            source_label: str = rel.get("source_label", "")
+            target_label: str = rel.get("target_label", "")
+            rel_type: str = rel["rel_type"]
+            neo4j_rel_type = RELATION_TYPE_TO_NEO4J.get(rel_type, rel_type.upper())
+
+            if source_label and not re.match(r"^[A-Za-z_]\w*$", source_label):
+                msg = f"Invalid source_label: {source_label}"
+                raise ValueError(msg)
+            if target_label and not re.match(r"^[A-Za-z_]\w*$", target_label):
+                msg = f"Invalid target_label: {target_label}"
+                raise ValueError(msg)
+            if not re.match(r"^[A-Z_]+$", neo4j_rel_type):
+                msg = f"Invalid relation type: {neo4j_rel_type}"
+                raise ValueError(msg)
+
+            groups.setdefault(neo4j_rel_type, []).append(rel)
+
+        total = len(relations)
+        written = 0
+
+        with self._session_scope() as session:
+            for edge_type, group in groups.items():
+                for i in range(0, len(group), batch_size):
+                    batch = group[i : i + batch_size]
+                    # Edge 名加反引号：CONTAINS/IMPORTS 等是 nGQL 保留字
+                    # rank=0 显式指定，避免多次写入产生重复边（INSERT EDGE 默认追加语义）
+                    values_parts = [f'"{r["source_id"]}"->"{r["target_id"]}"@0:()' for r in batch]
+                    values_clause = ", ".join(values_parts)
+                    stmt = f"INSERT EDGE `{edge_type}`() VALUES {values_clause};"
+
+                    result = session.execute(stmt)
+                    if not result.is_succeeded():
+                        err = safe_error_msg(result)
+                        msg = f"NebulaGraph merge_relations_batch failed: {err} | stmt={stmt}"
+                        raise RuntimeError(msg)
+
+                    written += len(batch)
+                    logger.info(
+                        "[NebulaStore] batch wrote %d/%d relations (%s)",
+                        written,
+                        total,
+                        edge_type,
+                    )
+
+        return written
+
+    def ensure_constraints(self) -> None:
+        """确保 NebulaGraph schema 存在（Space + Tag + Edge + Index）。
+
+        NebulaGraph 的 VID 天然全局唯一（不需要 SQL 唯一约束），
+        本方法通过 :class:`NebulaSchemaInitializer` 创建 schema（全部幂等）。
+        ``register_schema_version`` 暂未支持（schema_version.py 的 MERGE 还未改造，
+        Phase 7b 处理）。
+
+        Raises:
+            RuntimeError: 当 schema 初始化失败。
+        """
+        # 不走 _session_scope（它会先 USE SPACE，但 space 可能尚未创建）。
+        # NebulaSchemaInitializer.ensure_space() 会负责 CREATE SPACE IF NOT EXISTS。
+        session = self._pool.get_session(self._user, self._password)
+        try:
+            initializer = NebulaSchemaInitializer(session, space_name=self._space)
+            ok = initializer.initialize()
+            if not ok:
+                msg = "NebulaSchemaInitializer.initialize() failed during ensure_constraints"
+                raise RuntimeError(msg)
+        finally:
+            session.release()
+        logger.info("[NebulaStore] ensure_constraints: schema initialized for space '%s'", self._space)
+
+    def clear_all(self) -> int:
+        """清空当前 Space 内所有数据（保留 schema）。
+
+        使用 ``CLEAR SPACE`` 语句，删除所有点/边但保留 Tag/Edge/Index 定义。
+        CLEAR SPACE 是异步操作且不返回删除数量，固定返回 0。
+
+        Returns:
+            固定返回 0（CLEAR SPACE 不返回删除数量）。
+
+        Raises:
+            RuntimeError: 当 NebulaGraph 执行失败。
+        """
+        with self._session_scope() as session:
+            stmt = f"CLEAR SPACE `{self._space}`;"
+            result = session.execute(stmt)
+            if not result.is_succeeded():
+                err = safe_error_msg(result)
+                msg = f"NebulaGraph clear_all failed: {err} | stmt={stmt}"
+                raise RuntimeError(msg)
+        logger.info("[NebulaStore] clear_all: space '%s' cleared", self._space)
+        return 0
 
 
 def _unwrap_value(value_wrapper: Any) -> Any:

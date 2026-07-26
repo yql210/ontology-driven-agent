@@ -429,7 +429,7 @@ class TestMigrateCommand:
 
         with (
             patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
-            patch("ontoagent.api.cli.Neo4jGraphStore", return_value=mock_store),
+            patch("ontoagent.api.cli.create_graph_store", return_value=mock_store),
             patch("ontoagent.api.cli.check_schema_version") as mock_check,
             patch("ontoagent.api.cli.MigrationRunner") as mock_runner_cls,
             patch("ontoagent.api.cli.MigrationRegistry") as mock_registry_cls,
@@ -460,7 +460,7 @@ class TestMigrateCommand:
 
         with (
             patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
-            patch("ontoagent.api.cli.Neo4jGraphStore", return_value=mock_store),
+            patch("ontoagent.api.cli.create_graph_store", return_value=mock_store),
             patch("ontoagent.api.cli.check_schema_version") as mock_check,
             patch("ontoagent.api.cli.MigrationRunner") as mock_runner_cls,
             patch("ontoagent.api.cli.MigrationRegistry") as mock_registry_cls,
@@ -491,7 +491,7 @@ class TestMigrateCommand:
 
         with (
             patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
-            patch("ontoagent.api.cli.Neo4jGraphStore", return_value=mock_store),
+            patch("ontoagent.api.cli.create_graph_store", return_value=mock_store),
             patch("ontoagent.api.cli.MigrationRunner") as mock_runner_cls,
             patch("ontoagent.api.cli.MigrationRegistry") as mock_registry_cls,
         ):

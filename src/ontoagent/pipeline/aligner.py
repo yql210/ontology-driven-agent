@@ -8,7 +8,7 @@ from ontoagent.domain.schema import ConceptEntity
 from ontoagent.store.chroma_store import ChromaStore
 
 if TYPE_CHECKING:
-    from ontoagent.store.neo4j_store import Neo4jGraphStore
+    from ontoagent.store.graph_store import GraphStore
 
 
 @dataclass
@@ -56,7 +56,7 @@ class ConceptAligner:
         chroma_store: ChromaStore,
         concepts: list[ConceptEntity] | None = None,
         vector_threshold: float = 0.7,
-        neo4j_store: Neo4jGraphStore | None = None,
+        neo4j_store: GraphStore | None = None,
         graph_overlap_threshold: float = 0.8,
     ) -> None:
         """初始化对齐器。

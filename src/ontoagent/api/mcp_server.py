@@ -9,7 +9,8 @@ from ontoagent.pipeline.aligner import ConceptAligner
 from ontoagent.pipeline.builder import OntoAgentBuilder
 from ontoagent.pipeline.module_clustering import ModuleClustering
 from ontoagent.store.chroma_store import ChromaStore
-from ontoagent.store.neo4j_store import Neo4jGraphStore
+from ontoagent.store.factory import create_graph_store
+from ontoagent.store.graph_store import GraphStore
 
 mcp = FastMCP("OntoAgent", instructions="OntoAgent Knowledge Graph MCP Server")
 
@@ -28,16 +29,16 @@ def _get_config() -> OntoAgentConfig:
     return _components["config"]  # type: ignore[return-value]
 
 
-def _get_neo4j() -> Neo4jGraphStore:
-    """获取或创建 Neo4j 实例。
+def _get_graph_store() -> GraphStore:
+    """获取或创建 GraphStore 实例（根据 config.graph_backend 自动路由）。
 
     Returns:
-        Neo4jGraphStore 实例。
+        GraphStore 实例（Neo4jGraphStore 或 NebulaGraphStore）。
     """
-    if "neo4j" not in _components:
+    if "graph_store" not in _components:
         config = _get_config()
-        _components["neo4j"] = Neo4jGraphStore(config.neo4j_uri, config.neo4j_user, config.neo4j_password)
-    return _components["neo4j"]  # type: ignore[return-value]
+        _components["graph_store"] = create_graph_store(config)
+    return _components["graph_store"]  # type: ignore[return-value]
 
 
 def _get_chroma() -> ChromaStore:
@@ -74,7 +75,7 @@ def _get_aligner() -> ConceptAligner:
         ConceptAligner 实例。
     """
     if "aligner" not in _components:
-        _components["aligner"] = ConceptAligner(_get_chroma(), neo4j_store=_get_neo4j())
+        _components["aligner"] = ConceptAligner(_get_chroma(), neo4j_store=_get_graph_store())
     return _components["aligner"]  # type: ignore[return-value]
 
 
@@ -85,7 +86,7 @@ def _get_clustering() -> ModuleClustering:
         ModuleClustering 实例。
     """
     if "clustering" not in _components:
-        _components["clustering"] = ModuleClustering(_get_neo4j())
+        _components["clustering"] = ModuleClustering(_get_graph_store())
     return _components["clustering"]  # type: ignore[return-value]
 
 
@@ -123,7 +124,7 @@ def graph_query(cypher: str) -> list[dict]:
     Returns:
         查询结果列表。
     """
-    neo4j = _get_neo4j()
+    neo4j = _get_graph_store()
     return neo4j.query(cypher)
 
 
@@ -138,7 +139,7 @@ def impact_analysis(entity_id: str, depth: int = 3) -> dict:
     Returns:
         {entity, impacted_entities: [{id, name, type, distance}], total_count}
     """
-    neo4j = _get_neo4j()
+    neo4j = _get_graph_store()
 
     # Cypher 不支持参数化路径长度，需要在 Python 中拼接
     cypher = f"""
@@ -176,7 +177,7 @@ def get_context(entity_id: str) -> dict:
     Returns:
         {node, relations, similar_entities}
     """
-    neo4j = _get_neo4j()
+    neo4j = _get_graph_store()
     chroma = _get_chroma()
 
     # 获取节点
@@ -283,7 +284,7 @@ def export_graph(format: str = "json") -> dict:
         DOT 格式: {content: "digraph {...}"}
         Cytoscape 格式: {elements: {nodes: [...], edges: [...]}}
     """
-    neo4j = _get_neo4j()
+    neo4j = _get_graph_store()
 
     # 查询所有节点
     node_cypher = "MATCH (n) RETURN n.id AS id, n.name AS name, labels(n) AS labels"

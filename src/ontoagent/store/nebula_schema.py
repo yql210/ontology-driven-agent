@@ -15,6 +15,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _safe_error_msg(result: object) -> str:
+    """从 NebulaGraph ResultSet 取错误信息，兼容方法/属性两种形态。"""
+    raw = getattr(result, "error_msg", "unknown error")
+    if callable(raw):
+        try:
+            return str(raw())
+        except Exception:
+            return "unknown error"
+    return str(raw)
+
+
 # NebulaGraph 保留字（部分），属性名出现时需用反引号包裹
 # 实测在 NebulaGraph 3.7.0 上，以下字段名会导致 SyntaxError（必须反引号）：
 #   steps, order, timestamp, path, rank, source
@@ -85,13 +96,13 @@ class NebulaSchemaInitializer:
         )
         result = self._session.execute(ddl)
         if not result.is_succeeded():
-            logger.error("[NebulaSchema] create space failed: %s", result.error_msg)
+            logger.error("[NebulaSchema] create space failed: %s", _safe_error_msg(result))
             return False
         logger.info("[NebulaSchema] space '%s' ensured (vid_type=%s)", self._space_name, vid_type)
         return True
 
     def create_tags(self) -> list[str]:
-        """为 13 个实体创建 Tag DDL（不执行，仅返回语句列表）。
+        """为 13 个实体 + SchemaVersion 创建 Tag DDL（不执行，仅返回语句列表）。
 
         属性从 ``entity_field_names(label)`` 反射获取，全部使用 ``string`` 类型。
         额外追加 builder/pipeline 实际写入的通用字段：
@@ -99,6 +110,10 @@ class NebulaSchemaInitializer:
         - provenance: ``provenanceSource``、``confidence``、``extractedAt``（来自 ``add_provenance()``）
         - ``codeParameters``（``entity_to_dict`` 将 ``entity.parameters`` 映射到此 key，
           与 schema 的 ``parameters`` 字段命名不同，需单独声明）
+
+        另追加 ``SchemaVersion`` Tag（不在 ``VALID_ENTITY_LABELS`` 中），供
+        :mod:`ontoagent.store.schema_version` 模块通过 ``MERGE (sv:SchemaVersion)``
+        写入版本节点使用。字段：``version`` / ``description`` / ``applied_at``。
 
         所有字段统一用 ``string`` 类型，避免 ``_format_value`` 的类型不匹配错误。
         """
@@ -112,6 +127,11 @@ class NebulaSchemaInitializer:
             props = ", ".join(f"{_escape_prop_name(f)} string" for f in field_names)
             ddl = f"CREATE TAG IF NOT EXISTS `{label}` ({props});"
             ddl_list.append(ddl)
+        # SchemaVersion Tag：schema_version.py 通过 MERGE (sv:SchemaVersion {version: ...}) 写入
+        ddl_list.append(
+            "CREATE TAG IF NOT EXISTS `SchemaVersion` "
+            "(`version` string, `description` string, `applied_at` string);"
+        )
         return ddl_list
 
     def create_edges(self) -> list[str]:
@@ -148,19 +168,39 @@ class NebulaSchemaInitializer:
         if not self.ensure_space(vid_type=vid_type):
             return False
 
+        # 等待 Space DDL 异步生效（CREATE SPACE 后不能立即 USE）
+        import time as _time
+        logger.info("[NebulaSchema] waiting %ds for Space DDL to take effect...", 10)
+        _time.sleep(10)
+
         all_ddls: list[str] = []
         all_ddls.extend(self.create_tags())
         all_ddls.extend(self.create_edges())
         all_ddls.extend(self.create_indexes())
 
-        # 注意：DDL 执行时不能 USE SPACE（创建 Space 后需等待生效）
-        # 这里直接执行所有 DDL（NebulaGraph 会按 Space 名称解析）
-        for ddl in all_ddls:
+        # 分两阶段执行：先 Tag+Edge，等 DDL 生效，再建 Index
+        # （Index 依赖 Tag 已生效，否则报 "Key not existed"）
+        tag_edge_ddls = self.create_tags() + self.create_edges()
+        index_ddls = self.create_indexes()
+
+        for ddl in tag_edge_ddls:
             full_stmt = f"USE `{self._space_name}`; {ddl}"
             result = self._session.execute(full_stmt)
             if not result.is_succeeded():
-                logger.error("[NebulaSchema] DDL failed: %s | stmt=%s", result.error_msg, ddl)
+                logger.error("[NebulaSchema] DDL failed: %s | stmt=%s", _safe_error_msg(result), ddl)
                 return False
+
+        # 等待 Tag/Edge DDL 异步生效（索引依赖 Tag 已创建）
+        import time as _time
+        logger.info("[NebulaSchema] waiting %ds for Tag/Edge DDL to take effect...", 10)
+        _time.sleep(10)
+
+        for ddl in index_ddls:
+            full_stmt = f"USE `{self._space_name}`; {ddl}"
+            result = self._session.execute(full_stmt)
+            if not result.is_succeeded():
+                # 索引失败不阻塞（索引是优化项，不是必需）
+                logger.warning("[NebulaSchema] index DDL failed (non-blocking): %s | stmt=%s", _safe_error_msg(result), ddl)
 
         logger.info(
             "[NebulaSchema] initialized space '%s' (tags=%d, edges=%d, indexes=%d)",

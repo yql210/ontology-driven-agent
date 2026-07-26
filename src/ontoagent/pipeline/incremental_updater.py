@@ -150,13 +150,9 @@ class IncrementalUpdater:
             GraphStore 实例。
         """
         if self._graph_store is None:
-            from ontoagent.store.neo4j_store import Neo4jGraphStore
+            from ontoagent.store.factory import create_graph_store
 
-            self._graph_store = Neo4jGraphStore(
-                uri=self._config.neo4j_uri,
-                user=self._config.neo4j_user,
-                password=self._config.neo4j_password,
-            )
+            self._graph_store = create_graph_store(self._config)
         return self._graph_store
 
     def _get_chroma_store(self):
