@@ -510,6 +510,35 @@ class Neo4jGraphStore(GraphStore):
             result: Neo4jResult = session.run(cypher, **params)
             return [record.data() for record in result]
 
+    def update_node_property(self, node_id: str, key: str, value: Any) -> bool:
+        """更新单个节点的单个属性。
+
+        使用 MATCH + SET 实现。属性名自动从 snake_case 转 camelCase，
+        与 ``merge_node`` 的命名约定一致。
+
+        Args:
+            node_id: 节点 ID。
+            key: 属性名（snake_case 或 camelCase 均可）。
+            value: 属性值。
+
+        Returns:
+            总是返回 True（Neo4j SET 不存在的节点也不会报错）。
+
+        Raises:
+            ValueError: 当 key 含非法字符（Cypher 注入防护）。
+        """
+        # Cypher 注入防护：key 必须是合法标识符
+        camel_key = _snake_to_camel(key)
+        if not re.match(r"^[A-Za-z_]\w*$", camel_key):
+            msg = f"Invalid property key: {key}"
+            raise ValueError(msg)
+
+        cypher = f"MATCH (n {{id: $id}}) SET n.{camel_key} = $value"
+        with self._driver.session() as session:
+            session.run(cypher, id=node_id, value=value)
+        logger.debug("Updated node %s property %s = %s", node_id, camel_key, value)
+        return True
+
     def ensure_constraints(self) -> None:
         """确保数据库存在必要的唯一约束。
 

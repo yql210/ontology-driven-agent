@@ -21,8 +21,14 @@ def config() -> OntoAgentConfig:
 
 @pytest.fixture
 def builder(config: OntoAgentConfig) -> OntoAgentBuilder:
-    """Builder 测试 fixture（mock 掉 Neo4j/ChromaDB）。"""
-    with patch("ontoagent.pipeline.builder.Neo4jGraphStore"), patch("ontoagent.pipeline.builder.ChromaStore"):
+    """Builder 测试 fixture（mock 掉 GraphStore/ChromaDB）。"""
+    with (
+        patch("ontoagent.store.factory.create_graph_store") as mock_factory,
+        patch("ontoagent.pipeline.builder.ChromaStore"),
+    ):
+        from unittest.mock import MagicMock
+
+        mock_factory.return_value = MagicMock()
         return OntoAgentBuilder(config)
 
 

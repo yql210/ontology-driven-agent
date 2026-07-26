@@ -43,7 +43,7 @@ from ontoagent.pipeline.semantic_linker import (
 from ontoagent.pipeline.service_linker import build_service_relations
 from ontoagent.pipeline.topic_linker import build_topic_relations
 from ontoagent.store.chroma_store import ChromaStore
-from ontoagent.store.neo4j_store import Neo4jGraphStore
+from ontoagent.store.graph_store import GraphStore
 
 if TYPE_CHECKING:
     from ontoagent.parsing.extractor.semantic import SemanticRelation
@@ -141,7 +141,7 @@ class OntoAgentBuilder:
         self._register_parser(PythonParser())
         self._register_parser(JavaParser())
         self._extractor = RelationExtractor()
-        self._graph_store: Neo4jGraphStore | None = None
+        self._graph_store: GraphStore | None = None
         self._chroma_store: ChromaStore | None = None
         self._semantic_extractor: SemanticExtractor | None = None
         self._aligner: ConceptAligner | None = None
@@ -172,18 +172,16 @@ class OntoAgentBuilder:
         """
         return self._parsers.get(file_path.suffix)
 
-    def _get_graph_store(self) -> Neo4jGraphStore:
-        """获取或创建 Neo4j 存储实例。
+    def _get_graph_store(self) -> GraphStore:
+        """获取或创建 GraphStore 实例（由 factory 根据 config.graph_backend 路由后端）。
 
         Returns:
-            Neo4jGraphStore 实例。
+            GraphStore 实例（GraphStore 或 NebulaGraphStore）。
         """
         if self._graph_store is None:
-            self._graph_store = Neo4jGraphStore(
-                uri=self._config.neo4j_uri,
-                user=self._config.neo4j_user,
-                password=self._config.neo4j_password,
-            )
+            from ontoagent.store.factory import create_graph_store
+
+            self._graph_store = create_graph_store(self._config)
         return self._graph_store
 
     def _get_chroma_store(self) -> ChromaStore:
@@ -274,7 +272,7 @@ class OntoAgentBuilder:
         doc_entities: list[DocEntity],
         relations: list[Relation],
         unresolved_imports: list[ExtractedRelation],
-    ) -> tuple[Neo4jGraphStore, int, int]:
+    ) -> tuple[GraphStore, int, int]:
         """Stage 2: 写入结构实体和关系到 Neo4j。
 
         关键路径：失败则抛出 RuntimeError 中止构建。
@@ -286,7 +284,7 @@ class OntoAgentBuilder:
             unresolved_imports: 未解析的外部导入列表。
 
         Returns:
-            (Neo4jGraphStore 实例, 外部实体数量, 外部关系数量) 三元组。
+            (GraphStore 实例, 外部实体数量, 外部关系数量) 三元组。
 
         Raises:
             RuntimeError: 写入失败时。
@@ -386,7 +384,7 @@ class OntoAgentBuilder:
     def _stage_semantic(
         self,
         all_entities: list[CodeEntity],
-        graph_store: Neo4jGraphStore,
+        graph_store: GraphStore,
         repo_path: Path,
         *,
         doc_entities: list[DocEntity] | None = None,
@@ -587,9 +585,16 @@ class OntoAgentBuilder:
             )
 
         # 写入 ServiceEntity 和 Topic ConceptEntity 及相关关系
-        service_entity_count, service_rel_count, topic_entity_count, topic_rel_count = self._write_service_topic_entities(
-            graph_store, service_entities, svc_relations, topic_entities, topic_relations,
-            all_entities, batch_time,
+        service_entity_count, service_rel_count, topic_entity_count, topic_rel_count = (
+            self._write_service_topic_entities(
+                graph_store,
+                service_entities,
+                svc_relations,
+                topic_entities,
+                topic_relations,
+                all_entities,
+                batch_time,
+            )
         )
 
         # Stage 2.5: 文档→代码关联
@@ -615,17 +620,18 @@ class OntoAgentBuilder:
 
         # Stage 2.6: 业务本体
         self._logger.info("═══ Stage 2.6/5: Business Ontology ═══")
-        data_asset_count, compliance_item_count, processes_data_count = self._write_business_ontology(
-            repo_path, graph_store, all_entities, batch_time,
+        _data_asset_count, _compliance_item_count, _processes_data_count = self._write_business_ontology(
+            repo_path,
+            graph_store,
+            all_entities,
+            batch_time,
         )
 
         # Stage 2.7: Capability Extraction (V5 Phase 1, non-critical)
         capability_count = 0
         realized_by_count = 0
         try:
-            capability_count, realized_by_count = self._extract_capabilities(
-                all_entities, graph_store, batch_time
-            )
+            capability_count, realized_by_count = self._extract_capabilities(all_entities, graph_store, batch_time)
         except Exception as e:
             self._logger.warning("Capability extraction failed (non-critical): %s", e)
             all_errors.append(f"Capability extraction error: {e}")
@@ -812,7 +818,7 @@ class OntoAgentBuilder:
     ) -> tuple[int, int, int]:
         """Load and write business ontology from ontoagent.yaml.
 
-        Returns (data_asset_count, compliance_item_count, processes_data_count).
+        Returns (_data_asset_count, _compliance_item_count, _processes_data_count).
         Non-critical: failures are logged, not raised.
         """
         data_asset_count = 0
@@ -838,8 +844,7 @@ class OntoAgentBuilder:
 
             if compliance_items:
                 item_dicts = [
-                    add_provenance(compliance_item_to_dict(item), extracted_at=batch_time)
-                    for item in compliance_items
+                    add_provenance(compliance_item_to_dict(item), extracted_at=batch_time) for item in compliance_items
                 ]
                 graph_store.merge_nodes_batch("ComplianceItem", item_dicts, batch_size=200)
                 compliance_item_count = len(compliance_items)
@@ -1030,7 +1035,7 @@ class OntoAgentBuilder:
     def _extract_capabilities(
         self,
         all_entities: list[CodeEntity],
-        graph_store: Neo4jGraphStore,
+        graph_store: GraphStore,
         batch_time: str,
     ) -> tuple[int, int]:
         """Stage 2.7: 从 API 入口函数逆向 CapabilityEntity 并写入 Neo4j。
@@ -1098,7 +1103,7 @@ class OntoAgentBuilder:
     def _extract_capabilities_to_dicts(
         self,
         all_entities: list[CodeEntity],
-        graph_store: Neo4jGraphStore,
+        graph_store: GraphStore,
         batch_time: str,
     ) -> list[dict]:
         """Stage 2.7: extract CapabilityEntities and return their dicts for ChromaDB indexing.
@@ -1116,7 +1121,7 @@ class OntoAgentBuilder:
 
     def _detect_and_write_modules(
         self,
-        graph_store: Neo4jGraphStore,
+        graph_store: GraphStore,
         all_entities: list[CodeEntity],
     ) -> tuple[int, list[ModuleCluster]]:
         """Stage 4: 检测模块聚类并写入 Neo4j.

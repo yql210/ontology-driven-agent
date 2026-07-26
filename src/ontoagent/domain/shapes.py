@@ -290,9 +290,7 @@ class ConstraintShape:
         if not raw_entry:
             raw_entry = target_data.get("resource_type")
         if not raw_entry:
-            raise ValueError(
-                f"Shape {shape_id!r} 缺少 target.entry_type / target.resource_type"
-            )
+            raise ValueError(f"Shape {shape_id!r} 缺少 target.entry_type / target.resource_type")
 
         operation = Operation(target_data["operation"])
         field_filter = target_data.get("field_filter")

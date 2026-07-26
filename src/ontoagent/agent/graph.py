@@ -142,7 +142,7 @@ async def run_query(question: str, thread_id: str = "default") -> str:
                             return content
             except Exception:
                 pass
-            return "Agent tool call limit exceeded. The knowledge graph may be incomplete (missing concept entities or module clustering). Try a more specific entity name, e.g. \"What methods does the Cache class have?\"."
+            return 'Agent tool call limit exceeded. The knowledge graph may be incomplete (missing concept entities or module clustering). Try a more specific entity name, e.g. "What methods does the Cache class have?".'
         if "Unexpected end of JSON" in err_msg or "ConnectionError" in err_msg:
             return "LLM 服务连接中断，请稍后重试。"
         if "400" in err_msg and "tool_calls" in err_msg:
@@ -235,6 +235,7 @@ async def run_query_stream(
                     if tool_name == "express_intent":
                         try:
                             import json
+
                             result_data = json.loads(output_str)
                             if result_data.get("status") == "approval_required":
                                 # Record as approval_required step

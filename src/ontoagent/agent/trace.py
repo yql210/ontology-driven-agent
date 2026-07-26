@@ -34,8 +34,8 @@ class TraceLog:
     created_at: float = field(default_factory=time.time)
     status: str = "running"  # "running" | "completed" | "failed"
     # NEW — 审批关联
-    approval_token: str = ""       # 当前待审批的令牌
-    approval_status: str = ""      # "pending" | "approved" | "rejected" | ""
+    approval_token: str = ""  # 当前待审批的令牌
+    approval_status: str = ""  # "pending" | "approved" | "rejected" | ""
     parent_trace_thread_id: str = ""  # 如果是审批回执，关联父 trace
 
 
@@ -97,6 +97,7 @@ class TraceCollector:
                     self._step_counters[thread_id] = len(log.steps)
         except Exception as e:
             import logging
+
             logging.getLogger(__name__).warning("Failed to load trace history from SQLite: %s", e)
 
     @staticmethod

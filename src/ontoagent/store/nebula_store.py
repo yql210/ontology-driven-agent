@@ -11,6 +11,7 @@ from nebula3.gclient.net import ConnectionPool
 from ontoagent.domain.schema import RELATION_TYPE_TO_NEO4J
 from ontoagent.store.cypher_adapter import CypherToNgqlAdapter
 from ontoagent.store.graph_store import GraphStore
+from ontoagent.store.nebula_schema import _escape_prop_name
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -352,7 +353,7 @@ class NebulaGraphStore(GraphStore):
             return _resultset_to_dicts(result)
 
     def cleanup_orphan_nodes(self) -> int:
-        """MATCH (n) WHERE NOT (n)--() WITH n DELETE n — 清理无边孤立点。
+        """MATCH (n) WHERE NOT (n)--() WITH n DELETE m — 清理无边孤立点。
 
         Returns:
             删除的节点数。
@@ -370,6 +371,73 @@ class NebulaGraphStore(GraphStore):
             except Exception:
                 logger.exception("[NebulaStore] cleanup_orphan_nodes decode failed")
                 return 0
+
+    def update_node_property(self, node_id: str, key: str, value: Any) -> bool:
+        """更新单个节点的单个属性。
+
+        NebulaGraph 的 ``UPDATE VERTEX ON <tag>`` 必须指定 Tag，因此先 FETCH
+        节点的 Tag 列表，取第一个 Tag 再 UPDATE。属性名自动从 snake_case
+        转 camelCase，与 ``merge_node`` 命名约定一致；保留字自动加反引号。
+
+        Args:
+            node_id: 节点 VID。
+            key: 属性名（snake_case 或 camelCase 均可）。
+            value: 属性值。
+
+        Returns:
+            成功更新返回 True；节点不存在或更新失败返回 False。
+
+        Raises:
+            ValueError: 当 key 含非法字符（注入防护）。
+        """
+        camel_key = _snake_to_camel(key)
+        if not re.match(r"^[A-Za-z_]\w*$", camel_key):
+            msg = f"Invalid property key: {key}"
+            raise ValueError(msg)
+        escaped_key = _escape_prop_name(camel_key)
+        formatted_value = _format_value(value)
+
+        with self._session_scope() as session:
+            # Step 1: FETCH 找节点的 Tag
+            fetch_stmt = f'FETCH PROP ON * "{node_id}" YIELD tags(vertex) AS tags;'
+            fetch_result = session.execute(fetch_stmt)
+            if not fetch_result.is_succeeded() or fetch_result.is_empty():
+                logger.warning("[NebulaStore] update_node_property: vertex not found vid=%s", node_id)
+                return False
+
+            try:
+                col_values = fetch_result.column_values("tags")
+                if not col_values:
+                    return False
+                tags = _unwrap_value(col_values[0])
+                if isinstance(tags, str):
+                    # 形如 "Tag1,Tag2" 或 "[Tag1,Tag2]" — 容错解析
+                    tags = [t.strip().strip('"').strip("'") for t in tags.strip("[]").split(",") if t.strip()]
+                if not isinstance(tags, list) or not tags:
+                    return False
+                tag = str(tags[0])
+            except Exception:
+                logger.exception("[NebulaStore] update_node_property decode tags failed vid=%s", node_id)
+                return False
+
+            # 防 Tag 名注入（虽然来自数据库，但稳健起见校验）
+            if not re.match(r"^[A-Za-z_]\w*$", tag):
+                logger.error("[NebulaStore] invalid tag from FETCH: %r", tag)
+                return False
+
+            # Step 2: UPDATE VERTEX ON tag SET tag.key = value
+            update_stmt = f'UPDATE VERTEX ON {tag} "{node_id}" SET {tag}.{escaped_key} = {formatted_value};'
+            update_result = session.execute(update_stmt)
+            if not update_result.is_succeeded():
+                logger.error(
+                    "[NebulaStore] update_node_property failed: %s | stmt=%s",
+                    update_result.error_msg,
+                    update_stmt,
+                )
+                return False
+
+        logger.debug("[NebulaStore] updated vertex %s %s.%s = %s", node_id, tag, camel_key, value)
+        return True
 
 
 def _unwrap_value(value_wrapper: Any) -> Any:

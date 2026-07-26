@@ -1,4 +1,5 @@
 """ShapeTarget ontology_ref 字段与 entry_type 重命名 测试。"""
+
 import pytest
 
 from ontoagent.domain.shapes import ConstraintShape, Operation, ShapeTarget

@@ -84,6 +84,7 @@ class ShapeRegistry:
         errors: list[str] = []
 
         from ontoagent.domain.schema import build_entity_field_index
+
         field_index = build_entity_field_index()
 
         for i, shape_data in enumerate(shapes_data):
@@ -172,17 +173,12 @@ class ShapeRegistry:
             raise ValueError(f"Shape {shape.id!r} 校验失败: " + "; ".join(errors))
 
     def validate_cross_shape(self, shape: ConstraintShape, field_index: dict[str, set[str]]) -> None:
-        if shape.path.is_self():
-            target_label = shape.target.entry_type
-        else:
-            target_label = shape.path.target_label
+        target_label = shape.target.entry_type if shape.path.is_self() else shape.path.target_label
         valid_fields = field_index.get(target_label, set())
         if not valid_fields:
             raise ValueError(f"path 终点标签 {target_label!r} 无 schema 反射信息")
         if shape.constraint.field not in valid_fields:
-            raise ValueError(
-                f"constraint.field {shape.constraint.field!r} 不在 {target_label} 的字段集中"
-            )
+            raise ValueError(f"constraint.field {shape.constraint.field!r} 不在 {target_label} 的字段集中")
 
     # ------------------------------------------------------------------
     # 其他

@@ -45,6 +45,9 @@ class _DummyStore(GraphStore):
     def cleanup_orphan_nodes(self) -> int:
         return 0  # pragma: no cover
 
+    def update_node_property(self, node_id: str, prop: str, value: object) -> bool:
+        return True  # pragma: no cover
+
 
 @pytest.mark.unit
 def test_graph_store_is_abstract():
@@ -73,6 +76,7 @@ def test_graph_store_abstract_methods():
         "get_relations",
         "query",
         "cleanup_orphan_nodes",
+        "update_node_property",
     }
     actual = {name for name in dir(GraphStore) if not name.startswith("_")}
     assert expected.issubset(actual)

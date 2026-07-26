@@ -458,9 +458,7 @@ class TestAllowSetShortCircuit:
 
 @pytest.mark.unit
 class TestUpstreamCallChainShape:
-    def test_upstream_risk_multihop_triggered(
-        self, mock_graph_store: MagicMock
-    ) -> None:
+    def test_upstream_risk_multihop_triggered(self, mock_graph_store: MagicMock) -> None:
         """^CALLS{1,5} 反向多跳：上游 entryCategory 命中 http_api/rpc_service。"""
         registry = ShapeRegistry(valid_labels={"CodeEntity"})
         registry.register(
@@ -494,9 +492,7 @@ class TestUpstreamCallChainShape:
         assert "CodeEntity" in cypher
         assert params == {"entity_id": "abc"}
 
-    def test_upstream_risk_multihop_not_triggered(
-        self, mock_graph_store: MagicMock
-    ) -> None:
+    def test_upstream_risk_multihop_not_triggered(self, mock_graph_store: MagicMock) -> None:
         """^CALLS{1,5} 反向多跳：上游 entryCategory 不在期望集合中 → 不命中。"""
         registry = ShapeRegistry(valid_labels={"CodeEntity"})
         registry.register(

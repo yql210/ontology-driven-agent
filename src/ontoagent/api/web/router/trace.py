@@ -67,7 +67,7 @@ async def list_traces() -> list[TraceListItem]:
             step_count=len(t.steps),
             total_duration_ms=t.total_duration_ms,
             created_at=t.created_at,
-            approval_status=getattr(t, 'approval_status', ''),
+            approval_status=getattr(t, "approval_status", ""),
         )
         for t in traces
     ]

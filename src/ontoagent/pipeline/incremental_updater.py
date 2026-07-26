@@ -439,9 +439,11 @@ class IncrementalUpdater:
             return 0
 
         graph_store = self._get_graph_store()
-        cypher = "MATCH (n:ConceptEntity) WHERE n.id IN $ids SET n.needs_reextraction = true RETURN count(n) AS count"
-        result = graph_store.query(cypher, {"ids": impacted_concept_ids})
-        return result[0]["count"] if result else 0
+        flagged = 0
+        for node_id in impacted_concept_ids:
+            if graph_store.update_node_property(node_id, "needsReextraction", True):
+                flagged += 1
+        return flagged
 
     def _flag_doc_regeneration(self, impacted_doc_ids: list[str]) -> int:
         """标记受影响的 DocEntity 需要重生成。
@@ -456,9 +458,11 @@ class IncrementalUpdater:
             return 0
 
         graph_store = self._get_graph_store()
-        cypher = "MATCH (n:DocEntity) WHERE n.id IN $ids SET n.needs_regeneration = true RETURN count(n) AS count"
-        result = graph_store.query(cypher, {"ids": impacted_doc_ids})
-        return result[0]["count"] if result else 0
+        flagged = 0
+        for node_id in impacted_doc_ids:
+            if graph_store.update_node_property(node_id, "needsRegeneration", True):
+                flagged += 1
+        return flagged
 
     def _validate_graph_integrity(self) -> dict:
         """检查图谱完整性（软检查，只记录警告不阻断更新）。

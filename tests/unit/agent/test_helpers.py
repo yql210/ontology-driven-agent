@@ -59,12 +59,15 @@ def test_get_config_singleton() -> None:
 
 def test_get_neo4j_returns_store() -> None:
     """get_neo4j() 返回 Neo4jGraphStore 实例"""
-    with patch("ontoagent.store.neo4j_store.Neo4jGraphStore") as mock_neo4j_class:
+    # 重置 _helpers 单例（前序测试可能已构造）
+    _helpers._graph_store = None
+    with patch("ontoagent.store.factory.Neo4jGraphStore") as mock_neo4j_class:
         mock_store = MagicMock()
         mock_neo4j_class.return_value = mock_store
 
         with patch.object(_helpers, "get_config") as mock_get_config:
             mock_config = MagicMock(spec=OntoAgentConfig)
+            mock_config.graph_backend = "neo4j"
             mock_config.neo4j_uri = "bolt://localhost:7687"
             mock_config.neo4j_user = "neo4j"
             mock_config.neo4j_password = "password"
@@ -73,17 +76,20 @@ def test_get_neo4j_returns_store() -> None:
             store = _helpers.get_neo4j()
 
             assert store is not None
-            mock_neo4j_class.assert_called_once_with("bolt://localhost:7687", "neo4j", "password")
+            mock_neo4j_class.assert_called_once_with(uri="bolt://localhost:7687", user="neo4j", password="password")
 
 
 def test_get_neo4j_singleton() -> None:
     """get_neo4j() 多次调用返回同一实例"""
-    with patch("ontoagent.store.neo4j_store.Neo4jGraphStore") as mock_neo4j_class:
+    # 重置 _helpers 单例（前序测试可能已构造）
+    _helpers._graph_store = None
+    with patch("ontoagent.store.factory.Neo4jGraphStore") as mock_neo4j_class:
         mock_store = MagicMock()
         mock_neo4j_class.return_value = mock_store
 
         with patch.object(_helpers, "get_config") as mock_get_config:
             mock_config = MagicMock(spec=OntoAgentConfig)
+            mock_config.graph_backend = "neo4j"
             mock_config.neo4j_uri = "bolt://localhost:7687"
             mock_config.neo4j_user = "neo4j"
             mock_config.neo4j_password = "password"
@@ -142,13 +148,13 @@ def test_get_chroma_singleton() -> None:
 def test_get_aligner_returns_aligner() -> None:
     """get_aligner 返回 ConceptAligner（带 concepts 加载）"""
     with (
-        patch("ontoagent.agent._helpers.get_neo4j") as mock_neo4j_fn,
+        patch("ontoagent.agent._helpers.get_graph_store") as mock_graph_store_fn,
         patch("ontoagent.agent._helpers.get_chroma") as mock_chroma_fn,
         patch("ontoagent.agent._helpers.get_config") as mock_config_fn,
     ):
-        mock_neo4j = MagicMock()
-        mock_neo4j.query.return_value = []
-        mock_neo4j_fn.return_value = mock_neo4j
+        mock_graph_store = MagicMock()
+        mock_graph_store.query.return_value = []
+        mock_graph_store_fn.return_value = mock_graph_store
         mock_chroma_fn.return_value = MagicMock()
         mock_config_fn.return_value = MagicMock()
 

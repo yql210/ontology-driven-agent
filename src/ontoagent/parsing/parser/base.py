@@ -136,6 +136,7 @@ class BaseParser(ABC):
     def _on_parse_error(self, file_path: str, error: Exception) -> None:
         """Handle parse errors. Default: log warning."""
         import logging
+
         logging.getLogger(__name__).warning("Parse failed for %s: %s", file_path, error)
 
     @property

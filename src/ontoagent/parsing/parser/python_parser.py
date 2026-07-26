@@ -8,7 +8,7 @@ from tree_sitter import Language, Parser
 
 from ontoagent.domain.schema import CodeEntity
 from ontoagent.parsing.extractor.entry_point_rules import classify_python_decorator
-from ontoagent.parsing.parser.base import BaseParser, ExtractedRelation, ParseResult
+from ontoagent.parsing.parser.base import BaseParser, ExtractedRelation
 
 PY_LANG = Language(tspython.language())
 
@@ -159,6 +159,7 @@ class PythonParser(BaseParser):
 
     def _extract_external_calls(self, root_node, source, file_path, module_name) -> list[ExtractedRelation]:
         from ontoagent.parsing.extractor.external_calls import extract_external_calls_python
+
         return extract_external_calls_python(root_node, source, module_name, file_path)
 
     def _walk(

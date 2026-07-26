@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class GraphStore(ABC):
@@ -119,4 +120,17 @@ class GraphStore(ABC):
 
         Returns:
             删除的节点数量。
+        """
+
+    @abstractmethod
+    def update_node_property(self, node_id: str, key: str, value: Any) -> bool:
+        """更新单个节点的单个属性。
+
+        Args:
+            node_id: 节点 ID。
+            key: 属性名（snake_case 自动转 camelCase 由实现处理）。
+            value: 属性值。
+
+        Returns:
+            是否成功更新。
         """

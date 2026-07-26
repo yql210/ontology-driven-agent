@@ -161,6 +161,7 @@ def test_rejected_token_resolve_returns_context(gate: ApprovalGate, ctx: Approva
 
     The token is still consumed (one-time use) regardless of approve/reject.
     """
+
     class PendingPolicy:
         @property
         def name(self) -> str:

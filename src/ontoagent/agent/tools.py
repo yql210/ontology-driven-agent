@@ -928,7 +928,6 @@ def _get_action_executor(graph_store: object) -> ActionExecutor:
     """
     global _action_executor
     if _action_executor is None:
-
         from ontoagent.execution.action_executor import ActionExecutor
 
         # V5 Phase 5: Guard Pipeline 退役，Shape 成为唯一约束入口

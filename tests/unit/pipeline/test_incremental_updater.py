@@ -1909,15 +1909,15 @@ class TestConceptEntityHandling:
             # Assert - 验证 concepts_flagged = 2
             assert report.concepts_flagged == 2
 
-            # Assert - 验证 graph_store.query 被调用了正确的 Cypher
-            mock_graph_store.query.assert_called()
-            # 查找包含 ConceptEntity 的 query 调用
-            concept_query_calls = [
+            # Assert - 验证 graph_store.update_node_property 被调用了正确的属性（后端无关重构）
+            mock_graph_store.update_node_property.assert_called()
+            # 查找 needsReextraction 调用
+            reextraction_calls = [
                 call
-                for call in mock_graph_store.query.call_args_list
-                if "ConceptEntity" in str(call) and "needs_reextraction" in str(call)
+                for call in mock_graph_store.update_node_property.call_args_list
+                if "needsReextraction" in str(call)
             ]
-            assert len(concept_query_calls) == 1
+            assert len(reextraction_calls) == 2
         finally:
             os.unlink(temp_path)
 
@@ -2010,13 +2010,13 @@ class TestConceptEntityHandling:
             os.unlink(temp_path)
 
     def test_flag_concept_reextraction_direct(self):
-        """直接调用 _flag_concept_reextraction，验证返回值和 Cypher 正确。"""
+        """直接调用 _flag_concept_reextraction，验证返回值和调用正确。"""
         config = OntoAgentConfig()
         updater = IncrementalUpdater(config)
 
         # Mock graph_store
         mock_graph_store = MagicMock()
-        mock_graph_store.query.return_value = [{"count": 2}]
+        mock_graph_store.update_node_property.return_value = True
         updater._graph_store = mock_graph_store
 
         # Act - 直接调用
@@ -2025,16 +2025,13 @@ class TestConceptEntityHandling:
         # Assert - 验证返回值
         assert result == 2
 
-        # Assert - 验证 Cypher 正确
-        mock_graph_store.query.assert_called_once()
-        call_args = mock_graph_store.query.call_args
-        cypher = call_args[0][0]
-        params = call_args[0][1]  # 参数是位置传递的，不是关键字参数
-
-        assert "ConceptEntity" in cypher
-        assert "needs_reextraction" in cypher
-        assert "IN $ids" in cypher
-        assert params == {"ids": ["id1", "id2"]}
+        # Assert - 验证调用了 update_node_property 而非 raw query（后端无关重构）
+        assert mock_graph_store.update_node_property.call_count == 2
+        mock_graph_store.query.assert_not_called()
+        for call in mock_graph_store.update_node_property.call_args_list:
+            args, _ = call
+            assert args[1] == "needsReextraction"
+            assert args[2] is True
 
     def test_flag_concept_reextraction_empty_list(self):
         """空列表调用 _flag_concept_reextraction，返回 0 且不调用 query。"""
@@ -2134,15 +2131,15 @@ class TestDocEntityHandling:
             # Assert - 验证 docs_flagged = 1
             assert report.docs_flagged == 1
 
-            # Assert - 验证 graph_store.query 被调用了正确的 Cypher
-            mock_graph_store.query.assert_called()
-            # 查找包含 DocEntity 的 query 调用
-            doc_query_calls = [
+            # Assert - 验证 graph_store.update_node_property 被调用了正确的属性（后端无关重构）
+            mock_graph_store.update_node_property.assert_called()
+            # 查找 needsRegeneration 调用
+            regen_calls = [
                 call
-                for call in mock_graph_store.query.call_args_list
-                if "DocEntity" in str(call) and "needs_regeneration" in str(call)
+                for call in mock_graph_store.update_node_property.call_args_list
+                if "needsRegeneration" in str(call)
             ]
-            assert len(doc_query_calls) == 1
+            assert len(regen_calls) == 1
         finally:
             os.unlink(temp_path)
 
@@ -2244,22 +2241,17 @@ class TestDocEntityHandling:
         mock_graph_store.query.return_value = [{"count": 1}]
         updater._graph_store = mock_graph_store
 
-        # Act - 直接调用
+        # Assert - 验证调用正确
         result = updater._flag_doc_regeneration(["id1"])
 
         # Assert - 验证返回值
         assert result == 1
 
-        # Assert - 验证 Cypher 正确
-        mock_graph_store.query.assert_called_once()
-        call_args = mock_graph_store.query.call_args
-        cypher = call_args[0][0]
-        params = call_args[0][1]  # 参数是位置传递的
-
-        assert "DocEntity" in cypher
-        assert "needs_regeneration" in cypher
-        assert "IN $ids" in cypher
-        assert params == {"ids": ["id1"]}
+        # Assert - 验证调用了 update_node_property 而非 raw query（后端无关重构）
+        mock_graph_store.update_node_property.assert_called_once()
+        args, _ = mock_graph_store.update_node_property.call_args
+        assert args[1] == "needsRegeneration"
+        assert args[2] is True
 
     def test_flag_doc_regeneration_empty_list(self):
         """空列表调用 _flag_doc_regeneration，返回 0 且不调用 query。"""

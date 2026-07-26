@@ -164,6 +164,7 @@ class TestMigrationRunnerRunPending:
         reg.register(m)
         # 内置迁移会连锁执行，用 lambda 返回 [] 避免 StopIteration
         version_calls = 0
+
         def _query_side_effect(*args, **kwargs):
             nonlocal version_calls
             version_calls += 1
@@ -171,6 +172,7 @@ class TestMigrationRunnerRunPending:
             if version_calls <= 2:
                 return [{"version": "0.9.0"}]
             return []
+
         store.query.side_effect = _query_side_effect
         runner = MigrationRunner(store, reg)
         with patch.object(runner, "_acquire_lock", return_value=MagicMock()), patch.object(runner, "_release_lock"):
@@ -266,6 +268,4 @@ def test_migration_registry_includes_v5_capability() -> None:
 @pytest.mark.unit
 def test_current_schema_version_is_2_0_0() -> None:
     """Phase 0: CURRENT_SCHEMA_VERSION must be '2.0.0'."""
-    assert CURRENT_SCHEMA_VERSION == "2.0.0", (
-        f"Expected 2.0.0, got {CURRENT_SCHEMA_VERSION}"
-    )
+    assert CURRENT_SCHEMA_VERSION == "2.0.0", f"Expected 2.0.0, got {CURRENT_SCHEMA_VERSION}"

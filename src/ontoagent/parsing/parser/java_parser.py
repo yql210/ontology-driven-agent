@@ -9,7 +9,7 @@ from tree_sitter import Language, Parser
 
 from ontoagent.domain.schema import CodeEntity
 from ontoagent.parsing.extractor.entry_point_rules import classify_java_annotation
-from ontoagent.parsing.parser.base import BaseParser, ExtractedRelation, ParseResult
+from ontoagent.parsing.parser.base import BaseParser, ExtractedRelation
 
 JAVA_LANG = Language(tsjava.language())
 _logger = logging.getLogger(__name__)
@@ -127,6 +127,7 @@ class JavaParser(BaseParser):
 
     def _extract_external_calls(self, root_node, source, file_path, module_name) -> list[ExtractedRelation]:
         from ontoagent.parsing.extractor.external_calls import extract_external_calls_java
+
         return extract_external_calls_java(root_node, source, file_path)
 
     def _extract_package_first_pass(

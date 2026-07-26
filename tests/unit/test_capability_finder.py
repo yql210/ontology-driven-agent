@@ -51,8 +51,7 @@ class TestCapabilityFinder:
         """find() respects top_k parameter."""
         mock_store = MagicMock()
         mock_store.search.return_value = [
-            _make_search_result(f"cap-{i}", f"cap_{i}", "test", f"能力 {i}", 0.1 * i)
-            for i in range(3)
+            _make_search_result(f"cap-{i}", f"cap_{i}", "test", f"能力 {i}", 0.1 * i) for i in range(3)
         ]
 
         finder = CapabilityFinder(mock_store)
@@ -92,9 +91,7 @@ class TestCapabilityFinder:
         assert len(results) == 1
         assert results[0].domain == "inventory"
         # Verify domain filter was passed correctly
-        mock_store.search.assert_called_once_with(
-            "查询", n_results=5, where={"business_domain": "inventory"}
-        )
+        mock_store.search.assert_called_once_with("查询", n_results=5, where={"business_domain": "inventory"})
 
     def test_find_passes_n_results_to_store(self):
         """find() passes top_k as n_results to ChromaDB."""

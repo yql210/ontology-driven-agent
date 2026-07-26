@@ -11,10 +11,10 @@ if TYPE_CHECKING:
     from ontoagent.pipeline.impact_propagator import ImpactPropagator
     from ontoagent.pipeline.module_clustering import ModuleClustering
     from ontoagent.store.chroma_store import ChromaStore
-    from ontoagent.store.neo4j_store import Neo4jGraphStore
+    from ontoagent.store.graph_store import GraphStore
 
 _config: OntoAgentConfig | None = None
-_neo4j: Neo4jGraphStore | None = None
+_graph_store: GraphStore | None = None
 _chroma: ChromaStore | None = None
 _aligner: ConceptAligner | None = None
 _clustering: ModuleClustering | None = None
@@ -28,14 +28,23 @@ def get_config() -> OntoAgentConfig:
     return _config
 
 
-def get_neo4j() -> Neo4jGraphStore:
-    global _neo4j
-    if _neo4j is None:
-        from ontoagent.store.neo4j_store import Neo4jGraphStore
+def get_graph_store() -> GraphStore:
+    """获取或创建 GraphStore 单例（由 factory 根据 config.graph_backend 路由后端）。"""
+    global _graph_store
+    if _graph_store is None:
+        from ontoagent.store.factory import create_graph_store
 
-        cfg = get_config()
-        _neo4j = Neo4jGraphStore(cfg.neo4j_uri, cfg.neo4j_user, cfg.neo4j_password)
-    return _neo4j
+        _graph_store = create_graph_store(get_config())
+    return _graph_store
+
+
+def get_neo4j() -> GraphStore:
+    """向后兼容别名：返回当前后端的 GraphStore（可能是 Neo4j 或 Nebula）。
+
+    历史调用方使用 ``get_neo4j()`` 拿存储实例；多后端改造后改为 ``get_graph_store()``。
+    保留此函数避免上游破坏，内部委托给 ``get_graph_store``。
+    """
+    return get_graph_store()
 
 
 def get_chroma() -> ChromaStore:
@@ -52,9 +61,9 @@ def get_aligner() -> ConceptAligner:
     """获取 ConceptAligner 单例（从 Neo4j 加载已有概念）。"""
     global _aligner
     if _aligner is None:
-        neo4j = get_neo4j()
-        # 从 Neo4j 加载概念，否则 list_concepts() 返回空列表
-        results = neo4j.query(
+        graph_store = get_graph_store()
+        # 从图数据库加载概念，否则 list_concepts() 返回空列表
+        results = graph_store.query(
             "MATCH (c:ConceptEntity) RETURN c.id AS id, c.name AS name, "
             "c.entity_type AS type, c.description AS description, c.aliases AS aliases"
         )
@@ -75,7 +84,7 @@ def get_aligner() -> ConceptAligner:
             )
         _aligner = ConceptAligner(
             chroma_store=get_chroma(),
-            neo4j_store=neo4j,
+            neo4j_store=graph_store,
             concepts=concepts,
         )
     return _aligner
@@ -87,7 +96,7 @@ def get_clustering() -> ModuleClustering:
     if _clustering is None:
         from ontoagent.pipeline.module_clustering import ModuleClustering
 
-        _clustering = ModuleClustering(neo4j_store=get_neo4j())
+        _clustering = ModuleClustering(neo4j_store=get_graph_store())
     return _clustering
 
 
@@ -97,5 +106,5 @@ def get_impact_propagator() -> ImpactPropagator:
     if _impact_propagator is None:
         from ontoagent.pipeline.impact_propagator import ImpactPropagator
 
-        _impact_propagator = ImpactPropagator(graph_store=get_neo4j())
+        _impact_propagator = ImpactPropagator(graph_store=get_graph_store())
     return _impact_propagator

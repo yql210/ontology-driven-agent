@@ -455,12 +455,12 @@ class TestContextManager:
     def test_context_manager_closes_stores(self, mock_config: OntoAgentConfig) -> None:
         # Arrange
         with (
-            patch("ontoagent.pipeline.builder.Neo4jGraphStore") as mock_graph_cls,
+            patch("ontoagent.store.factory.create_graph_store") as mock_factory,
             patch("ontoagent.pipeline.builder.ChromaStore") as mock_chroma_cls,
         ):
             mock_graph = MagicMock()
             mock_chroma = MagicMock()
-            mock_graph_cls.return_value = mock_graph
+            mock_factory.return_value = mock_graph
             mock_chroma_cls.return_value = mock_chroma
 
             builder = OntoAgentBuilder(mock_config)

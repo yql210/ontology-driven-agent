@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 
 from ontoagent.execution.action_executor import ActionExecutor
-from ontoagent.execution.shape_registry import ShapeRegistry
 from ontoagent.execution.functions import registry as fn_registry
+from ontoagent.execution.shape_registry import ShapeRegistry
 from ontoagent.store.neo4j_store import Neo4jGraphStore
 
 
@@ -119,9 +119,7 @@ def test_refactor_daily_reconciliation_allowed(executor: ActionExecutor) -> None
         assert "sensitivity" not in err.lower(), (
             f"Expected constraint to allow, but got sensitivity block: {result.error}"
         )
-        assert "Shape" not in err, (
-            f"Expected constraint to allow, but got Shape block: {result.error}"
-        )
+        assert "Shape" not in err, f"Expected constraint to allow, but got Shape block: {result.error}"
     assert result.action_name == "refactor"
     # Positive assertion: shape_registry is wired
     assert executor._shape_registry is not None

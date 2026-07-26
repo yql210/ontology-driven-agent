@@ -3,24 +3,28 @@
 
 Tests the complete user flow on real Neo4j with real demo-service data.
 """
+
 import os
+
 os.environ.setdefault("ONTOAGENT_NEO4J_URI", "bolt://124.221.243.142:7687")
 os.environ.setdefault("ONTOAGENT_NEO4J_USER", "neo4j")
 os.environ.setdefault("ONTOAGENT_NEO4J_PASSWORD", "neo4j123456")
 os.environ.setdefault("ONTOAGENT_ENABLE_SHAPES", "true")
 
 import sys
+
 sys.path.insert(0, "/opt/data/workspace/ontology-driven-agent/src")
 
 import json
-import time
 import logging
+import time
 
 # Suppress noisy Neo4j warnings
 logging.getLogger("neo4j.notifications").setLevel(logging.ERROR)
 
 # Reset all singletons for clean state
 import ontoagent.agent.tools as tools
+
 tools._action_executor = None
 tools._function_runner = None
 tools._APPROVAL_GATE = None
@@ -28,26 +32,39 @@ tools._shape_registry = None
 tools._intent_map = None
 
 from ontoagent.execution.functions import registry as fn_registry
+
 fn_registry.clear_registry()
-from ontoagent.execution.functions.builtin import register_all as _r1; _r1()
-from ontoagent.execution.functions.check_compliance import register_all as _r2; _r2()
-from ontoagent.execution.functions.trace_business_impact import register_all as _r3; _r3()
-from ontoagent.execution.functions.general import register_all as _r4; _r4()
+from ontoagent.execution.functions.builtin import register_all as _r1
+
+_r1()
+from ontoagent.execution.functions.check_compliance import register_all as _r2
+
+_r2()
+from ontoagent.execution.functions.trace_business_impact import register_all as _r3
+
+_r3()
+from ontoagent.execution.functions.general import register_all as _r4
+
+_r4()
 
 from pathlib import Path
+
 fyaml = Path("/opt/data/workspace/ontology-driven-agent/src/ontoagent/config/functions.yaml")
 if fyaml.exists():
     fn_registry.load_from_yaml(fyaml)
 
 from ontoagent.agent.tools import (
-    express_intent, get_neo4j,
-    _get_approval_gate, _get_action_executor, _get_shape_registry,
+    _get_action_executor,
+    _get_approval_gate,
+    express_intent,
+    get_neo4j,
 )
 
 # Helpers
 PASSED = 0
 FAILED = 0
 RESULTS = []
+
 
 def check(name, cond, detail=""):
     global PASSED, FAILED
@@ -60,14 +77,18 @@ def check(name, cond, detail=""):
         RESULTS.append(("FAIL", name, detail))
         print(f"  FAIL: {name} -- {detail}")
 
+
 def call(intent_type="", target="", approval_id="", approved=False):
     kwargs = {}
-    if intent_type: kwargs["intent_type"] = intent_type
-    if target: kwargs["target"] = target
+    if intent_type:
+        kwargs["intent_type"] = intent_type
+    if target:
+        kwargs["target"] = target
     if approval_id:
         kwargs["approval_id"] = approval_id
         kwargs["approved"] = approved
     return json.loads(express_intent.invoke(kwargs))
+
 
 # ============================================================
 # Scenario 1: BLOCK -- refactor on tradeQueueDestinationName (sensitive data)
@@ -88,6 +109,7 @@ print(f"  Entity: {entity['name']}, labels={entity.get('labels', [])}")
 
 # Use _check_with_shapes with an action config that has UPDATE capability
 from ontoagent.execution.action_types import ActionConfig
+
 update_cfg = ActionConfig(
     name="test_block",
     intent_type="test_block",
@@ -101,9 +123,17 @@ block_reason, warnings = executor.check_with_shapes(entity, update_cfg)
 print(f"  block_reason={block_reason}")
 print(f"  warnings={warnings}")
 check("BLOCK: block_reason is not None", block_reason is not None, "should be blocked")
-check("BLOCK: mentions sensitivity/block",
-      block_reason is not None and ("block" in block_reason.lower() or "sensitivity" in block_reason.lower() or "restricted" in block_reason.lower() or "敏感" in block_reason),
-      f"got: {block_reason}")
+check(
+    "BLOCK: mentions sensitivity/block",
+    block_reason is not None
+    and (
+        "block" in block_reason.lower()
+        or "sensitivity" in block_reason.lower()
+        or "restricted" in block_reason.lower()
+        or "敏感" in block_reason
+    ),
+    f"got: {block_reason}",
+)
 
 # ============================================================
 # Scenario 2: ALLOW -- refactor on non-sensitive entity
@@ -156,7 +186,7 @@ if data.get("status") == "approval_required":
     print(f"  reuse token: status={data3.get('status')}")
     check("danger_level: token one-time use", data3.get("status") == "error", f"got {data3.get('status')}")
 else:
-    check("danger_level: triggers approval", False, f"got status={data.get('status')}, error={data.get('error','')}")
+    check("danger_level: triggers approval", False, f"got status={data.get('status')}, error={data.get('error', '')}")
 
 # ============================================================
 # Scenario 4: Reject approval -- operation NOT executed
@@ -188,15 +218,17 @@ print("Scenario 5: ESCALATE (priority=0 -> forced escalate)")
 print("=" * 70)
 
 from ontoagent.domain.schema import ONTOLOGY_ENTITY_LABELS
-from ontoagent.execution.shape_registry import ShapeRegistry
-from ontoagent.execution.shape_evaluator import ShapeEvaluator
-from ontoagent.execution.decision_fuser import DecisionFuser
 from ontoagent.domain.shapes import Operation, Severity
+from ontoagent.execution.decision_fuser import DecisionFuser
+from ontoagent.execution.shape_evaluator import ShapeEvaluator
+from ontoagent.execution.shape_registry import ShapeRegistry
 from ontoagent.pipeline.ontology_loader import load_ontology_to_shapes, write_shapes_yaml
 
 ec_shapes = load_ontology_to_shapes(
     "/tmp/OntologyAutoGen/OntologyAutoGen/output/ontology.json",
-    include_axioms=False, include_properties=False, include_relations=False,
+    include_axioms=False,
+    include_properties=False,
+    include_relations=False,
 )
 write_shapes_yaml(ec_shapes, "/tmp/ecommerce_shapes.yaml")
 
@@ -204,7 +236,9 @@ combined_reg = ShapeRegistry(valid_labels=set(ONTOLOGY_ENTITY_LABELS))
 combined_reg.load_from_yaml(Path("/opt/data/workspace/ontology-driven-agent/src/ontoagent/pipeline/shapes.yaml"))
 combined_reg.load_from_yaml(Path("/tmp/ecommerce_shapes.yaml"))
 
-rows = neo4j.query("MATCH (n:ResourceEntity {name: '客户'}) RETURN n.id as id, n.name as name, labels(n) as labels LIMIT 1")
+rows = neo4j.query(
+    "MATCH (n:ResourceEntity {name: '客户'}) RETURN n.id as id, n.name as name, labels(n) as labels LIMIT 1"
+)
 if rows:
     entity = {"id": rows[0]["id"], "name": rows[0]["name"], "labels": rows[0]["labels"]}
     evaluator = ShapeEvaluator(combined_reg, neo4j)
@@ -220,6 +254,7 @@ if rows:
 
     # Verify _check_with_shapes maps ESCALATE to approval_required
     from ontoagent.execution.action_types import ActionConfig
+
     mock_cfg = ActionConfig(
         name="test_update",
         intent_type="test_update",
@@ -231,13 +266,16 @@ if rows:
     )
     # Reconstruct executor with combined registry (public API, no private attr)
     from ontoagent.execution.action_executor import ActionExecutor
+
     executor = ActionExecutor(neo4j, shape_registry=combined_reg)
     block_reason, warnings = executor.check_with_shapes(entity, mock_cfg)
     print(f"  _check_with_shapes: block_reason={block_reason}, warnings={warnings}")
     check("ESCALATE: no block_reason (ESCALATE != BLOCK)", block_reason is None, f"got {block_reason}")
-    check("ESCALATE: approval_required in warnings",
-          any("approval_required" in str(w) for w in warnings),
-          f"warnings: {warnings}")
+    check(
+        "ESCALATE: approval_required in warnings",
+        any("approval_required" in str(w) for w in warnings),
+        f"warnings: {warnings}",
+    )
 else:
     check("ESCALATE: entity found", False, "no ResourceEntity named '客户'")
 
@@ -256,14 +294,16 @@ if data.get("status") == "approval_required":
 
     data2 = call(approval_id=token, approved=True)
     print(f"  Step 3 - approved & executed: status={data2.get('status')}")
-    check("lifecycle: executes after approval", data2.get("status") != "approval_required", f"got {data2.get('status')}")
+    check(
+        "lifecycle: executes after approval", data2.get("status") != "approval_required", f"got {data2.get('status')}"
+    )
     check("lifecycle: not blocked after approval", data2.get("status") != "blocked", f"got {data2.get('status')}")
 
     data3 = call(approval_id=token, approved=True)
     print(f"  Step 4 - token reuse: status={data3.get('status')}")
     check("lifecycle: token one-time use", data3.get("status") == "error", f"got {data3.get('status')}")
 else:
-    check("lifecycle: triggers approval", False, f"got {data.get('status')}, err={data.get('error','')}")
+    check("lifecycle: triggers approval", False, f"got {data.get('status')}, err={data.get('error', '')}")
 
 # ============================================================
 # Scenario 7: Invalid token
@@ -272,11 +312,13 @@ print("\n" + "=" * 70)
 print("Scenario 7: Invalid token")
 print("=" * 70)
 data = call(approval_id="fake_token_xyz", approved=True)
-print(f"  status={data.get('status')}, error={data.get('error','')}")
+print(f"  status={data.get('status')}, error={data.get('error', '')}")
 check("invalid token: error", data.get("status") == "error", f"got {data.get('status')}")
-check("invalid token: message mentions token",
-      "令牌" in data.get("error", "") or "token" in data.get("error", "").lower(),
-      f"got: {data.get('error')}")
+check(
+    "invalid token: message mentions token",
+    "令牌" in data.get("error", "") or "token" in data.get("error", "").lower(),
+    f"got: {data.get('error')}",
+)
 
 # ============================================================
 # Scenario 8: Expired token (TTL exceeded)
@@ -286,6 +328,7 @@ print("Scenario 8: Expired token")
 print("=" * 70)
 
 from ontoagent.domain.approval import ApprovalContext, PendingApproval, generate_token
+
 gate = _get_approval_gate()
 ctx = ApprovalContext(intent_type="refactor", target="test_func", session_id="")
 token = generate_token("refactor", "test_func", "s1")
@@ -294,7 +337,7 @@ gate._pending[token] = expired_pa
 time.sleep(2)
 
 data = call(approval_id=token, approved=True)
-print(f"  status={data.get('status')}, error={data.get('error','')}")
+print(f"  status={data.get('status')}, error={data.get('error', '')}")
 check("expired token: error", data.get("status") == "error", f"got {data.get('status')}")
 
 # ============================================================
@@ -304,11 +347,13 @@ print("\n" + "=" * 70)
 print("Scenario 9: Entity not found")
 print("=" * 70)
 data = call(intent_type="refactor", target="nonexistent_entity_xyz_123")
-print(f"  status={data.get('status')}, error={data.get('error','')}")
+print(f"  status={data.get('status')}, error={data.get('error', '')}")
 check("not found: error", data.get("status") == "error", f"got {data.get('status')}")
-check("not found: message mentions entity",
-      "实体" in data.get("error", "") or "entity" in data.get("error", "").lower(),
-      f"got: {data.get('error')}")
+check(
+    "not found: message mentions entity",
+    "实体" in data.get("error", "") or "entity" in data.get("error", "").lower(),
+    f"got: {data.get('error')}",
+)
 
 # ============================================================
 # Scenario 10: Unknown intent type
@@ -317,11 +362,13 @@ print("\n" + "=" * 70)
 print("Scenario 10: Unknown intent type")
 print("=" * 70)
 data = call(intent_type="nonexistent_action_xyz", target="LoginController.confirm()")
-print(f"  status={data.get('status')}, error={data.get('error','')}")
+print(f"  status={data.get('status')}, error={data.get('error', '')}")
 check("unknown intent: error", data.get("status") == "error", f"got {data.get('status')}")
-check("unknown intent: message mentions unknown",
-      "未知" in data.get("error", "") or "unknown" in data.get("error", "").lower(),
-      f"got: {data.get('error')}")
+check(
+    "unknown intent: message mentions unknown",
+    "未知" in data.get("error", "") or "unknown" in data.get("error", "").lower(),
+    f"got: {data.get('error')}",
+)
 
 # ============================================================
 # Scenario 11: Audit log verification
@@ -333,7 +380,9 @@ print("=" * 70)
 audit = gate.audit_log
 print(f"  Total audit entries: {len(audit)}")
 for entry in audit[-5:]:
-    print(f"    action={entry['action']}, intent={entry['intent_type']}, target={entry['target']}, token={entry.get('token','')[:8]}...")
+    print(
+        f"    action={entry['action']}, intent={entry['intent_type']}, target={entry['target']}, token={entry.get('token', '')[:8]}..."
+    )
 check("audit: has entries", len(audit) > 0, "audit log empty")
 
 pending_entries = [e for e in audit if e["action"] == "pending"]
@@ -354,7 +403,9 @@ print("=" * 70)
 
 cs_shapes = load_ontology_to_shapes(
     "/tmp/code_security_domain/output/ontology.json",
-    include_axioms=False, include_properties=False, include_relations=False,
+    include_axioms=False,
+    include_properties=False,
+    include_relations=False,
 )
 write_shapes_yaml(cs_shapes, "/tmp/code_security_shapes.yaml")
 
@@ -365,8 +416,12 @@ multi_reg.load_from_yaml(Path("/tmp/code_security_shapes.yaml"))
 total_shapes = len(multi_reg)
 print(f"  Combined registry: {total_shapes} shapes")
 
-rows_ec = neo4j.query("MATCH (n:ResourceEntity {name: '客户'}) RETURN n.id as id, n.name as name, labels(n) as labels LIMIT 1")
-rows_cs = neo4j.query("MATCH (n:ResourceEntity {name: '漏洞'}) RETURN n.id as id, n.name as name, labels(n) as labels LIMIT 1")
+rows_ec = neo4j.query(
+    "MATCH (n:ResourceEntity {name: '客户'}) RETURN n.id as id, n.name as name, labels(n) as labels LIMIT 1"
+)
+rows_cs = neo4j.query(
+    "MATCH (n:ResourceEntity {name: '漏洞'}) RETURN n.id as id, n.name as name, labels(n) as labels LIMIT 1"
+)
 
 if rows_ec and rows_cs:
     ec_entity = {"id": rows_ec[0]["id"], "name": rows_ec[0]["name"], "labels": rows_ec[0]["labels"]}
@@ -378,21 +433,23 @@ if rows_ec and rows_cs:
     ec_triggered = [r for r in ec_results if r.triggered]
     ec_refs = {r.shape.target.ontology_ref for r in ec_triggered if r.shape.target.ontology_ref}
     print(f"  客户 UPDATE: evaluated={len(ec_results)}, triggered={len(ec_triggered)}, refs={ec_refs}")
-    check("cross-domain: 客户 triggers only ecommerce shapes",
-          "漏洞" not in ec_refs and "安全策略" not in ec_refs,
-          f"refs={ec_refs}")
+    check(
+        "cross-domain: 客户 triggers only ecommerce shapes",
+        "漏洞" not in ec_refs and "安全策略" not in ec_refs,
+        f"refs={ec_refs}",
+    )
 
     cs_results = evaluator_multi.evaluate(cs_entity, [Operation.UPDATE])
     cs_triggered = [r for r in cs_results if r.triggered]
     cs_refs = {r.shape.target.ontology_ref for r in cs_triggered if r.shape.target.ontology_ref}
     print(f"  漏洞 UPDATE: evaluated={len(cs_results)}, triggered={len(cs_triggered)}, refs={cs_refs}")
-    check("cross-domain: 漏洞 triggers only code_security shapes",
-          "客户" not in cs_refs and "订单" not in cs_refs,
-          f"refs={cs_refs}")
+    check(
+        "cross-domain: 漏洞 triggers only code_security shapes",
+        "客户" not in cs_refs and "订单" not in cs_refs,
+        f"refs={cs_refs}",
+    )
 
-    check("cross-domain: no cross-contamination",
-          ec_refs != cs_refs,
-          f"ec={ec_refs}, cs={cs_refs}")
+    check("cross-domain: no cross-contamination", ec_refs != cs_refs, f"ec={ec_refs}, cs={cs_refs}")
 else:
     check("cross-domain: entities found", False, "missing entities")
 

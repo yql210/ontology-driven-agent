@@ -18,7 +18,7 @@ def _check_compliance(ctx: ActionContext) -> FunctionResult:
 
     # Try Cypher query first
     cypher = (
-        "MATCH (c:CodeEntity {id: $target_id})-[:processes_data]->(d:DataAsset)-[:governed_by]->(ci:ComplianceItem) "
+        "MATCH (c:CodeEntity {id: $target_id})-[:PROCESSES_DATA]->(d:DataAsset)-[:GOVERNED_BY]->(ci:ComplianceItem) "
         "RETURN d.name as data_asset, ci.name as compliance, ci.requirement, ci.severity"
     )
     try:
