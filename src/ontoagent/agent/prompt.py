@@ -2,13 +2,55 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from pathlib import Path
 
 from ontoagent.execution.intent_router import build_intent_map, build_intent_prompt
 
+logger = logging.getLogger(__name__)
+
 _yaml_path = Path(__file__).parent.parent / "pipeline" / "ontology_actions.yaml"
 _intent_map = build_intent_map(_yaml_path)
 INTENT_SECTION = build_intent_prompt(_intent_map)
+
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+
+def _resolve_graph_backend() -> str:
+    """读取当前 graph_backend 配置（neo4j | nebula）。
+
+    直接从环境变量读取以避免在模块加载期触发完整 OntoAgentConfig.from_env()
+    的 .env 加载副作用；调用方使用 OntoAgentConfig 时会触发。
+    """
+    backend = os.getenv("ONTOAGENT_GRAPH_BACKEND", "neo4j").strip().lower()
+    if backend not in ("neo4j", "nebula"):
+        logger.warning("Unknown graph_backend %r, fallback to neo4j", backend)
+        return "neo4j"
+    return backend
+
+
+def _get_query_lang_name() -> str:
+    """返回当前后端对应的查询语言人类可读名称。"""
+    return "nGQL" if _resolve_graph_backend() == "nebula" else "Cypher"
+
+
+def _load_graph_query_guide() -> str:
+    """从 prompts/graph_query_{lang}.md 加载查询语言指南片段。
+
+    backend → language 映射：neo4j → cypher；nebula → nebula。
+
+    Returns:
+        指南文本。文件缺失时返回空串（降级，不阻塞 prompt 构建）。
+    """
+    backend = _resolve_graph_backend()
+    lang = "nebula" if backend == "nebula" else "cypher"
+    path = _PROMPTS_DIR / f"graph_query_{lang}.md"
+    if not path.exists():
+        logger.warning("Graph query guide not found: %s", path)
+        return ""
+    return path.read_text(encoding="utf-8").strip()
+
 
 def _build_constraint_prompt() -> str:
     """生成约束提示段。
@@ -79,7 +121,7 @@ AGENT_SYSTEM_PROMPT = f"""你是 OntoAgent 代码知识图谱助手，帮助用�
 |------|------|----------|
 | get_context | 查实体详情（属性+关系+相似实体） | entity_name(必填) |
 | impact_analysis | 变更影响范围分析 | entity_name(必填), depth(默认3) |
-| graph_query | 自定义 Cypher 查询 | cypher(必填) |
+| graph_query | 自定义 {_get_query_lang_name()} 查询 | cypher(必填) |
 | semantic_search | 语义搜索代码片段 | query(必填), top_k(默认5) |
 | check_operation | 预查操作约束状态（是否会被拦截） | intent_type, target |
 | express_intent | 执行操作（重构/文档/分析等） | intent_type, target, params |
@@ -122,10 +164,7 @@ AGENT_SYSTEM_PROMPT = f"""你是 OntoAgent 代码知识图谱助手，帮助用�
 2. 查询类优先用专用工具，graph_query 作为兜底
 3. 操作类用 express_intent 工具
 4. 工具返回空或 error 时，换一个工具尝试一次，仍然失败则直接告知用户，不要重试
-5. 所有 Cypher 查询必须加 LIMIT，禁止全表扫描
+5. 所有查询必须加 LIMIT，禁止全表扫描
 
-## 常用 Cypher
-- 查实体: MATCH (n:CodeEntity) WHERE n.name CONTAINS 'X' RETURN n.name, n.file_path, n.entity_type LIMIT 10
-- 调用链: MATCH (a)-[:CALLS]->(b) WHERE a.name CONTAINS 'X' RETURN a.name, b.name LIMIT 10
-- 被调用: MATCH (a)-[:CALLS]->(b) WHERE b.name CONTAINS 'X' RETURN a.name, b.name LIMIT 10
+{_load_graph_query_guide()}
 """

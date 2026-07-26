@@ -27,20 +27,63 @@ _config = _load_config()
 _ENABLED = _config.get("enabled", True)
 _KEYWORDS = _config.get("blocked_keywords", [])
 if not _KEYWORDS:
-    _KEYWORDS = ["SET", "DELETE", "REMOVE", "CREATE", "MERGE", "DROP", "DETACH DELETE", "FOREACH", "CALL apoc"]
+    _KEYWORDS = [
+        # Cypher
+        "SET",
+        "DELETE",
+        "REMOVE",
+        "CREATE",
+        "MERGE",
+        "DROP",
+        "DETACH DELETE",
+        "FOREACH",
+        "CALL apoc",
+        # nGQL
+        "INSERT VERTEX",
+        "INSERT EDGE",
+        "UPSERT VERTEX",
+        "UPSERT EDGE",
+        "DELETE VERTEX",
+        "DELETE EDGE",
+        "UPDATE VERTEX",
+        "UPDATE EDGE",
+        "CREATE TAG",
+        "CREATE EDGE",
+        "CREATE SPACE",
+        "ALTER TAG",
+        "ALTER EDGE",
+        "DROP TAG",
+        "DROP EDGE",
+        "DROP SPACE",
+        "SUBMIT JOB",
+    ]
 
 _WRITE_KEYWORDS = _build_pattern(_KEYWORDS)
 
 
 def is_write_cypher(cypher: str) -> bool:
+    """判断查询字符串是否含写操作关键字。
+
+    函数名保留 ``cypher`` 以维持调用方兼容；实际匹配 Cypher 与 nGQL 两种方言。
+    """
     if not _ENABLED:
         return False
     return bool(_WRITE_KEYWORDS.search(cypher))
 
 
-def validate_graph_query(cypher: str) -> tuple[bool, str]:
+def validate_graph_query(query: str, *, cypher: str | None = None) -> tuple[bool, str]:
+    """校验 graph_query 工具的输入是否为只读查询。
+
+    Args:
+        query: 主参数名（后端无关）。
+        cypher: 向后兼容别名；若提供则覆盖 query。
+
+    Returns:
+        (allowed, reason) 元组。
+    """
+    actual = cypher if cypher is not None else query
     if not _ENABLED:
         return True, "ok"
-    if is_write_cypher(cypher):
-        return False, "Cypher 写操作被拦截。写操作请使用 express_intent。"
+    if is_write_cypher(actual):
+        return False, "写操作被拦截。写操作请使用 express_intent。"
     return True, "ok"

@@ -3,8 +3,10 @@
 # 是否启用写操作拦截
 enabled: true
 
-# 拦截的 Cypher 写操作关键字（不区分大小写）
+# 拦截的写操作关键字（不区分大小写）
+# 覆盖 Cypher（Neo4j）与 nGQL（NebulaGraph）两种方言
 blocked_keywords:
+  # Neo4j / Cypher 写操作
   - SET
   - DELETE
   - REMOVE
@@ -14,3 +16,21 @@ blocked_keywords:
   - "DETACH DELETE"
   - FOREACH
   - "CALL apoc"
+  # NebulaGraph / nGQL 写操作
+  - "INSERT VERTEX"
+  - "INSERT EDGE"
+  - "UPSERT VERTEX"
+  - "UPSERT EDGE"
+  - "DELETE VERTEX"
+  - "DELETE EDGE"
+  - "UPDATE VERTEX"
+  - "UPDATE EDGE"
+  - "CREATE TAG"
+  - "CREATE EDGE"
+  - "CREATE SPACE"
+  - "ALTER TAG"
+  - "ALTER EDGE"
+  - "DROP TAG"
+  - "DROP EDGE"
+  - "DROP SPACE"
+  - "SUBMIT JOB"
