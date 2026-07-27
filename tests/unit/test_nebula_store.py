@@ -836,3 +836,58 @@ class TestNebulaStoreClearAll:
 
         with pytest.raises(RuntimeError, match="clear_all failed"):
             store_with_mock_pool.clear_all()
+
+
+@pytest.mark.unit
+class TestFormatValueSerialization:
+    """``_format_value`` 序列化测试（Phase 6.4：修复 list/dict/set/bool 序列化）。"""
+
+    def test_none_becomes_null(self) -> None:
+        from ontoagent.store.nebula_store import _format_value
+
+        assert _format_value(None) == "null"
+
+    def test_bool_becomes_lowercase_string(self) -> None:
+        """bool 不应变成 ``"True"``/``"False"``（Python 默认），而应是 ``"true"``/``"false"``。"""
+        from ontoagent.store.nebula_store import _format_value
+
+        assert _format_value(True) == '"true"'
+        assert _format_value(False) == '"false"'
+
+    def test_list_becomes_json_string(self) -> None:
+        """list 不应变成 ``"['a', 'b']"``（Python repr），而应是 JSON ``'["a","b"]'``。"""
+        from ontoagent.store.nebula_store import _format_value
+
+        result = _format_value(["a", "b"])
+        assert '"["a", "b"]"' == result or '"[\\"a\\", \\"b\\"]"' == result
+
+    def test_dict_becomes_json_string(self) -> None:
+        from ontoagent.store.nebula_store import _format_value
+
+        result = _format_value({"key": "val"})
+        # 应是 JSON 格式，不是 Python repr
+        assert "key" in result and "val" in result
+
+    def test_set_becomes_sorted_json(self) -> None:
+        """set 序列化为排序后的 JSON list，保证确定性。"""
+        from ontoagent.store.nebula_store import _format_value
+
+        result = _format_value({"z", "a", "m"})
+        # set 排序后应为 ["a", "m", "z"]
+        assert "a" in result and "m" in result and "z" in result
+
+    def test_int_stays_string(self) -> None:
+        from ontoagent.store.nebula_store import _format_value
+
+        assert _format_value(42) == '"42"'
+
+    def test_float_stays_string(self) -> None:
+        from ontoagent.store.nebula_store import _format_value
+
+        assert _format_value(0.85) == '"0.85"'
+
+    def test_string_escapes_quotes(self) -> None:
+        from ontoagent.store.nebula_store import _format_value
+
+        result = _format_value('hello "world"')
+        assert '\\"' in result

@@ -137,11 +137,26 @@ class NebulaSchemaInitializer:
     def create_edges(self) -> list[str]:
         """为 26 个关系创建 Edge type DDL（不执行，仅返回语句列表）。
 
-        Edge 无属性（POC 简化）。
+        每个 Edge type 包含通用溯源和权重属性，支持 ``add_provenance()``
+        和 ``impact_propagator`` 的 weight/affect_score 持久化：
+
+        - ``weight`` — 关系权重（string，运行时 float→str）
+        - ``affectScore`` — 影响分数（string）
+        - ``provenanceSource`` / ``confidence`` / ``extractedAt`` — 溯源三元组
         """
+        # 与 Tag common_fields 对齐的 Edge 通用属性
+        edge_props = ", ".join(
+            [
+                "`weight` string",
+                "`affectScore` string",
+                "`provenanceSource` string",
+                "`confidence` string",
+                "`extractedAt` string",
+            ]
+        )
         ddl_list: list[str] = []
         for edge_type in RELATION_TYPE_TO_NEO4J.values():
-            ddl_list.append(f"CREATE EDGE IF NOT EXISTS `{edge_type}` ();")
+            ddl_list.append(f"CREATE EDGE IF NOT EXISTS `{edge_type}` ({edge_props});")
         return ddl_list
 
     def create_indexes(self) -> list[str]:

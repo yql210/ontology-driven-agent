@@ -73,11 +73,23 @@ def _format_value(value: Any) -> str:
     避免 "Invalid data, may be wrong value type" 错误。
 
     - None → ``null``（UPSERT 时跳过该字段）
+    - bool → ``"true"`` / ``"false"``（小写，避免 Python ``True``/``False`` 留入数据）
+    - list / dict → JSON 字符串（避免 Python ``repr`` 格式 ``['a', 'b']``）
+    - set → 排序后 JSON list（确定性序列化）
     - 其他 → ``"..."``（转义反斜杠和双引号后用双引号包裹）
     """
     if value is None:
         return "null"
-    # bool/int/float/str 统一按字符串处理（schema 字段全是 string 类型）
+    if isinstance(value, bool):
+        return '"true"' if value else '"false"'
+    if isinstance(value, (list, dict, set, tuple)):
+        import json as _json
+
+        serializable = sorted(value) if isinstance(value, (set, frozenset)) else value
+        s = _json.dumps(serializable, ensure_ascii=False)
+        s = s.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{s}"'
+    # int/float/str 统一按字符串处理（schema 字段全是 string 类型）
     s = str(value)
     s = s.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{s}"'
@@ -269,25 +281,15 @@ class NebulaGraphStore(GraphStore):
                 result = session.execute(stmt)
                 if not result.is_succeeded():
                     err = safe_error_msg(result)
-                    # 容错：schema 字段不匹配（entity_to_dict 产出 schema 未定义的字段）
-                    # 降级为 INSERT 占位节点，保证图结构完整，未知字段丢弃。
-                    if "Tag prop not found" in err or "wrong value type" in err:
-                        logger.warning(
-                            "[NebulaStore] merge_node UPSERT failed (%s), fallback to INSERT placeholder for %s:%s",
-                            err,
-                            label,
-                            vid,
-                        )
-                        stmt = f'INSERT VERTEX `{label}`() VALUES "{vid}":();'
-                        result = session.execute(stmt)
-                        if not result.is_succeeded():
-                            msg = (
-                                f"NebulaGraph merge_node INSERT fallback failed: {safe_error_msg(result)} | stmt={stmt}"
-                            )
-                            raise RuntimeError(msg)
-                    else:
-                        msg = f"NebulaGraph merge_node failed: {err} | stmt={stmt}"
-                        raise RuntimeError(msg)
+                    # schema 字段不匹配是编程错误（entity_to_dict 产出 schema 未声明的字段）
+                    # 不再静默降级为空节点——那会把「数据丢失」隐藏为「图结构正常」
+                    msg = (
+                        f"NebulaGraph merge_node UPSERT failed: {err} | "
+                        f"label={label} vid={vid} stmt={stmt}. "
+                        f"If 'Tag prop not found', add the missing field to "
+                        f"domain/schema.py::_EXTRA_FIELDS['{label}']."
+                    )
+                    raise RuntimeError(msg)
             else:
                 # 无属性可设 → 仅 INSERT 占位（保证点存在）
                 stmt = f'INSERT VERTEX `{label}`() VALUES "{vid}":();'
@@ -300,9 +302,18 @@ class NebulaGraphStore(GraphStore):
         return props
 
     def get_node(self, node_id: str) -> dict | None:
-        """FETCH PROP ON * ``vid`` YIELD properties(vertex) — 返回 dict 或 None。"""
+        """FETCH PROP ON * ``vid`` YIELD id, tags, properties — 返回 dict 或 None。
+
+        返回的 dict 包含 ``id``、``label``（第一个 Tag 名，对应 Neo4j label 语义）
+        以及所有 Tag 属性的合并。若 vertex 有多个 Tag，属性按键合并（后者覆盖前者）。
+        """
         with self._session_scope() as session:
-            stmt = f'FETCH PROP ON * "{node_id}" YIELD id(vertex) AS id, properties(vertex) AS props;'
+            # tags(vertex) 返回该 vertex 的所有 Tag 名列表
+            stmt = (
+                f'FETCH PROP ON * "{node_id}" '
+                f"YIELD id(vertex) AS id, tags(vertex) AS tag_names, "
+                f"properties(vertex) AS props;"
+            )
             result = session.execute(stmt)
             if not result.is_succeeded():
                 logger.error("[NebulaStore] get_node failed: %s", safe_error_msg(result))
@@ -310,25 +321,30 @@ class NebulaGraphStore(GraphStore):
             if result.is_empty():
                 return None
 
-            # 简化：取第一行；column_values("props") 在 NebulaGraph 中返回 NMap ValueWrapper
-            # 这里 best-effort 取出所有列。生产环境使用 ResultSet.as_primitive() 转换。
             try:
                 keys = result.keys()
                 if not keys:
                     return None
                 row: dict = {}
                 for key in keys:
-                    col_values = result.column_values(key)  # list of ValueWrapper
+                    col_values = result.column_values(key)
                     value_wrapper = col_values[0] if col_values else None
                     row[key] = _unwrap_value(value_wrapper) if value_wrapper is not None else None
-                # 如果存在 props 列（map），合并展开（递归解包 ValueWrapper）
-                if "props" in row and isinstance(row["props"], dict):
-                    props_raw = row["props"]
-                    props = {}
+
+                # 提取 label（第一个 Tag 名，与 Neo4j labels()[0] 对齐）
+                tag_names = row.pop("tag_names", None)
+                if isinstance(tag_names, list) and tag_names:
+                    row["label"] = tag_names[0]
+                    row["_labels"] = tag_names
+                elif isinstance(tag_names, str) and tag_names:
+                    row["label"] = tag_names
+
+                # 合并 props map
+                props_raw = row.pop("props", None)
+                if isinstance(props_raw, dict):
                     for k, v in props_raw.items():
-                        props[k] = _unwrap_value(v) if hasattr(v, "as_string") else v
-                    props.setdefault("id", node_id)
-                    return props
+                        row[k] = _unwrap_value(v) if hasattr(v, "as_string") else v
+
                 row.setdefault("id", node_id)
                 return row
             except Exception:
@@ -358,7 +374,8 @@ class NebulaGraphStore(GraphStore):
             source_id: 源 VID。
             target_id: 目标 VID。
             rel_type: 关系类型（snake_case 或 UPPER_SNAKE 均可）。
-            properties: 关系属性（可选， NebulaGraph Edge type 当前定义为空，属性被忽略）。
+            properties: 关系属性（可选）。支持 weight、affectScore、provenanceSource、
+                confidence、extractedAt（与 Edge DDL 定义的属性对齐）。
             source_label: 占位参数（与 Neo4j 实现签名对齐；不影响 NebulaGraph 写入）。
             target_label: 占位参数。
 
@@ -380,20 +397,42 @@ class NebulaGraphStore(GraphStore):
             msg = f"Invalid relation type: {neo4j_rel_type}"
             raise ValueError(msg)
 
-        # NebulaGraph Edge type 当前定义为空，properties 暂无法写入（DDL 简化策略）
-        # 若后续 Edge type 加属性，可在此扩展 SET
+        # 序列化关系属性（camelCase + format）
+        props = _keys_to_camel_case(properties) if properties else {}
+        # 过滤掉未知字段（只保留 Edge DDL 声明的 5 个通用属性）
+        _EDGE_PROP_NAMES = {"weight", "affectScore", "provenanceSource", "confidence", "extractedAt"}
+        filtered_props = {k: v for k, v in props.items() if k in _EDGE_PROP_NAMES}
+
         with self._session_scope() as session:
             # 先 DELETE 保证幂等（NebulaGraph 的 INSERT EDGE 是追加语义，rank 相同时旧值保留）
             # Edge 名加反引号：CONTAINS/IMPORTS 等是 nGQL 保留字，不加反引号会 EdgeNotFound
             delete_stmt = f'DELETE EDGE `{neo4j_rel_type}` "{source_id}"->"{target_id}"@0;'
-            insert_stmt = f'INSERT EDGE `{neo4j_rel_type}`() VALUES "{source_id}"->"{target_id}"@0:();'
             session.execute(delete_stmt)
+
+            if filtered_props:
+                # 带属性的 INSERT EDGE
+                from ontoagent.store.nebula_schema import _escape_prop_name
+
+                prop_names = ", ".join(_escape_prop_name(k) for k in filtered_props)
+                prop_values = ", ".join(_format_value(v) for v in filtered_props.values())
+                insert_stmt = (
+                    f'INSERT EDGE `{neo4j_rel_type}` ({prop_names}) '
+                    f'VALUES "{source_id}"->"{target_id}"@0:({prop_values});'
+                )
+            else:
+                insert_stmt = f'INSERT EDGE `{neo4j_rel_type}`() VALUES "{source_id}"->"{target_id}"@0:();'
             result = session.execute(insert_stmt)
             if not result.is_succeeded():
                 msg = f"NebulaGraph merge_relation failed: {safe_error_msg(result)}"
                 raise RuntimeError(msg)
 
-        logger.debug("[NebulaStore] merged edge %s-[%s]->%s", source_id, neo4j_rel_type, target_id)
+        logger.debug(
+            "[NebulaStore] merged edge %s-[%s]->%s (props=%s)",
+            source_id,
+            neo4j_rel_type,
+            target_id,
+            list(filtered_props.keys()),
+        )
         return properties or {}
 
     def delete_relation(self, source_id: str, target_id: str, rel_type: str) -> bool:
@@ -683,8 +722,8 @@ class NebulaGraphStore(GraphStore):
         """批量 ``INSERT EDGE`` 写入关系。
 
         按 ``rel_type`` 分组（NebulaGraph INSERT EDGE 按 edge type 批量），
-        每组按 ``batch_size`` 分批执行。NebulaGraph Edge type 当前无属性
-        （Phase 6.1 才扩展），``properties`` 字段被忽略。
+        每组按 ``batch_size`` 分批执行。Edge 属性（weight/affectScore/
+        provenanceSource/confidence/extractedAt）在写入时序列化为 Edge 列。
 
         Args:
             relations: 关系数据列表，每项含 ``source_id``/``target_id``/``rel_type``，
@@ -700,6 +739,9 @@ class NebulaGraphStore(GraphStore):
         """
         if not relations:
             return 0
+
+        _EDGE_PROP_NAMES = {"weight", "affectScore", "provenanceSource", "confidence", "extractedAt"}
+        from ontoagent.store.nebula_schema import _escape_prop_name
 
         # 按 rel_type 分组（NebulaGraph INSERT EDGE 按 edge type 批量）
         groups: dict[str, list[dict]] = {}
@@ -726,13 +768,36 @@ class NebulaGraphStore(GraphStore):
 
         with self._session_scope() as session:
             for edge_type, group in groups.items():
+                # 先收集本组所有属性 key 的并集（与 batch merge_nodes 同理）
+                all_prop_keys: list[str] = []
+                seen_keys: set[str] = set()
+                for rel in group:
+                    raw_props = rel.get("properties") or {}
+                    camel_props = _keys_to_camel_case(raw_props)
+                    filtered = {k: v for k, v in camel_props.items() if k in _EDGE_PROP_NAMES}
+                    for k in filtered:
+                        if k not in seen_keys:
+                            seen_keys.add(k)
+                            all_prop_keys.append(k)
+
                 for i in range(0, len(group), batch_size):
                     batch = group[i : i + batch_size]
-                    # Edge 名加反引号：CONTAINS/IMPORTS 等是 nGQL 保留字
-                    # rank=0 显式指定，避免多次写入产生重复边（INSERT EDGE 默认追加语义）
-                    values_parts = [f'"{r["source_id"]}"->"{r["target_id"]}"@0:()' for r in batch]
-                    values_clause = ", ".join(values_parts)
-                    stmt = f"INSERT EDGE `{edge_type}`() VALUES {values_clause};"
+                    # 构造 VALUES 子句
+                    if all_prop_keys:
+                        prop_cols = ", ".join(_escape_prop_name(k) for k in all_prop_keys)
+                        values_parts = []
+                        for r in batch:
+                            raw_props = r.get("properties") or {}
+                            camel_props = _keys_to_camel_case(raw_props)
+                            filtered = {k: v for k, v in camel_props.items() if k in _EDGE_PROP_NAMES}
+                            vals = ", ".join(_format_value(filtered.get(k)) for k in all_prop_keys)
+                            values_parts.append(f'"{r["source_id"]}"->"{r["target_id"]}"@0:({vals})')
+                        values_clause = ", ".join(values_parts)
+                        stmt = f"INSERT EDGE `{edge_type}`({prop_cols}) VALUES {values_clause};"
+                    else:
+                        values_parts = [f'"{r["source_id"]}"->"{r["target_id"]}"@0:()' for r in batch]
+                        values_clause = ", ".join(values_parts)
+                        stmt = f"INSERT EDGE `{edge_type}`() VALUES {values_clause};"
 
                     result = session.execute(stmt)
                     if not result.is_succeeded():

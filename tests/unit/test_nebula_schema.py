@@ -131,13 +131,18 @@ class TestNebulaSchemaEdges:
             )
         assert len(ddl_list) == len(RELATION_TYPE_TO_NEO4J)
 
-    def test_edge_ddl_is_empty_props(self, mock_session: MagicMock) -> None:
-        """Edge type 无属性（POC 简化策略）。"""
+    def test_create_edges_have_common_props(self, mock_session: MagicMock) -> None:
+        """Edge type 包含通用溯源和权重属性（Phase 6.1）。"""
         initializer = NebulaSchemaInitializer(mock_session)
         ddl_list = initializer.create_edges()
-        # 每个 DDL 形如 `CREATE EDGE IF NOT EXISTS CALLS()`
         for ddl in ddl_list:
-            assert "()" in ddl, f"Edge DDL should have empty props: {ddl}"
+            assert "CREATE EDGE IF NOT EXISTS" in ddl
+            # 5 个通用属性必须存在
+            assert "weight" in ddl
+            assert "affectScore" in ddl
+            assert "provenanceSource" in ddl
+            assert "confidence" in ddl
+            assert "extractedAt" in ddl
 
     def test_create_edges_is_idempotent(self, mock_session: MagicMock) -> None:
         initializer = NebulaSchemaInitializer(mock_session)

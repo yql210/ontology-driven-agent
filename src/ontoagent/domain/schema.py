@@ -547,7 +547,25 @@ def _snake_to_camel(name: str) -> str:
 
 # Neo4j 动态属性（不是 dataclass 字段，但在构建时写入 Neo4j）
 _EXTRA_FIELDS: dict[str, set[str]] = {
-    "CodeEntity": {"lines", "entryCategory"},
+    "CodeEntity": {
+        "lines",
+        "entryCategory",
+        # builder_utils.entity_to_dict 产出的 key（camelCase 映射）
+        "codeParameters",
+        "entryMetadata",
+        "businessProcess",
+        "businessPriority",
+        "businessLifecycle",
+        "businessOwner",
+    },
+    "DataAsset": {
+        "aliases",  # list[str]，序列化为 JSON string
+    },
+    "CapabilityEntity": {
+        "inputContract",
+        "outputContract",
+        "keywords",
+    },
 }
 
 
