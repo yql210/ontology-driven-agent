@@ -15,4 +15,10 @@ COPY src/ /app/src/
 COPY pyproject.toml /app/
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
+# 默认启动 Web API；docker-compose 可通过 command 覆盖
+# docker run image web --host 0.0.0.0
+# docker run image serve --transport stdio
+# docker run image butler serve
+# docker run image build ./repo
 ENTRYPOINT ["ontoagent"]
+CMD ["web", "--host", "0.0.0.0", "--port", "8000"]

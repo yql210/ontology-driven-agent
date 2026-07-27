@@ -868,7 +868,7 @@ class TestFormatValueSerialization:
         from ontoagent.store.nebula_store import _format_value
 
         result = _format_value(["a", "b"])
-        assert '"["a", "b"]"' == result or '"[\\"a\\", \\"b\\"]"' == result
+        assert result == '"["a", "b"]"' or result == '"[\\"a\\", \\"b\\"]"'
 
     def test_dict_becomes_json_string(self) -> None:
         from ontoagent.store.nebula_store import _format_value
@@ -922,7 +922,7 @@ class TestSessionRetryAndHealthCheck:
 
     def test_health_check_on_failure(self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock) -> None:
         """health_check 连接失败时返回 connected=False 且不抛异常。"""
-        mock_session.execute = MagicMock(side_effect=IOError("connection lost"))
+        mock_session.execute = MagicMock(side_effect=OSError("connection lost"))
 
         result = store_with_mock_pool.health_check()
         assert result["connected"] is False

@@ -8,9 +8,10 @@ from ontoagent.config import OntoAgentConfig
 class TestConfigNebulaFields:
     """测试 Config NebulaGraph 后端配置字段（Phase 1）。"""
 
-    def test_graph_backend_default_is_neo4j(self) -> None:
+    def test_graph_backend_default_is_nebula(self) -> None:
+        """生产默认使用 NebulaGraph（Phase 9 改动）。"""
         config = OntoAgentConfig()
-        assert config.graph_backend == "neo4j"
+        assert config.graph_backend == "nebula"
 
     def test_nebula_host_default(self) -> None:
         config = OntoAgentConfig()

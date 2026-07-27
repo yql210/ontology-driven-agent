@@ -20,7 +20,7 @@ import uuid
 
 import pytest
 
-from ontoagent.domain.schema import VALID_ENTITY_LABELS, RELATION_TYPE_TO_NEO4J
+from ontoagent.domain.schema import RELATION_TYPE_TO_NEO4J, VALID_ENTITY_LABELS
 
 pytestmark = pytest.mark.skipif(
     os.getenv("ONTOAGENT_NEBULA_HOST", "") == "",
@@ -31,9 +31,10 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def nebula_store():
     """创建独立的测试 Space，全部测试共享。"""
-    from ontoagent.store.nebula_store import NebulaGraphStore
-    from nebula3.gclient.net import ConnectionPool
     from nebula3.Config import Config
+    from nebula3.gclient.net import ConnectionPool
+
+    from ontoagent.store.nebula_store import NebulaGraphStore
 
     space = f"p8_e2e_{uuid.uuid4().hex[:8]}"
     host = os.getenv("ONTOAGENT_NEBULA_HOST", "124.221.243.142")

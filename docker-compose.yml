@@ -1,36 +1,188 @@
 services:
-  neo4j:
-    image: neo4j:5
+  # ===== NebulaGraph 集群（3 个服务） =====
+  nebula-metad:
+    image: vesoft/nebula-metad:v3.7.0
     environment:
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?请设置 NEO4J_PASSWORD 环境变量}
+      USER: root
+      TZ: Asia/Shanghai
+    command:
+      - --meta_server_addrs=nebula-metad:9559
+      - --local_ip=nebula-metad
+      - --ws_ip=nebula-metad:19559
+      - --port=9559
+      - --data_path=/data/meta
+      - --log_dir=/logs
     ports:
-      - "7687:7687"
-      - "7474:7474"
+      - "9559:9559"
+      - "19559:19559"
     volumes:
-      - neo4j_data:/data
+      - nebula_meta_data:/data/meta
+      - nebula_meta_logs:/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:19559/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
 
-  chromadb:
-    image: chromadb/chroma
+  nebula-storaged:
+    image: vesoft/nebula-storaged:v3.7.0
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    command:
+      - --meta_server_addrs=nebula-metad:9559
+      - --local_ip=nebula-storaged
+      - --ws_ip=nebula-storaged:19779
+      - --port=9779
+      - --data_path=/data/storage
+      - --log_dir=/logs
     ports:
-      - "8000:8000"
+      - "9779:9779"
+      - "19779:19779"
+    volumes:
+      - nebula_storage_data:/data/storage
+      - nebula_storage_logs:/logs
+    depends_on:
+      nebula-metad:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:19779/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  nebula-graphd:
+    image: vesoft/nebula-graphd:v3.7.0
+    environment:
+      USER: root
+      TZ: Asia/Shanghai
+    command:
+      - --meta_server_addrs=nebula-metad:9559
+      - --local_ip=nebula-graphd
+      - --ws_ip=nebula-graphd:19669
+      - --port=9669
+      - --log_dir=/logs
+    ports:
+      - "9669:9669"
+      - "19669:19669"
+    volumes:
+      - nebula_graph_logs:/logs
+    depends_on:
+      nebula-metad:
+        condition: service_healthy
+      nebula-storaged:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:19669/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # ===== ChromaDB（向量库） =====
+  chromadb:
+    image: chromadb/chroma:latest
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /chroma/chroma
+    ports:
+      - "8001:8000"
     volumes:
       - chroma_data:/chroma/chroma
+    restart: unless-stopped
 
-  ontoagent:
+  # ===== OntoAgent 后端（Web API） =====
+  ontoagent-web:
     build: .
+    command: ["web", "--host", "0.0.0.0", "--port", "8000"]
     environment:
-      ONTOAGENT_NEO4J_URI: bolt://neo4j:7687
-      ONTOAGENT_NEO4J_USER: neo4j
-      ONTOAGENT_NEO4J_PASSWORD: ${NEO4J_PASSWORD:?请设置 NEO4J_PASSWORD 环境变量}
+      ONTOAGENT_GRAPH_BACKEND: nebula
+      ONTOAGENT_NEBULA_HOST: nebula-graphd
+      ONTOAGENT_NEBULA_PORT: "9669"
+      ONTOAGENT_NEBULA_USER: root
+      ONTOAGENT_NEBULA_PASSWORD: ${NEBULA_PASSWORD:-nebula}
+      ONTOAGENT_NEBULA_SPACE: ontoagent
+      ONTOAGENT_CHROMA_DIR: /data/chroma
+      ONTOAGENT_AGENT_API_KEY: ${ONTOAGENT_AGENT_API_KEY:-}
+      ONTOAGENT_AGENT_LLM_MODEL: ${ONTOAGENT_AGENT_LLM_MODEL:-glm-4-flash}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      # 如果启用 API Key 认证（推荐生产环境开启）
+      ONTOAGENT_API_KEY: ${ONTOAGENT_API_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      nebula-graphd:
+        condition: service_healthy
+      chromadb:
+        condition: service_started
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+  # ===== OntoAgent 前端（Nginx 静态资源） =====
+  ontoagent-frontend:
+    image: nginx:alpine
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "3000:80"
+    depends_on:
+      - ontoagent-web
+    restart: unless-stopped
+    profiles:
+      - full
+
+  # ===== OntoAgent CLI（按需运行） =====
+  ontoagent-cli:
+    build: .
+    command: ["--help"]
+    environment:
+      ONTOAGENT_GRAPH_BACKEND: nebula
+      ONTOAGENT_NEBULA_HOST: nebula-graphd
+      ONTOAGENT_NEBULA_PORT: "9669"
+      ONTOAGENT_NEBULA_USER: root
+      ONTOAGENT_NEBULA_PASSWORD: ${NEBULA_PASSWORD:-nebula}
+      ONTOAGENT_NEBULA_SPACE: ontoagent
       ONTOAGENT_CHROMA_DIR: /data/chroma
     depends_on:
-      - neo4j
-      - chromadb
+      nebula-graphd:
+        condition: service_healthy
     volumes:
       - ./data:/data
     profiles:
       - cli
 
+  # ===== Butler 常驻服务（事件驱动知识管理） =====
+  ontoagent-butler:
+    build: .
+    command: ["butler", "serve"]
+    environment:
+      ONTOAGENT_GRAPH_BACKEND: nebula
+      ONTOAGENT_NEBULA_HOST: nebula-graphd
+      ONTOAGENT_NEBULA_PORT: "9669"
+      ONTOAGENT_NEBULA_USER: root
+      ONTOAGENT_NEBULA_PASSWORD: ${NEBULA_PASSWORD:-nebula}
+      ONTOAGENT_NEBULA_SPACE: ontoagent
+      ONTOAGENT_CHROMA_DIR: /data/chroma
+    depends_on:
+      nebula-graphd:
+        condition: service_healthy
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    profiles:
+      - butler
+
 volumes:
-  neo4j_data:
+  nebula_meta_data:
+  nebula_meta_logs:
+  nebula_storage_data:
+  nebula_storage_logs:
+  nebula_graph_logs:
   chroma_data:

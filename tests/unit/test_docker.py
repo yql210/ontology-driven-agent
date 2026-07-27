@@ -30,6 +30,14 @@ def test_dockerfile_contains_entrypoint():
     assert 'ENTRYPOINT ["ontoagent"]' in content
 
 
+def test_dockerfile_has_default_cmd():
+    """Dockerfile 默认启动 Web API。"""
+    dockerfile = Path(__file__).parent.parent.parent / "Dockerfile"
+    content = dockerfile.read_text()
+    assert "CMD" in content
+    assert "web" in content
+
+
 def test_docker_compose_exists():
     """docker-compose.yml 存在。"""
     compose_file = Path(__file__).parent.parent.parent / "docker-compose.yml"
@@ -42,21 +50,34 @@ def test_docker_compose_yaml_valid():
 
     compose_file = Path(__file__).parent.parent.parent / "docker-compose.yml"
     content = compose_file.read_text()
-    # 不应抛出 YAMLError
     yaml.safe_load(content)
 
 
-def test_docker_compose_neo4j_internal_uri():
-    """docker-compose.yml 中 ontoagent 服务的 ONTOAGENT_NEO4J_URI 使用内部服务名 neo4j。"""
+def test_docker_compose_has_nebula_services():
+    """docker-compose.yml 包含 NebulaGraph 三个服务。"""
     import yaml
 
     compose_file = Path(__file__).parent.parent.parent / "docker-compose.yml"
     content = compose_file.read_text()
     config = yaml.safe_load(content)
 
-    ontoagent_env = config["services"]["ontoagent"]["environment"]
-    assert ontoagent_env["ONTOAGENT_NEO4J_URI"] == "bolt://neo4j:7687"
-    assert "localhost" not in ontoagent_env["ONTOAGENT_NEO4J_URI"]
+    services = config["services"]
+    assert "nebula-metad" in services
+    assert "nebula-storaged" in services
+    assert "nebula-graphd" in services
+
+
+def test_docker_compose_web_uses_nebula():
+    """ontoagent-web 服务使用 NebulaGraph 后端。"""
+    import yaml
+
+    compose_file = Path(__file__).parent.parent.parent / "docker-compose.yml"
+    content = compose_file.read_text()
+    config = yaml.safe_load(content)
+
+    web_env = config["services"]["ontoagent-web"]["environment"]
+    assert web_env["ONTOAGENT_GRAPH_BACKEND"] == "nebula"
+    assert web_env["ONTOAGENT_NEBULA_HOST"] == "nebula-graphd"
 
 
 def test_docker_compose_has_volumes():
@@ -68,11 +89,19 @@ def test_docker_compose_has_volumes():
     config = yaml.safe_load(content)
 
     assert "volumes" in config
-    assert "neo4j_data" in config["volumes"]
     assert "chroma_data" in config["volumes"]
+    # NebulaGraph volumes
+    assert "nebula_meta_data" in config["volumes"]
+    assert "nebula_storage_data" in config["volumes"]
 
 
 def test_dockerignore_exists():
     """.dockerignore 存在。"""
     dockerignore = Path(__file__).parent.parent.parent / ".dockerignore"
     assert dockerignore.exists()
+
+
+def test_nginx_config_exists():
+    """deploy/nginx.conf 存在（前端反代配置）。"""
+    nginx_conf = Path(__file__).parent.parent.parent / "deploy" / "nginx.conf"
+    assert nginx_conf.exists()

@@ -94,7 +94,7 @@ class OntoAgentConfig:
     agent_base_url: str = "https://open.bigmodel.cn/api/anthropic"
 
     # Graph 后端选择 + NebulaGraph 配置（Phase 1 新增）
-    graph_backend: str = "neo4j"  # "neo4j" | "nebula"
+    graph_backend: str = "nebula"  # "neo4j" | "nebula"（生产默认 nebula）
     nebula_host: str = "127.0.0.1"
     nebula_port: int = 9669
     nebula_user: str = "root"
