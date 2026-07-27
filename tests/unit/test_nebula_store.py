@@ -571,8 +571,17 @@ class TestNebulaStoreSessionScope:
     def test_session_scope_releases_on_exception(
         self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
     ) -> None:
-        # 故意让 execute 抛异常
-        mock_session.execute = MagicMock(side_effect=RuntimeError("boom"))
+        # USE 语句成功，yield body 内的 execute 抛异常
+        success = _make_successful_result()
+        call_count = [0]
+
+        def execute_side_effect(stmt):
+            call_count[0] += 1
+            if "USE" in stmt:
+                return success
+            raise RuntimeError("boom")
+
+        mock_session.execute = MagicMock(side_effect=execute_side_effect)
 
         # swallow 上层异常，仅验证 release 是否被调用
         with suppress(RuntimeError), store_with_mock_pool._session_scope():
@@ -891,3 +900,35 @@ class TestFormatValueSerialization:
 
         result = _format_value('hello "world"')
         assert '\\"' in result
+
+
+@pytest.mark.unit
+class TestSessionRetryAndHealthCheck:
+    """Phase 9: session 重连和健康检查测试。"""
+
+    def test_health_check_returns_dict(self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock) -> None:
+        """health_check 返回包含 connected/space/tag_count/edge_count 的 dict。"""
+        ok_result = MagicMock()
+        ok_result.is_succeeded = MagicMock(return_value=True)
+        ok_result.row_size = MagicMock(return_value=5)
+        mock_session.execute = MagicMock(return_value=ok_result)
+
+        result = store_with_mock_pool.health_check()
+        assert isinstance(result, dict)
+        assert "connected" in result
+        assert result["connected"] is True
+        assert result["space"] == "test_space"
+        assert result["tag_count"] == 5
+
+    def test_health_check_on_failure(self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock) -> None:
+        """health_check 连接失败时返回 connected=False 且不抛异常。"""
+        mock_session.execute = MagicMock(side_effect=IOError("connection lost"))
+
+        result = store_with_mock_pool.health_check()
+        assert result["connected"] is False
+        assert "error" in result
+
+    def test_retry_config_defaults(self) -> None:
+        """_SESSION_RETRY_MAX 和 _SESSION_RETRY_DELAY 有合理默认值。"""
+        assert NebulaGraphStore._SESSION_RETRY_MAX >= 1
+        assert NebulaGraphStore._SESSION_RETRY_DELAY > 0

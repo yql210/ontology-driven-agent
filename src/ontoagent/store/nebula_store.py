@@ -129,6 +129,12 @@ class NebulaGraphStore(GraphStore):
     #: 探针重试间隔（秒）。
     _SCHEMA_PROBE_WAIT_SECONDS: int = 2
 
+    #: session 操作自动重连次数（网络断开/session 过期时）。
+    _SESSION_RETRY_MAX: int = 3
+
+    #: session 重连间隔（秒）。
+    _SESSION_RETRY_DELAY: float = 1.0
+
     def __init__(
         self,
         host: str,
@@ -247,6 +253,33 @@ class NebulaGraphStore(GraphStore):
         self._pool.close()
         logger.debug("[NebulaStore] connection pool closed")
 
+    def health_check(self) -> dict:
+        """检查 NebulaGraph 连接健康度。
+
+        Returns:
+            包含 ``connected`` / ``space`` / ``tag_count`` / ``edge_count`` 的 dict。
+        """
+        result: dict = {"connected": False, "space": self._space, "tag_count": 0, "edge_count": 0}
+        try:
+            with self._session_scope() as session:
+                tags = session.execute("SHOW TAGS;")
+                if tags.is_succeeded():
+                    result["connected"] = True
+                    try:
+                        result["tag_count"] = tags.row_size()
+                    except Exception:
+                        pass
+                edges = session.execute("SHOW EDGES;")
+                if edges.is_succeeded():
+                    try:
+                        result["edge_count"] = edges.row_size()
+                    except Exception:
+                        pass
+        except Exception as exc:
+            result["error"] = str(exc)
+            logger.warning("[NebulaStore] health_check failed: %s", exc)
+        return result
+
     def __enter__(self) -> NebulaGraphStore:
         return self
 
@@ -255,10 +288,40 @@ class NebulaGraphStore(GraphStore):
 
     @contextmanager
     def _session_scope(self) -> Iterator[Session]:
-        """获取 session、执行 USE SPACE、yield、finally release。"""
-        session = self._pool.get_session(self._user, self._password)
+        """获取 session、执行 USE SPACE、yield、finally release。
+
+        包含自动重连：如果 ``get_session`` 或 ``session.execute(USE)`` 抛出
+        网络异常（``IOError``/``OSError``），最多重试 ``_SESSION_RETRY_MAX`` 次。
+        注意：query 级别的 ``RuntimeError``（如语法错误）不在重试范围内。
+        """
+        last_exc: Exception | None = None
+        for attempt in range(self._SESSION_RETRY_MAX):
+            session = None
+            try:
+                session = self._pool.get_session(self._user, self._password)
+                session.execute(f"USE `{self._space}`;")
+                break  # 连接成功，跳出重试循环
+            except (IOError, OSError) as exc:
+                last_exc = exc
+                logger.warning(
+                    "[NebulaStore] connect attempt %d/%d failed: %s",
+                    attempt + 1,
+                    self._SESSION_RETRY_MAX,
+                    exc,
+                )
+                if session:
+                    try:
+                        session.release()
+                    except Exception:
+                        pass
+                import time as _time
+
+                _time.sleep(self._SESSION_RETRY_DELAY)
+        else:
+            msg = f"NebulaGraph connection failed after {self._SESSION_RETRY_MAX} retries: {last_exc}"
+            raise RuntimeError(msg)
+
         try:
-            session.execute(f"USE `{self._space}`;")
             yield session
         finally:
             session.release()
