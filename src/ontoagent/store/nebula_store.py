@@ -65,6 +65,23 @@ def _keys_to_camel_case(d: dict) -> dict:
     return result
 
 
+def _strip_nebula_quotes(val: Any) -> Any:
+    """去除 NebulaGraph ``as_string()`` 返回值中多余的包裹引号。
+
+    NebulaGraph 的 ``ValueWrapper.as_string()`` 对 FIXED_STRING 返回带引号的值
+    （如 ``'"CodeEntity"'`` 而非 ``'CodeEntity'``）。本函数递归去除这些引号。
+
+    对于 list，递归处理每个元素。
+    """
+    if isinstance(val, str):
+        if len(val) >= 2 and val.startswith('"') and val.endswith('"'):
+            return val[1:-1]
+        return val
+    if isinstance(val, list):
+        return [_strip_nebula_quotes(item) for item in val]
+    return val
+
+
 def _format_value(value: Any) -> str:
     """把 Python 值转成 nGQL 字面量。
 
@@ -306,6 +323,9 @@ class NebulaGraphStore(GraphStore):
 
         返回的 dict 包含 ``id``、``label``（第一个 Tag 名，对应 Neo4j label 语义）
         以及所有 Tag 属性的合并。若 vertex 有多个 Tag，属性按键合并（后者覆盖前者）。
+
+        注意：NebulaGraph 的 ``as_string()`` 对 string 类型返回带引号的值（如 ``"CodeEntity"``），
+        本方法自动去除 Tag 名和属性值的包裹引号。
         """
         with self._session_scope() as session:
             # tags(vertex) 返回该 vertex 的所有 Tag 名列表
@@ -332,20 +352,37 @@ class NebulaGraphStore(GraphStore):
                     row[key] = _unwrap_value(value_wrapper) if value_wrapper is not None else None
 
                 # 提取 label（第一个 Tag 名，与 Neo4j labels()[0] 对齐）
-                tag_names = row.pop("tag_names", None)
-                if isinstance(tag_names, list) and tag_names:
-                    row["label"] = tag_names[0]
-                    row["_labels"] = tag_names
-                elif isinstance(tag_names, str) and tag_names:
-                    row["label"] = tag_names
+                # tags(vertex) 返回 [["CodeEntity"]]，as_string 返回 '"CodeEntity"'（带引号）
+                tag_names_raw = row.pop("tag_names", None)
+                # tag_names_raw 可能是 list[ValueWrapper] 或 list[str]
+                if isinstance(tag_names_raw, list):
+                    tag_list = []
+                    for item in tag_names_raw:
+                        unwrapped = _unwrap_value(item) if not isinstance(item, (str, int, float, bool)) else item
+                        tag_list.append(_strip_nebula_quotes(unwrapped))
+                    if tag_list:
+                        row["label"] = tag_list[0]
+                        row["_labels"] = tag_list
+                elif isinstance(tag_names_raw, (str,)) and tag_names_raw:
+                    row["label"] = _strip_nebula_quotes(tag_names_raw)
 
                 # 合并 props map
                 props_raw = row.pop("props", None)
+                # 先保存 id(vertex) 的值（VID），防止被 props 中的 null id 覆盖
+                vid_value = row.get("id")
+                if isinstance(vid_value, str) and vid_value:
+                    vid_value = _strip_nebula_quotes(vid_value)
+
                 if isinstance(props_raw, dict):
                     for k, v in props_raw.items():
-                        row[k] = _unwrap_value(v) if hasattr(v, "as_string") else v
+                        unwrapped = _unwrap_value(v) if hasattr(v, "as_string") else v
+                        # 去除 string 值的包裹引号
+                        if isinstance(unwrapped, str):
+                            unwrapped = _strip_nebula_quotes(unwrapped)
+                        row[k] = unwrapped
 
-                row.setdefault("id", node_id)
+                # 恢复 VID（props map 中的 id 字段是 __NULL__，因为 id 不是 Tag 属性）
+                row["id"] = vid_value or node_id
                 return row
             except Exception:
                 logger.exception("[NebulaStore] get_node decode failed for vid=%s", node_id)
