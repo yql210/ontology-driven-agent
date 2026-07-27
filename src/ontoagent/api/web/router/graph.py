@@ -1,4 +1,7 @@
-"""Graph API router — 图谱数据查询。"""
+"""Graph API router — 图谱数据查询。
+
+后端兼容：自动检测 GraphStore 类型，Neo4j 用 ``labels()``，NebulaGraph 用 ``tags()``。
+"""
 
 from __future__ import annotations
 
@@ -7,12 +10,41 @@ from fastapi import APIRouter, HTTPException, Request
 router = APIRouter(tags=["graph"])
 
 
+def _is_nebula(store: object) -> bool:
+    """检测 store 是否为 NebulaGraphStore。"""
+    return type(store).__name__ == "NebulaGraphStore"
+
+
+def _label_expr(store: object, var: str, idx: int = 0) -> str:
+    """返回获取节点 label 的表达式（后端兼容）。
+
+    - Neo4j: ``labels(n)[0]``
+    - NebulaGraph: ``tags(n)[0]``
+    """
+    fn = "tags" if _is_nebula(store) else "labels"
+    return f"{fn}({var})[{idx}]"
+
+
+def _has_label_check(store: object, var: str) -> str:
+    """返回 ``WHERE`` 子句中的「该节点有 label」条件（后端兼容）。
+
+    - Neo4j: ``size(labels(n)) > 0``
+    - NebulaGraph: ``size(tags(n)) > 0``
+    """
+    fn = "tags" if _is_nebula(store) else "labels"
+    return f"size({fn}({var})) > 0"
+
+
 # ===== Stats =====
 @router.get("/graph/stats")
 def graph_stats(request: Request):
     store = request.app.state.graph_store
-    # 节点统计
-    node_records = store.query("MATCH (n) WHERE size(labels(n)) > 0 RETURN labels(n)[0] AS label, count(*) AS count")
+    # 节点统计（后端兼容 labels() / tags()）
+    label_fn = _label_expr(request.app.state.graph_store, "n")
+    has_label = _has_label_check(request.app.state.graph_store, "n")
+    node_records = store.query(
+        f"MATCH (n) WHERE {has_label} RETURN {label_fn} AS label, count(*) AS count"
+    )
     by_type = {r["label"]: r["count"] for r in node_records if r["label"]}
     total_nodes = sum(by_type.values())
     # 边统计
@@ -38,21 +70,27 @@ def get_graph(
 
     if center:
         # 中心展开模式（两步查询：先取邻居节点，再取边）
+        label_neighbor = _label_expr(store, "neighbor")
+        has_label_neighbor = _has_label_check(store, "neighbor")
+        label_n = _label_expr(store, "n")
+        has_label_n = _has_label_check(store, "n")
+
         # Step 1: 获取中心节点 + limit 个邻居
+        # NebulaGraph 也支持 MATCH path = ...-[*1..N]-，但 labels() 需替换为 tags()
         neighbor_records = store.query(
             f"MATCH path = (center {{name: $name}})-[*1..{depth}]-(neighbor) "
-            "WHERE size(labels(neighbor)) > 0 "
+            f"WHERE {has_label_neighbor} "
             "WITH DISTINCT neighbor "
             "LIMIT $limit "
             "RETURN neighbor.id AS id, neighbor.name AS name, "
-            "  labels(neighbor)[0] AS label, "
+            f"  {label_neighbor} AS label, "
             "  neighbor.entity_type AS entity_type",
             {"name": center, "limit": limit},
         )
         # 也获取中心节点本身
         center_node = store.query(
-            "MATCH (n {name: $name}) WHERE size(labels(n)) > 0 "
-            "RETURN n.id AS id, n.name AS name, labels(n)[0] AS label, "
+            f"MATCH (n {{name: $name}}) WHERE {has_label_n} "
+            f"RETURN n.id AS id, n.name AS name, {label_n} AS label, "
             "n.entity_type AS entity_type",
             {"name": center},
         )
@@ -77,10 +115,13 @@ def get_graph(
         all_ids = list(nodes_map.keys())
         edges: list[dict] = []
         if all_ids:
+            # startNode()/endNode() → NebulaGraph 用 src()/dst()
+            src_fn = "src" if _is_nebula(store) else "startNode"
+            dst_fn = "dst" if _is_nebula(store) else "endNode"
             edge_records = store.query(
                 "MATCH (a)-[r]->(b) "
                 "WHERE a.id IN $ids AND b.id IN $ids "
-                "RETURN startNode(r).id AS source, endNode(r).id AS target, type(r) AS type",
+                f"RETURN {src_fn}(r).id AS source, {dst_fn}(r).id AS target, type(r) AS type",
                 {"ids": all_ids},
             )
             edges = [{"source": r["source"], "target": r["target"], "type": r["type"]} for r in edge_records]
@@ -92,10 +133,15 @@ def get_graph(
         return {"nodes": list(nodes_map.values()), "edges": edges}
     else:
         # 全图模式（两步查询）
+        label_fn = _label_expr(store, "n")
+        has_label = _has_label_check(store, "n")
+        src_fn = "src" if _is_nebula(store) else "startNode"
+        dst_fn = "dst" if _is_nebula(store) else "endNode"
+
         node_records = store.query(
-            "MATCH (n) WHERE size(labels(n)) > 0 "
+            f"MATCH (n) WHERE {has_label} "
             "AND ($types = [] OR labels(n)[0] IN $types) "
-            "RETURN n.id AS id, n.name AS name, labels(n)[0] AS label, "
+            f"RETURN n.id AS id, n.name AS name, {label_fn} AS label, "
             "n.entity_type AS entity_type "
             "LIMIT $limit",
             {"types": allowed_types, "limit": limit},
@@ -106,7 +152,7 @@ def get_graph(
         edge_records = store.query(
             "MATCH (a)-[r]->(b) "
             "WHERE a.id IN $ids AND b.id IN $ids "
-            "RETURN startNode(r).id AS source, endNode(r).id AS target, type(r) AS type",
+            f"RETURN {src_fn}(r).id AS source, {dst_fn}(r).id AS target, type(r) AS type",
             {"ids": node_ids},
         )
         nodes = [
