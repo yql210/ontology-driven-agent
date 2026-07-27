@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ontoagent.domain.exceptions import SchemaMigrationError
 from ontoagent.store.graph_store import GraphStore
+from ontoagent.store.migrations import is_nebula
 from ontoagent.store.migrations.registry import MigrationRegistry
 from ontoagent.store.schema_version import (
     CURRENT_SCHEMA_VERSION,
@@ -124,8 +125,13 @@ class MigrationRunner:
 
             # 更新版本节点到目标版本
             if to_version == "0.0.0":
-                # 删除版本节点
-                self._store.query("MATCH (sv:SchemaVersion) DETACH DELETE sv")
+                # 删除版本节点（后端兼容）
+                if is_nebula(self._store):
+                    # NebulaGraph: DELETE VERTEX（自动清理边，无需 DETACH）
+                    self._store.query('DELETE VERTEX "schema_version_2_0_0";')
+                else:
+                    # Neo4j: DETACH DELETE
+                    self._store.query("MATCH (sv:SchemaVersion) DETACH DELETE sv")
             else:
                 register_schema_version(self._store)
 

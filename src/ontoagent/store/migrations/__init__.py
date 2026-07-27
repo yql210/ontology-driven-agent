@@ -7,6 +7,24 @@ from abc import ABC, abstractmethod
 from ontoagent.store.graph_store import GraphStore
 
 
+def is_nebula(store: GraphStore) -> bool:
+    """检测 store 是否为 NebulaGraphStore。"""
+    return type(store).__name__ == "NebulaGraphStore"
+
+
+def nebula_unique_index_stmt(label: str, prop: str = "id") -> str:
+    """生成 NebulaGraph 的唯一索引 DDL（等价于 Neo4j 的 CONSTRAINT ... IS UNIQUE）。
+
+    NebulaGraph 没有 Neo4j 风格的 CONSTRAINT，用 ``CREATE TAG INDEX`` 替代。
+    """
+    return f"CREATE TAG INDEX IF NOT EXISTS `uniq_{label}_{prop}` ON `{label}`(`{prop}`);"
+
+
+def nebula_drop_index_stmt(label: str, prop: str = "id") -> str:
+    """生成 NebulaGraph 的 DROP TAG INDEX DDL。"""
+    return f"DROP TAG INDEX IF EXISTS `uniq_{label}_{prop}`;"
+
+
 class MigrationBase(ABC):
     """迁移基类。
 
