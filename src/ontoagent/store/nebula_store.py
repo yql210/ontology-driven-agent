@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Any
 
 from nebula3.Config import Config
@@ -265,16 +265,12 @@ class NebulaGraphStore(GraphStore):
                 tags = session.execute("SHOW TAGS;")
                 if tags.is_succeeded():
                     result["connected"] = True
-                    try:
+                    with suppress(Exception):
                         result["tag_count"] = tags.row_size()
-                    except Exception:
-                        pass
                 edges = session.execute("SHOW EDGES;")
                 if edges.is_succeeded():
-                    try:
+                    with suppress(Exception):
                         result["edge_count"] = edges.row_size()
-                    except Exception:
-                        pass
         except Exception as exc:
             result["error"] = str(exc)
             logger.warning("[NebulaStore] health_check failed: %s", exc)
@@ -301,7 +297,7 @@ class NebulaGraphStore(GraphStore):
                 session = self._pool.get_session(self._user, self._password)
                 session.execute(f"USE `{self._space}`;")
                 break  # 连接成功，跳出重试循环
-            except (IOError, OSError) as exc:
+            except OSError as exc:
                 last_exc = exc
                 logger.warning(
                     "[NebulaStore] connect attempt %d/%d failed: %s",
@@ -310,10 +306,8 @@ class NebulaGraphStore(GraphStore):
                     exc,
                 )
                 if session:
-                    try:
+                    with suppress(Exception):
                         session.release()
-                    except Exception:
-                        pass
                 import time as _time
 
                 _time.sleep(self._SESSION_RETRY_DELAY)
@@ -500,8 +494,8 @@ class NebulaGraphStore(GraphStore):
         # 序列化关系属性（camelCase + format）
         props = _keys_to_camel_case(properties) if properties else {}
         # 过滤掉未知字段（只保留 Edge DDL 声明的 5 个通用属性）
-        _EDGE_PROP_NAMES = {"weight", "affectScore", "provenanceSource", "confidence", "extractedAt"}
-        filtered_props = {k: v for k, v in props.items() if k in _EDGE_PROP_NAMES}
+        edge_prop_names = {"weight", "affectScore", "provenanceSource", "confidence", "extractedAt"}
+        filtered_props = {k: v for k, v in props.items() if k in edge_prop_names}
 
         with self._session_scope() as session:
             # 先 DELETE 保证幂等（NebulaGraph 的 INSERT EDGE 是追加语义，rank 相同时旧值保留）
@@ -840,7 +834,7 @@ class NebulaGraphStore(GraphStore):
         if not relations:
             return 0
 
-        _EDGE_PROP_NAMES = {"weight", "affectScore", "provenanceSource", "confidence", "extractedAt"}
+        edge_prop_names = {"weight", "affectScore", "provenanceSource", "confidence", "extractedAt"}
         from ontoagent.store.nebula_schema import _escape_prop_name
 
         # 按 rel_type 分组（NebulaGraph INSERT EDGE 按 edge type 批量）
@@ -874,7 +868,7 @@ class NebulaGraphStore(GraphStore):
                 for rel in group:
                     raw_props = rel.get("properties") or {}
                     camel_props = _keys_to_camel_case(raw_props)
-                    filtered = {k: v for k, v in camel_props.items() if k in _EDGE_PROP_NAMES}
+                    filtered = {k: v for k, v in camel_props.items() if k in edge_prop_names}
                     for k in filtered:
                         if k not in seen_keys:
                             seen_keys.add(k)
@@ -889,7 +883,7 @@ class NebulaGraphStore(GraphStore):
                         for r in batch:
                             raw_props = r.get("properties") or {}
                             camel_props = _keys_to_camel_case(raw_props)
-                            filtered = {k: v for k, v in camel_props.items() if k in _EDGE_PROP_NAMES}
+                            filtered = {k: v for k, v in camel_props.items() if k in edge_prop_names}
                             vals = ", ".join(_format_value(filtered.get(k)) for k in all_prop_keys)
                             values_parts.append(f'"{r["source_id"]}"->"{r["target_id"]}"@0:({vals})')
                         values_clause = ", ".join(values_parts)

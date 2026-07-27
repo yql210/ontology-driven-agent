@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from ontoagent.store.graph_store import GraphStore
@@ -50,17 +51,13 @@ class CrossServiceRelationsMigration(MigrationBase):
             logger.info("[Migration v1.2.0] NebulaGraph: skipping relationship constraints (not needed)")
             return
         for statement in MIGRATION_120["up"]["neo4j"]:
-            try:
-                store.query(statement)
-            except Exception:
+            with contextlib.suppress(Exception):
                 # Neo4j < 5.7 doesn't support relationship-level constraints.
-                pass
+                store.query(statement)
 
     def downgrade(self, store: GraphStore) -> None:
         if is_nebula(store):
             return
         for statement in MIGRATION_120["down"]["neo4j"]:
-            try:
+            with contextlib.suppress(Exception):
                 store.query(statement)
-            except Exception:
-                pass

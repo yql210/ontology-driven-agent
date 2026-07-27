@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import contextlib
+
 from ontoagent.store.graph_store import GraphStore
 from ontoagent.store.migrations import MigrationBase, is_nebula, nebula_drop_index_stmt, nebula_unique_index_stmt
 
@@ -50,10 +52,8 @@ class DataAssetAndComplianceItemMigration(MigrationBase):
         else:
             statements = MIGRATION_110["up"]["neo4j"]
         for statement in statements:
-            try:
+            with contextlib.suppress(Exception):
                 store.query(statement)
-            except Exception:
-                pass  # 索引/约束可能已存在，忽略
 
     def downgrade(self, store: GraphStore) -> None:
         if is_nebula(store):
@@ -64,7 +64,5 @@ class DataAssetAndComplianceItemMigration(MigrationBase):
         else:
             statements = MIGRATION_110["down"]["neo4j"]
         for statement in statements:
-            try:
+            with contextlib.suppress(Exception):
                 store.query(statement)
-            except Exception:
-                pass

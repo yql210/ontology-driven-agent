@@ -24,7 +24,7 @@ dependencies = [
     "tree-sitter-java>=0.23.5",
     "tenacity>=9.1.4",
     "pyyaml>=6.0.3",
-    "nebula-python",
+    "nebula3-python>=3.8.0",
 ]
 
 [project.optional-dependencies]

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from ontoagent.store.graph_store import GraphStore
@@ -70,10 +71,8 @@ class CapabilityEntityMigration(MigrationBase):
         else:
             statements = MIGRATION_200["up"]["neo4j"]
         for statement in statements:
-            try:
+            with contextlib.suppress(Exception):
                 store.query(statement)
-            except Exception:
-                pass
 
     def downgrade(self, store: GraphStore) -> None:
         if is_nebula(store):
@@ -83,7 +82,5 @@ class CapabilityEntityMigration(MigrationBase):
         else:
             statements = MIGRATION_200["down"]["neo4j"]
         for statement in statements:
-            try:
+            with contextlib.suppress(Exception):
                 store.query(statement)
-            except Exception:
-                pass
