@@ -45,6 +45,9 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check src/ tests/
 
+      - name: Pyright type check
+        run: uv run pyright src/ || true  # 非阻塞（第三方库类型缺失是常态）
+
       - name: Run unit tests
         run: uv run pytest tests/unit/ -v --tb=short
 

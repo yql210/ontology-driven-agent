@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
+from starlette.requests import Request as StarletteRequest
+
+from ontoagent.api.web.rate_limit import limiter
 
 router = APIRouter(tags=["graph"])
 
@@ -37,7 +40,8 @@ def _has_label_check(store: object, var: str) -> str:
 
 # ===== Stats =====
 @router.get("/graph/stats")
-def graph_stats(request: Request):
+@limiter.limit("60/minute")
+def graph_stats(request: StarletteRequest):
     store = request.app.state.graph_store
     # 节点统计（后端兼容 labels() / tags()）
     label_fn = _label_expr(request.app.state.graph_store, "n")
@@ -53,8 +57,9 @@ def graph_stats(request: Request):
 
 # ===== Graph Data =====
 @router.get("/graph")
+@limiter.limit("60/minute")
 def get_graph(
-    request: Request,
+    request: StarletteRequest,
     center: str | None = None,
     depth: int = 2,
     limit: int = 200,
@@ -163,7 +168,8 @@ def get_graph(
 
 # ===== Node Detail =====
 @router.get("/graph/node/{node_id}")
-def get_node_detail(node_id: str, request: Request):
+@limiter.limit("60/minute")
+def get_node_detail(node_id: str, request: StarletteRequest):
     store = request.app.state.graph_store
     # 获取节点属性
     node_rec = store.query(
@@ -201,7 +207,8 @@ def get_node_detail(node_id: str, request: Request):
 
 # ===== Delete Node (Task 4.5) =====
 @router.delete("/graph/node/{node_id}")
-def delete_node(node_id: str, request: Request):
+@limiter.limit("30/minute")
+def delete_node(node_id: str, request: StarletteRequest):
     store = request.app.state.graph_store
     node = store.get_node(node_id)
     if not node:

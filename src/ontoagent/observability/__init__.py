@@ -109,11 +109,28 @@ class JsonFormatter(logging.Formatter):
         # 合并 extra 字段
         for key, value in record.__dict__.items():
             if key not in (
-                "name", "msg", "args", "created", "relativeCreated",
-                "exc_info", "exc_text", "stack_info", "lineno", "funcName",
-                "filename", "module", "threadName", "thread", "msecs",
-                "processName", "process", "levelname", "levelno", "pathname",
-                "message", "taskName",
+                "name",
+                "msg",
+                "args",
+                "created",
+                "relativeCreated",
+                "exc_info",
+                "exc_text",
+                "stack_info",
+                "lineno",
+                "funcName",
+                "filename",
+                "module",
+                "threadName",
+                "thread",
+                "msecs",
+                "processName",
+                "process",
+                "levelname",
+                "levelno",
+                "pathname",
+                "message",
+                "taskName",
             ):
                 try:
                     json.dumps(value)  # 可序列化检查
@@ -162,7 +179,3 @@ def record_graph_operation(operation: str, duration: float, success: bool = True
     status = "success" if success else "error"
     graph_operations_total.labels(operation=operation, status=status).inc()
     graph_operation_duration_seconds.labels(operation=operation).observe(duration)
-
-
-# 模块导入时初始化日志
-setup_logging()

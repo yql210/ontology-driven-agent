@@ -1,3 +1,4 @@
+import hmac
 import logging
 import os
 import time
@@ -12,7 +13,7 @@ from ontoagent.api.web.rate_limit import limiter
 from ontoagent.api.web.router import chat as chat_router
 from ontoagent.api.web.router.graph import router as graph_router
 from ontoagent.config import OntoAgentConfig
-from ontoagent.observability import record_http_request, render_metrics
+from ontoagent.observability import record_http_request, render_metrics, setup_logging
 from ontoagent.store.factory import create_graph_store
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,9 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # 只在 Web API 启动时配置日志（不影响 CLI 和测试）
+    setup_logging()
+
     app = FastAPI(title="OntoAgent Agent", version="0.2.0", lifespan=lifespan)
 
     # ===== Rate Limiter 注册 =====
@@ -46,7 +50,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=cors_origins,
         allow_credentials=allow_credentials,
-        allow_methods=["GET", "POST", "DELETE"],
+        allow_methods=["GET", "POST", "DELETE", "HEAD", "OPTIONS"],
         allow_headers=["Authorization", "X-API-Key", "Content-Type"],
     )
 
@@ -59,6 +63,7 @@ def create_app() -> FastAPI:
             """验证 Authorization: Bearer *** 或 X-API-Key: ***
 
             /health 和 /metrics 端点免认证。
+            使用 hmac.compare_digest 防止 timing attack。
             """
 
             _exempt_paths = {"/health", "/metrics"}
@@ -75,7 +80,8 @@ def create_app() -> FastAPI:
                     token = auth[7:]
                 elif xkey:
                     token = xkey
-                if token != api_key:
+                # 常量时间比较，防止 timing attack
+                if not hmac.compare_digest(token, api_key):
                     from fastapi.responses import JSONResponse
 
                     return JSONResponse(
@@ -93,8 +99,9 @@ def create_app() -> FastAPI:
         start_time = time.time()
         response = await call_next(request)
         duration = time.time() - start_time
-        # 归一化端点名（去掉路径参数）
-        endpoint = request.url.path
+        # 用路由模板（如 /api/graph/node/{node_id}）而非实际路径，避免 Prometheus label 基数爆炸
+        route = request.scope.get("route")
+        endpoint = route.path_format if route and hasattr(route, "path_format") else request.url.path
         record_http_request(
             method=request.method,
             endpoint=endpoint,
@@ -149,8 +156,12 @@ def create_app() -> FastAPI:
     return app
 
 
-# slowapi 要求模块级函数
 def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
-    from slowapi import _rate_limit_exceeded_handler as _default_handler
+    """自定义 429 响应，不依赖 slowapi 私有 API。"""
+    from fastapi.responses import JSONResponse
 
-    return _default_handler(request, exc)
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded"},
+        headers={"Retry-After": str(getattr(exc, "retry_after", 60))},
+    )

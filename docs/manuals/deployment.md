@@ -52,9 +52,27 @@ ONTOAGENT_AGENT_API_KEY=<your-llm-key>
 
 # 5. 日志格式（生产用 JSON 适配 ELK/Loki）
 ONTOAGENT_LOG_FORMAT=json
+
+# 6. 多 worker 限流共享（可选，生产推荐 Redis）
+RATE_LIMIT_STORAGE_URI=redis://redis:6379/0
 ```
 
-### 2.3 启动服务
+### 2.3 数据目录权限（重要！）
+
+容器以非 root 用户 `ontoagent` 运行，但 `./data` 是 bind mount——权限取决于 host 目录的 owner。启动前必须设置：
+
+```bash
+mkdir -p ./data
+# 方式 A：已知容器内 ontoagent UID=999（可在 Dockerfile 中确认）
+sudo chown -R 999:999 ./data
+
+# 方式 B：放宽权限（开发环境简单但不安全）
+chmod -R 777 ./data
+```
+
+> **如果跳过此步骤**：ChromaDB 写入 `/data/chroma` 会因权限不足而崩溃。
+
+### 2.4 启动服务
 
 ```bash
 # 构建并启动核心服务（NebulaGraph + ChromaDB + Web API）
