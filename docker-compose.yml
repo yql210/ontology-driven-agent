@@ -119,6 +119,12 @@ services:
       # 可观测性
       ONTOAGENT_LOG_FORMAT: ${ONTOAGENT_LOG_FORMAT:-console}
       ONTOAGENT_LOG_LEVEL: ${ONTOAGENT_LOG_LEVEL:-INFO}
+      ONTOAGENT_LOG_FILE: ${ONTOAGENT_LOG_FILE:-/data/logs/app.log}
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     ports:
       - "${WEB_PORT:-8000}:8000"
     healthcheck:

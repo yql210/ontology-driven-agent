@@ -3,6 +3,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,7 +14,13 @@ from ontoagent.api.web.rate_limit import limiter
 from ontoagent.api.web.router import chat as chat_router
 from ontoagent.api.web.router.graph import router as graph_router
 from ontoagent.config import OntoAgentConfig
-from ontoagent.observability import record_http_request, render_metrics, setup_logging
+from ontoagent.observability import (
+    record_http_request,
+    render_metrics,
+    reset_request_id,
+    set_request_id,
+    setup_logging,
+)
 from ontoagent.store.factory import create_graph_store
 
 logger = logging.getLogger(__name__)
@@ -93,21 +100,29 @@ def create_app() -> FastAPI:
         app.add_middleware(APIKeyMiddleware)
         logger.info("API Key authentication enabled")
 
-    # ===== 请求计时中间件（Prometheus metrics） =====
+    # ===== 请求追踪 + 计时中间件（request_id + Prometheus metrics） =====
     @app.middleware("http")
     async def metrics_middleware(request: Request, call_next):
+        # 生成 request_id 并注入日志上下文
+        request_id = request.headers.get("X-Request-ID") or uuid4().hex[:16]
+        token = set_request_id(request_id)
+        # 在响应头中回传 request_id（客户端可追踪）
         start_time = time.time()
-        response = await call_next(request)
-        duration = time.time() - start_time
-        # 用路由模板（如 /api/graph/node/{node_id}）而非实际路径，避免 Prometheus label 基数爆炸
-        route = request.scope.get("route")
-        endpoint = route.path_format if route and hasattr(route, "path_format") else request.url.path
-        record_http_request(
-            method=request.method,
-            endpoint=endpoint,
-            status=response.status_code,
-            duration=duration,
-        )
+        try:
+            response = await call_next(request)
+        finally:
+            duration = time.time() - start_time
+            # 用路由模板（如 /api/graph/node/{node_id}）而非实际路径，避免 Prometheus label 基数爆炸
+            route = request.scope.get("route")
+            endpoint = route.path_format if route and hasattr(route, "path_format") else request.url.path
+            record_http_request(
+                method=request.method,
+                endpoint=endpoint,
+                status=response.status_code,
+                duration=duration,
+            )
+            response.headers["X-Request-ID"] = request_id
+            reset_request_id(token)
         return response
 
     # ===== 注册路由 =====
