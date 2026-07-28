@@ -26,6 +26,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "nebula3-python>=3.8.0",
     "slowapi>=0.1.10",
+    "prometheus-client>=0.26.0",
 ]
 
 [project.optional-dependencies]

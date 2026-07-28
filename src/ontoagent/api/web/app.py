@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -11,6 +12,7 @@ from ontoagent.api.web.rate_limit import limiter
 from ontoagent.api.web.router import chat as chat_router
 from ontoagent.api.web.router.graph import router as graph_router
 from ontoagent.config import OntoAgentConfig
+from ontoagent.observability import record_http_request, render_metrics
 from ontoagent.store.factory import create_graph_store
 
 logger = logging.getLogger(__name__)
@@ -56,12 +58,14 @@ def create_app() -> FastAPI:
         class APIKeyMiddleware(BaseHTTPMiddleware):
             """验证 Authorization: Bearer *** 或 X-API-Key: ***
 
-            /health 端点免认证（K8s probe 需要）。
+            /health 和 /metrics 端点免认证。
             """
 
+            _exempt_paths = {"/health", "/metrics"}
+
             async def dispatch(self, request, call_next):
-                # /health 免认证
-                if request.url.path == "/health":
+                # /health 和 /metrics 免认证
+                if request.url.path in self._exempt_paths:
                     return await call_next(request)
                 # 检查 Bearer token 或 X-API-Key header
                 auth = request.headers.get("Authorization", "")
@@ -82,6 +86,22 @@ def create_app() -> FastAPI:
 
         app.add_middleware(APIKeyMiddleware)
         logger.info("API Key authentication enabled")
+
+    # ===== 请求计时中间件（Prometheus metrics） =====
+    @app.middleware("http")
+    async def metrics_middleware(request: Request, call_next):
+        start_time = time.time()
+        response = await call_next(request)
+        duration = time.time() - start_time
+        # 归一化端点名（去掉路径参数）
+        endpoint = request.url.path
+        record_http_request(
+            method=request.method,
+            endpoint=endpoint,
+            status=response.status_code,
+            duration=duration,
+        )
+        return response
 
     # ===== 注册路由 =====
     chat_router.collector = _trace_collector
@@ -117,6 +137,14 @@ def create_app() -> FastAPI:
 
         status_code = 200 if result.get("connected") else 503
         return JSONResponse(status_code=status_code, content=result)
+
+    @app.get("/metrics")
+    async def metrics():
+        """Prometheus metrics 端点。"""
+        from fastapi import Response
+
+        data, content_type = render_metrics()
+        return Response(content=data, media_type=content_type)
 
     return app
 
