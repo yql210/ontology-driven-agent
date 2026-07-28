@@ -45,10 +45,12 @@ def mock_session() -> MagicMock:
 def store_with_mock_pool(mock_pool: MagicMock, mock_session: MagicMock) -> NebulaGraphStore:
     """构造 NebulaGraphStore，但替换 _pool 为 mock，每次 _session_scope yield mock_session。"""
     mock_pool.get_session = MagicMock(return_value=mock_session)
-    with patch("ontoagent.store.nebula_store.ConnectionPool", return_value=mock_pool):
+    with (
+        patch("ontoagent.store.nebula_store.ConnectionPool", return_value=mock_pool),
         # 跳过 schema 初始化（探针会尝试真实 SHOW TAGS，在 mock 下无意义）
-        with patch.object(NebulaGraphStore, "_ensure_schema_ready"):
-            store = NebulaGraphStore(host="127.0.0.1", port=9669, user="root", password="nebula", space="test_space")
+        patch.object(NebulaGraphStore, "_ensure_schema_ready"),
+    ):
+        store = NebulaGraphStore(host="127.0.0.1", port=9669, user="root", password="nebula", space="test_space")
     return store
 
 
