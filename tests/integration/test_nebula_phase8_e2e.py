@@ -48,7 +48,7 @@ def nebula_store():
     cleanup_pool = ConnectionPool()
     cleanup_pool.init([(host, port)], config)
     cleanup_session = cleanup_pool.get_session(user, pwd)
-    cleanup_session.execute(f'DROP SPACE IF EXISTS `{space}`;')
+    cleanup_session.execute(f"DROP SPACE IF EXISTS `{space}`;")
     cleanup_session.release()
     cleanup_pool.close()
 
@@ -67,7 +67,7 @@ def nebula_store():
     cleanup_pool2 = ConnectionPool()
     cleanup_pool2.init([(host, port)], config)
     s = cleanup_pool2.get_session(user, pwd)
-    s.execute(f'DROP SPACE IF EXISTS `{space}`;')
+    s.execute(f"DROP SPACE IF EXISTS `{space}`;")
     s.release()
     cleanup_pool2.close()
 
@@ -207,9 +207,7 @@ class TestQueryPatterns:
 
     def test_type_filtered_query(self, nebula_store):
         """查询模式 4：按类型过滤查询。"""
-        results = nebula_store.query(
-            "MATCH (n:`CodeEntity`) RETURN n.name AS name LIMIT 5"
-        )
+        results = nebula_store.query("MATCH (n:`CodeEntity`) RETURN n.name AS name LIMIT 5")
         assert isinstance(results, list)
 
 
@@ -219,10 +217,7 @@ class TestBatchOperations:
     def test_batch_nodes(self, nebula_store):
         """merge_nodes_batch 批量写入。"""
         suffix = uuid.uuid4().hex[:6]
-        nodes = [
-            {"id": f"bn_{suffix}_{i}", "name": f"Batch{i}", "entity_type": "function"}
-            for i in range(5)
-        ]
+        nodes = [{"id": f"bn_{suffix}_{i}", "name": f"Batch{i}", "entity_type": "function"} for i in range(5)]
         count = nebula_store.merge_nodes_batch("CodeEntity", nodes, batch_size=3)
         assert count == 5
 

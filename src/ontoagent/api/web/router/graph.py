@@ -42,9 +42,7 @@ def graph_stats(request: Request):
     # 节点统计（后端兼容 labels() / tags()）
     label_fn = _label_expr(request.app.state.graph_store, "n")
     has_label = _has_label_check(request.app.state.graph_store, "n")
-    node_records = store.query(
-        f"MATCH (n) WHERE {has_label} RETURN {label_fn} AS label, count(*) AS count"
-    )
+    node_records = store.query(f"MATCH (n) WHERE {has_label} RETURN {label_fn} AS label, count(*) AS count")
     by_type = {r["label"]: r["count"] for r in node_records if r["label"]}
     total_nodes = sum(by_type.values())
     # 边统计

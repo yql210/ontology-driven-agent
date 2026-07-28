@@ -6,9 +6,11 @@ from uuid import uuid4
 from fastapi import APIRouter
 from pydantic import BaseModel, field_validator
 from sse_starlette import EventSourceResponse, ServerSentEvent
+from starlette.requests import Request
 
 from ontoagent.agent.graph import run_query
 from ontoagent.agent.trace import TraceCollector
+from ontoagent.api.web.rate_limit import limiter
 
 router = APIRouter()
 
@@ -57,7 +59,8 @@ class ApprovalResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat_sync(req: ChatRequest) -> ChatResponse:
+@limiter.limit("10/minute")
+async def chat_sync(req: ChatRequest, request: Request) -> ChatResponse:  # slowapi 要求 request 参数
     start = time.time()
     thread_id = req.thread_id or str(uuid4())
     answer = await run_query(req.message, thread_id=thread_id)
@@ -66,7 +69,8 @@ async def chat_sync(req: ChatRequest) -> ChatResponse:
 
 
 @router.post("/chat/stream")
-async def chat_stream(req: ChatRequest):
+@limiter.limit("10/minute")
+async def chat_stream(req: ChatRequest, request: Request):  # slowapi 要求 request 参数
     from ontoagent.agent.graph import run_query_stream
 
     thread_id = req.thread_id or str(uuid4())

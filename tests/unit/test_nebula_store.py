@@ -469,9 +469,7 @@ class TestNebulaStoreQuery:
         mock_session.execute = MagicMock(return_value=empty)
 
         with pytest.raises(TypeError, match="ids"):
-            store_with_mock_pool.query(
-                "MATCH (n) WHERE n.id IN $ids RETURN n", {"ids": ["a", "b"]}
-            )
+            store_with_mock_pool.query("MATCH (n) WHERE n.id IN $ids RETURN n", {"ids": ["a", "b"]})
 
     def test_query_dollar_param_dict_raises_type_error(
         self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
@@ -493,9 +491,7 @@ class TestNebulaStoreQuery:
         mock_session.execute = MagicMock(return_value=empty)
 
         with pytest.raises(TypeError, match="ids"):
-            store_with_mock_pool.query(
-                "MATCH (n) WHERE n.id IN $ids RETURN n", {"ids": ("a", "b")}
-            )
+            store_with_mock_pool.query("MATCH (n) WHERE n.id IN $ids RETURN n", {"ids": ("a", "b")})
 
     def test_query_dollar_param_set_raises_type_error(
         self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
@@ -506,9 +502,7 @@ class TestNebulaStoreQuery:
         mock_session.execute = MagicMock(return_value=empty)
 
         with pytest.raises(TypeError, match="ids"):
-            store_with_mock_pool.query(
-                "MATCH (n) WHERE n.id IN $ids RETURN n", {"ids": {"a", "b"}}
-            )
+            store_with_mock_pool.query("MATCH (n) WHERE n.id IN $ids RETURN n", {"ids": {"a", "b"}})
 
     def test_query_dollar_param_logs_warning(
         self,

@@ -4,8 +4,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
 
 from ontoagent.agent.trace import TraceCollector
+from ontoagent.api.web.rate_limit import limiter
 from ontoagent.api.web.router import chat as chat_router
 from ontoagent.api.web.router.graph import router as graph_router
 from ontoagent.config import OntoAgentConfig
@@ -27,26 +29,32 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="OntoAgent Agent", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="OntoAgent Agent", version="0.2.0", lifespan=lifespan)
 
-    # CORS origins from env, default to localhost:5173
+    # ===== Rate Limiter 注册 =====
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+    # ===== CORS（生产环境通过 env 配置精确域名，禁止通配符） =====
     cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:5173")
     cors_origins = [origin.strip() for origin in cors_origins_str.split(",") if origin.strip()]
+    allow_credentials = os.getenv("CORS_ALLOW_CREDENTIALS", "false").lower() == "true"
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_credentials=allow_credentials,
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["Authorization", "X-API-Key", "Content-Type"],
     )
 
-    # API Key 认证（设置 ONTOAGENT_API_KEY 后生效）
+    # ===== API Key 认证（设置 ONTOAGENT_API_KEY 后生效） =====
     api_key = os.getenv("ONTOAGENT_API_KEY", "")
     if api_key:
         from starlette.middleware.base import BaseHTTPMiddleware
 
         class APIKeyMiddleware(BaseHTTPMiddleware):
-            """验证 Authorization: Bearer <key> 或 X-API-Key: <key>。
+            """验证 Authorization: Bearer *** 或 X-API-Key: ***
 
             /health 端点免认证（K8s probe 需要）。
             """
@@ -75,7 +83,7 @@ def create_app() -> FastAPI:
         app.add_middleware(APIKeyMiddleware)
         logger.info("API Key authentication enabled")
 
-    # 注入 TraceCollector 到 chat router
+    # ===== 注册路由 =====
     chat_router.collector = _trace_collector
     app.include_router(chat_router.router, prefix="/api")
     app.include_router(graph_router, prefix="/api")
@@ -111,3 +119,10 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=status_code, content=result)
 
     return app
+
+
+# slowapi 要求模块级函数
+def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
+    from slowapi import _rate_limit_exceeded_handler as _default_handler
+
+    return _default_handler(request, exc)

@@ -118,7 +118,9 @@ class NebulaSchemaInitializer:
         所有字段统一用 ``string`` 类型，避免 ``_format_value`` 的类型不匹配错误。
         """
         common_fields = {
-            "provenanceSource", "confidence", "extractedAt",
+            "provenanceSource",
+            "confidence",
+            "extractedAt",
             "codeParameters",  # entity_to_dict 产出的 key（不同于 schema.parameters）
         }
         ddl_list: list[str] = []
@@ -129,8 +131,7 @@ class NebulaSchemaInitializer:
             ddl_list.append(ddl)
         # SchemaVersion Tag：schema_version.py 通过 MERGE (sv:SchemaVersion {version: ...}) 写入
         ddl_list.append(
-            "CREATE TAG IF NOT EXISTS `SchemaVersion` "
-            "(`version` string, `description` string, `applied_at` string);"
+            "CREATE TAG IF NOT EXISTS `SchemaVersion` (`version` string, `description` string, `applied_at` string);"
         )
         return ddl_list
 
@@ -185,6 +186,7 @@ class NebulaSchemaInitializer:
 
         # 等待 Space DDL 异步生效（CREATE SPACE 后不能立即 USE）
         import time as _time
+
         logger.info("[NebulaSchema] waiting %ds for Space DDL to take effect...", 10)
         _time.sleep(10)
 
@@ -207,6 +209,7 @@ class NebulaSchemaInitializer:
 
         # 等待 Tag/Edge DDL 异步生效（索引依赖 Tag 已创建）
         import time as _time
+
         logger.info("[NebulaSchema] waiting %ds for Tag/Edge DDL to take effect...", 10)
         _time.sleep(10)
 
@@ -215,7 +218,9 @@ class NebulaSchemaInitializer:
             result = self._session.execute(full_stmt)
             if not result.is_succeeded():
                 # 索引失败不阻塞（索引是优化项，不是必需）
-                logger.warning("[NebulaSchema] index DDL failed (non-blocking): %s | stmt=%s", _safe_error_msg(result), ddl)
+                logger.warning(
+                    "[NebulaSchema] index DDL failed (non-blocking): %s | stmt=%s", _safe_error_msg(result), ddl
+                )
 
         logger.info(
             "[NebulaSchema] initialized space '%s' (tags=%d, edges=%d, indexes=%d)",

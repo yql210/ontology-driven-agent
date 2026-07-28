@@ -219,6 +219,7 @@ class NebulaGraphStore(GraphStore):
         使用 tenacity ``Retrying`` 重试，``retry_if_result`` 在结果为 True（未 ready）
         时继续重试。返回最终探针结果（True=ready，False=超时未 ready）。
         """
+
         # 探针：SHOW TAGS succeeded 且非 empty → schema 已生效
         def _probe_not_ready() -> bool:
             """返回 True 表示 schema 还没 ready（需重试），False 表示 ready。"""
@@ -510,7 +511,7 @@ class NebulaGraphStore(GraphStore):
                 prop_names = ", ".join(_escape_prop_name(k) for k in filtered_props)
                 prop_values = ", ".join(_format_value(v) for v in filtered_props.values())
                 insert_stmt = (
-                    f'INSERT EDGE `{neo4j_rel_type}` ({prop_names}) '
+                    f"INSERT EDGE `{neo4j_rel_type}` ({prop_names}) "
                     f'VALUES "{source_id}"->"{target_id}"@0:({prop_values});'
                 )
             else:

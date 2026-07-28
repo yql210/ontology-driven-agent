@@ -25,6 +25,7 @@ dependencies = [
     "tenacity>=9.1.4",
     "pyyaml>=6.0.3",
     "nebula3-python>=3.8.0",
+    "slowapi>=0.1.10",
 ]
 
 [project.optional-dependencies]
