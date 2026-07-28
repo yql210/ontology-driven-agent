@@ -105,16 +105,28 @@ services:
       ONTOAGENT_NEBULA_HOST: nebula-graphd
       ONTOAGENT_NEBULA_PORT: "9669"
       ONTOAGENT_NEBULA_USER: root
-      ONTOAGENT_NEBULA_PASSWORD: ${NEBULA_PASSWORD:-nebula}
+      ONTOAGENT_NEBULA_PASSWORD: ${ONTOAGENT_NEBULA_PASSWORD:-nebula}
       ONTOAGENT_NEBULA_SPACE: ontoagent
       ONTOAGENT_CHROMA_DIR: /data/chroma
       ONTOAGENT_AGENT_API_KEY: ${ONTOAGENT_AGENT_API_KEY:-}
       ONTOAGENT_AGENT_LLM_MODEL: ${ONTOAGENT_AGENT_LLM_MODEL:-glm-4-flash}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
-      # 如果启用 API Key 认证（推荐生产环境开启）
+      CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-false}
+      # 安全配置（生产环境必须设置）
       ONTOAGENT_API_KEY: ${ONTOAGENT_API_KEY:-}
+      ONTOAGENT_RATE_LIMIT: ${ONTOAGENT_RATE_LIMIT:-60/minute}
+      ONTOAGENT_CHAT_RATE_LIMIT: ${ONTOAGENT_CHAT_RATE_LIMIT:-10/minute}
+      # 可观测性
+      ONTOAGENT_LOG_FORMAT: ${ONTOAGENT_LOG_FORMAT:-console}
+      ONTOAGENT_LOG_LEVEL: ${ONTOAGENT_LOG_LEVEL:-INFO}
     ports:
-      - "8000:8000"
+      - "${WEB_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     depends_on:
       nebula-graphd:
         condition: service_healthy
@@ -123,6 +135,8 @@ services:
     volumes:
       - ./data:/data
     restart: unless-stopped
+    # Graceful shutdown: Docker 发送 SIGTERM 后等待 15s 再 SIGKILL
+    stop_grace_period: 15s
 
   # ===== OntoAgent 前端（Nginx 静态资源） =====
   ontoagent-frontend:
@@ -147,7 +161,7 @@ services:
       ONTOAGENT_NEBULA_HOST: nebula-graphd
       ONTOAGENT_NEBULA_PORT: "9669"
       ONTOAGENT_NEBULA_USER: root
-      ONTOAGENT_NEBULA_PASSWORD: ${NEBULA_PASSWORD:-nebula}
+      ONTOAGENT_NEBULA_PASSWORD: ${ONTOAGENT_NEBULA_PASSWORD:-nebula}
       ONTOAGENT_NEBULA_SPACE: ontoagent
       ONTOAGENT_CHROMA_DIR: /data/chroma
     depends_on:
@@ -167,7 +181,7 @@ services:
       ONTOAGENT_NEBULA_HOST: nebula-graphd
       ONTOAGENT_NEBULA_PORT: "9669"
       ONTOAGENT_NEBULA_USER: root
-      ONTOAGENT_NEBULA_PASSWORD: ${NEBULA_PASSWORD:-nebula}
+      ONTOAGENT_NEBULA_PASSWORD: ${ONTOAGENT_NEBULA_PASSWORD:-nebula}
       ONTOAGENT_NEBULA_SPACE: ontoagent
       ONTOAGENT_CHROMA_DIR: /data/chroma
     depends_on:
