@@ -1,0 +1,97 @@
+# OntoAgent CI Pipeline
+# 在每次 push/PR 时自动执行：ruff lint → 单元测试
+# 集成测试 (tests/integration/) 需要 NebulaGraph，仅在手动触发时运行
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch: # 手动触发（可跑集成测试）
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Restore uv cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ${{ runner.os }}-${{ matrix.python-version }}-uv-${{ hashFiles('uv.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.python-version }}-uv-
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: Ruff check
+        run: uv run ruff check src/ tests/
+
+      - name: Ruff format check
+        run: uv run ruff format --check src/ tests/
+
+      - name: Run unit tests
+        run: uv run pytest tests/unit/ -v --tb=short
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.python-version }}
+          path: .pytest_cache/
+          retention-days: 7
+
+  integration-test:
+    # 仅手动触发或打 tag 时运行
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: Start NebulaGraph (Docker)
+        run: |
+          docker compose up -d nebula-metad nebula-storaged nebula-graphd
+          # 等待 NebulaGraph 就绪
+          timeout 60 bash -c 'until curl -sf http://localhost:19669/status; do sleep 2; done'
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration/ -v --tb=short
+        env:
+          ONTOAGENT_GRAPH_BACKEND: nebula
+          ONTOAGENT_NEBULA_HOST: 127.0.0.1
+          ONTOAGENT_NEBULA_PORT: "9669"
+          ONTOAGENT_NEBULA_USER: root
+          ONTOAGENT_NEBULA_PASSWORD: nebula
+          ONTOAGENT_NEBULA_SPACE: ontoagent_ci
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
