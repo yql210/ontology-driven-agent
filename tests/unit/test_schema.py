@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import uuid
-
 import pytest
 
 from ontoagent.domain.exceptions import SchemaValidationError
@@ -30,10 +28,14 @@ def test_code_entity_creation():
 
 
 @pytest.mark.unit
-def test_code_entity_id_is_uuid():
-    """Test that CodeEntity generates a valid UUID v4 id."""
-    entity = CodeEntity(name="bar", entity_type="class")
-    assert uuid.UUID(entity.id).version == 4
+def test_code_entity_id_is_stable_hash():
+    """Test that CodeEntity generates a 32-char stable content-derived id."""
+    entity_a = CodeEntity(name="bar", entity_type="class")
+    entity_b = CodeEntity(name="bar", entity_type="class")
+    entity_c = CodeEntity(name="baz", entity_type="class")
+    assert len(entity_a.id) == 32
+    assert entity_a.id == entity_b.id
+    assert entity_a.id != entity_c.id
 
 
 @pytest.mark.unit

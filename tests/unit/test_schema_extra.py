@@ -23,7 +23,9 @@ def test_module_entity_creation():
     entity = ModuleEntity(name="auth")
     assert entity.name == "auth"
     assert entity.id is not None
-    assert uuid.UUID(entity.id).version == 4
+    assert len(entity.id) == 32
+    # Stable id: 同名模块两次构造得到相同 ID
+    assert ModuleEntity(name="auth").id == entity.id
 
 
 @pytest.mark.unit
@@ -52,7 +54,9 @@ def test_changeset_entity_creation():
     assert cs.author == "unknown"
     assert cs.branch == "main"
     assert cs.files_changed == []
-    assert uuid.UUID(cs.id).version == 4
+    assert len(cs.id) == 32
+    # Stable id: 同 commit_hash 两次构造得到相同 ID
+    assert ChangeSetEntity(commit_hash="abc1234", message="x").id == cs.id
 
 
 @pytest.mark.unit

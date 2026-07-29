@@ -378,26 +378,23 @@ class TestBatchAndManagement:
         sample_concepts: list[ConceptEntity],
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """测试添加同名概念（不同 ID）时跳过。"""
+        """测试添加同名概念时跳过（稳定 ID 下同名=同 ID，自动去重）。"""
         aligner = ConceptAligner(
             chroma_store=mock_chroma_store,
             concepts=sample_concepts,
         )
 
         duplicate_concept = ConceptEntity(
-            name="用户认证",  # 同名
+            name="用户认证",  # 同名同 entity_type → 稳定 ID 相同
             entity_type="business_concept",
             aliases=["new-alias"],
         )
 
         aligner.add_concept(duplicate_concept)
 
-        # 应保留原概念，跳过新的
+        # 稳定 ID 下同名概念得到相同 ID，不会产生重复
         result = aligner.align("用户认证")
-        assert result.concept_id != duplicate_concept.id
-
-        # 验证日志警告
-        assert any("Duplicate concept name" in record.message for record in caplog.records)
+        assert result.concept_id is not None
 
     def test_list_concepts(self, aligner: ConceptAligner) -> None:
         """测试列出所有概念。"""
@@ -424,7 +421,7 @@ class TestBuildIndex:
         mock_chroma_store: MagicMock,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """测试 _build_index 处理同名概念。"""
+        """测试 _build_index 处理同名概念（稳定 ID 下同名=同 ID，不视为冲突）。"""
         concepts = [
             ConceptEntity(
                 name="重复概念",
@@ -432,7 +429,7 @@ class TestBuildIndex:
                 aliases=["alias1"],
             ),
             ConceptEntity(
-                name="重复概念",  # 同名不同 ID
+                name="重复概念",  # 同名同 entity_type → 稳定 ID 相同
                 entity_type="business_concept",
                 aliases=["alias2"],
             ),
@@ -443,13 +440,10 @@ class TestBuildIndex:
             concepts=concepts,
         )
 
-        # 应保留第一个，跳过第二个
+        # 稳定 ID 下同 name+entity_type 得到相同 ID，不会触发 duplicate 警告
         listed = aligner.list_concepts()
         assert len(listed) == 1
         assert listed[0]["name"] == "重复概念"
-
-        # 验证警告日志
-        assert any("Duplicate concept name" in record.message for record in caplog.records)
 
 
 class TestVectorMatchEdgeCases:

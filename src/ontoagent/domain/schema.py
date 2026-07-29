@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -15,6 +16,16 @@ from ontoagent.domain.constraints import (  # noqa: F401
 from ontoagent.domain.exceptions import ConstraintViolationError, SchemaValidationError
 
 
+def _stable_id(*parts: str) -> str:
+    """从内容字段生成 32 字符 hex 稳定 ID。
+
+    同一组 ``parts`` 总是返回同一 ID，用于让实体跨构建保持稳定 VID。
+    任意 part 为 ``None`` 时按空字符串处理。
+    """
+    raw = "|".join(p or "" for p in parts)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+
+
 @dataclass
 class CodeEntity:
     """代码实体：函数、类、接口、模块或文件。
@@ -22,7 +33,7 @@ class CodeEntity:
     Attributes:
         name: 实体名称（非空）。
         entity_type: 实体类型，必须是 function/class/interface/module/file/enum/record/field 之一。
-        id: UUID v4 标识符，自动生成。
+        id: 内容派生稳定哈希（name+entity_type+file_path+start_line+end_line），可显式传入。
         file_path: 源文件路径（可选）。
         start_line: 起始行号（可选）。
         end_line: 结束行号（可选）。
@@ -35,7 +46,7 @@ class CodeEntity:
 
     name: str
     entity_type: str
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""
     file_path: str | None = None
     start_line: int | None = None
     end_line: int | None = None
@@ -56,6 +67,14 @@ class CodeEntity:
 
     def __post_init__(self) -> None:
         """校验字段。"""
+        if not self.id:
+            self.id = _stable_id(
+                self.name,
+                self.entity_type,
+                self.file_path,
+                str(self.start_line),
+                str(self.end_line),
+            )
         if not self.name or not self.name.strip():
             raise SchemaValidationError("CodeEntity.name cannot be empty")
         if self.entity_type not in self.VALID_ENTITY_TYPES:
@@ -75,7 +94,7 @@ class ConceptEntity:
     Attributes:
         name: 实体名称（非空）。
         entity_type: 实体类型，必须是 business_concept/design_pattern/api_contract/data_model/process 之一。
-        id: UUID v4 标识符，自动生成。
+        id: 内容派生稳定哈希（name+entity_type），可显式传入。
         description: 概念描述（可选）。
         aliases: 别名列表（可选）。
         created_at: ISO 8601 格式的时间戳，自动生成。
@@ -83,7 +102,7 @@ class ConceptEntity:
 
     name: str
     entity_type: str
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""
     description: str | None = None
     aliases: list[str] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -99,6 +118,8 @@ class ConceptEntity:
 
     def __post_init__(self) -> None:
         """校验字段。"""
+        if not self.id:
+            self.id = _stable_id(self.name, self.entity_type)
         if not self.name or not self.name.strip():
             raise SchemaValidationError("ConceptEntity.name cannot be empty")
         if self.entity_type not in self.VALID_ENTITY_TYPES:
@@ -117,7 +138,7 @@ class DataAsset:
         sensitivity: 敏感级别，必须是 public/internal/confidential/restricted 之一。
         data_type: 数据类型，必须是 pii/financial/operational/credentials 之一。
         aliases: 别名列表（可选）。
-        id: UUID v4 标识符，自动生成。
+        id: 内容派生稳定哈希（name+data_type+sensitivity），可显式传入。
         created_at: ISO 8601 格式的时间戳，自动生成。
     """
 
@@ -126,7 +147,7 @@ class DataAsset:
     sensitivity: str
     data_type: str
     aliases: list[str] = field(default_factory=list)
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     VALID_SENSITIVITIES = {"public", "internal", "confidential", "restricted"}
@@ -134,6 +155,8 @@ class DataAsset:
 
     def __post_init__(self) -> None:
         """校验字段。"""
+        if not self.id:
+            self.id = _stable_id(self.name, self.data_type, self.sensitivity)
         if not self.name or not self.name.strip():
             raise SchemaValidationError("DataAsset.name cannot be empty")
         if self.sensitivity not in self.VALID_SENSITIVITIES:
@@ -153,7 +176,7 @@ class DocEntity:
     Attributes:
         name: 实体名称（非空）。
         entity_type: 实体类型，必须是 readme/module_doc/api_doc/comment/wiki/architecture_doc 之一。
-        id: UUID v4 标识符，自动生成。
+        id: 内容派生稳定哈希（name+entity_type+file_path），可显式传入。
         content: 文档内容（可选）。
         file_path: 文件路径（可选）。
         language: 文档语言/格式（可选）。
@@ -162,7 +185,7 @@ class DocEntity:
 
     name: str
     entity_type: str
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""
     content: str | None = None
     file_path: str | None = None
     language: str | None = None
@@ -179,6 +202,8 @@ class DocEntity:
 
     def __post_init__(self) -> None:
         """校验字段。"""
+        if not self.id:
+            self.id = _stable_id(self.name, self.entity_type, self.file_path)
         if not self.name or not self.name.strip():
             raise SchemaValidationError("DocEntity.name cannot be empty")
         if self.entity_type not in self.VALID_ENTITY_TYPES:
@@ -194,7 +219,7 @@ class ResourceEntity:
     Attributes:
         name: 实体名称（非空）。
         entity_type: 实体类型，必须是 image/diagram/pdf/config/schema_file/log 之一。
-        id: UUID v4 标识符，自动生成。
+        id: 内容派生稳定哈希（name+entity_type+file_path），可显式传入。
         file_path: 文件路径（可选）。
         mime_type: MIME类型（可选）。
         created_at: ISO 8601 格式的时间戳，自动生成。
@@ -202,7 +227,7 @@ class ResourceEntity:
 
     name: str
     entity_type: str
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""
     file_path: str | None = None
     mime_type: str | None = None
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -211,6 +236,8 @@ class ResourceEntity:
 
     def __post_init__(self) -> None:
         """校验字段。"""
+        if not self.id:
+            self.id = _stable_id(self.name, self.entity_type, self.file_path)
         if not self.name or not self.name.strip():
             raise SchemaValidationError("ResourceEntity.name cannot be empty")
         if self.entity_type not in self.VALID_ENTITY_TYPES:
@@ -225,18 +252,20 @@ class ModuleEntity:
 
     Attributes:
         name: 模块名称（非空）。
-        id: UUID v4 标识符，自动生成。
+        id: 内容派生稳定哈希（name），可显式传入。
         description: 模块描述（可选）。
         created_at: ISO 8601 格式的时间戳，自动生成。
     """
 
     name: str
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""
     description: str | None = None
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def __post_init__(self) -> None:
         """校验字段。"""
+        if not self.id:
+            self.id = _stable_id(self.name)
         if not self.name or not self.name.strip():
             raise SchemaValidationError("ModuleEntity.name cannot be empty")
 
@@ -249,7 +278,7 @@ class ChangeSetEntity:
         commit_hash: Git commit 哈希值。
         message: 提交信息。
         author: 提交作者。
-        id: UUID v4 标识符，自动生成。
+        id: 内容派生稳定哈希（commit_hash），可显式传入。
         branch: 分支名称。
         files_changed: 变更文件列表。
         committed_at: 提交时间（ISO 8601）。
@@ -259,7 +288,7 @@ class ChangeSetEntity:
     commit_hash: str
     message: str
     author: str = "unknown"
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""
     branch: str = "main"
     files_changed: list[str] = field(default_factory=list)
     committed_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -267,6 +296,8 @@ class ChangeSetEntity:
 
     def __post_init__(self) -> None:
         """校验字段。"""
+        if not self.id:
+            self.id = _stable_id(self.commit_hash)
         if not self.commit_hash or not self.commit_hash.strip():
             raise SchemaValidationError("ChangeSetEntity.commit_hash cannot be empty")
         if not self.message or not self.message.strip():
@@ -282,7 +313,7 @@ class LogEntity:
         level: 日志级别，必须是 ERROR/WARN/INFO/DEBUG 之一。
         message: 日志消息（非空）。
         source_service: 来源服务名称。
-        id: UUID v4 标识符，自动生成。
+        id: 内容派生稳定哈希（name+level+message），可显式传入。
         timestamp: 日志时间戳。
         pattern: 匹配的日志模式（可选）。
         stack_trace: 堆栈跟踪（可选）。
@@ -293,7 +324,7 @@ class LogEntity:
     level: str
     message: str
     source_service: str
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     pattern: str | None = None
     stack_trace: str | None = None
@@ -303,6 +334,8 @@ class LogEntity:
 
     def __post_init__(self) -> None:
         """校验字段。"""
+        if not self.id:
+            self.id = _stable_id(self.name, self.level, self.message)
         if not self.name or not self.name.strip():
             raise SchemaValidationError("LogEntity.name cannot be empty")
         if self.level not in self.VALID_LEVELS:
@@ -321,7 +354,7 @@ class AlertEntity:
         severity: 严重程度，必须是 CRITICAL/HIGH/MEDIUM/LOW 之一。
         description: 告警描述。
         source_service: 来源服务名称。
-        id: UUID v4 标识符，自动生成。
+        id: 内容派生稳定哈希（name+severity+description），可显式传入。
         timestamp: 告警时间戳。
         resolved: 是否已解决。
         related_log_ids: 关联日志 ID 列表。
@@ -333,7 +366,7 @@ class AlertEntity:
     severity: str
     description: str
     source_service: str
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     resolved: bool = False
     related_log_ids: list[str] = field(default_factory=list)
@@ -344,6 +377,8 @@ class AlertEntity:
 
     def __post_init__(self) -> None:
         """校验字段。"""
+        if not self.id:
+            self.id = _stable_id(self.name, self.severity, self.description)
         if not self.name or not self.name.strip():
             raise SchemaValidationError("AlertEntity.name cannot be empty")
         if self.alert_type not in self.VALID_ALERT_TYPES:
@@ -364,7 +399,7 @@ class ServiceEntity:
         name: 服务名称（非空）。
         version: 服务版本。
         status: 服务状态，必须是 running/stopped/degraded 之一。
-        id: UUID v4 标识符，自动生成。
+        id: 内容派生稳定哈希（name），可显式传入。
         endpoint: 服务端点（可选）。
         code_entity_id: 关联的 CodeEntity ID（可选）。
         config: 服务配置。
@@ -374,7 +409,7 @@ class ServiceEntity:
     name: str
     version: str
     status: str
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""
     endpoint: str | None = None
     code_entity_id: str | None = None
     config: dict[str, str] = field(default_factory=dict)
@@ -386,6 +421,8 @@ class ServiceEntity:
 
     def __post_init__(self) -> None:
         """校验字段。"""
+        if not self.id:
+            self.id = _stable_id(self.name)
         if not self.name or not self.name.strip():
             raise SchemaValidationError("ServiceEntity.name cannot be empty")
         if self.status not in self.VALID_STATUSES:
@@ -404,7 +441,7 @@ class ComplianceItem:
         regulation: 适用法规/标准。
         severity: 严重程度，必须是 critical/high/medium/low 之一。
         requirement: 具体要求内容。
-        id: UUID v4 标识符，自动生成。
+        id: 内容派生稳定哈希（name），可显式传入。
         created_at: ISO 8601 格式的时间戳，自动生成。
     """
 
@@ -413,13 +450,15 @@ class ComplianceItem:
     regulation: str
     severity: str
     requirement: str
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     VALID_SEVERITIES = {"critical", "high", "medium", "low"}
 
     def __post_init__(self) -> None:
         """校验字段。"""
+        if not self.id:
+            self.id = _stable_id(self.name)
         if not self.name or not self.name.strip():
             raise SchemaValidationError("ComplianceItem.name cannot be empty")
         if self.severity not in self.VALID_SEVERITIES:
@@ -451,7 +490,7 @@ class CapabilityEntity:
         realized_by: 实现此能力的代码实体 ID 列表。
         version: 版本号。
         enabled: 是否启用。
-        id: UUID v4 标识符，自动生成。
+        id: 内容派生稳定哈希（name），可显式传入。
         created_at: ISO 8601 时间戳，自动生成。
     """
 
@@ -468,10 +507,12 @@ class CapabilityEntity:
     realized_by: list[str] = field(default_factory=list)
     version: str = "1"
     enabled: bool = True
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def __post_init__(self) -> None:
+        if not self.id:
+            self.id = _stable_id(self.name)
         if not self.name or not self.name.strip():
             raise SchemaValidationError("CapabilityEntity.name cannot be empty")
 
@@ -486,7 +527,7 @@ class ProcessEntity:
         steps: 流程步骤列表，每步为 dict。
         triggers: 触发条件列表。
         completion_criteria: 完成标准列表。
-        id: UUID v4 标识符，自动生成。
+        id: 内容派生稳定哈希（name），可显式传入。
         created_at: ISO 8601 时间戳，自动生成。
     """
 
@@ -495,10 +536,12 @@ class ProcessEntity:
     steps: list[dict] = field(default_factory=list)
     triggers: list[str] = field(default_factory=list)
     completion_criteria: list[str] = field(default_factory=list)
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def __post_init__(self) -> None:
+        if not self.id:
+            self.id = _stable_id(self.name)
         if not self.name or not self.name.strip():
             raise SchemaValidationError("ProcessEntity.name cannot be empty")
 
