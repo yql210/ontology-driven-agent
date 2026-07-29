@@ -601,21 +601,23 @@ class OntoAgentBuilder:
         self._logger.info("═══ Stage 2.5/5: Doc-Code Link ═══")
         entity_index = self._build_entity_index(all_entities, repo_path)
         describes_rels = self._link_docs_to_code(doc_entities, entity_index)
-        for rel in describes_rels:
-            rel_props = add_provenance(
-                {"weight": rel.weight},
-                source="ast_parser",
-                confidence=1.0,
-                extracted_at=batch_time,
-            )
-            graph_store.merge_relation(
-                rel.source_id,
-                rel.target_id,
-                rel.relation_type,
-                properties=rel_props,
-                source_label="DocEntity",
-                target_label="CodeEntity",
-            )
+        describes_batch = [
+            {
+                "source_id": rel.source_id,
+                "target_id": rel.target_id,
+                "rel_type": rel.relation_type,
+                "source_label": "DocEntity",
+                "target_label": "CodeEntity",
+                "properties": add_provenance(
+                    {"weight": rel.weight},
+                    source="ast_parser",
+                    confidence=1.0,
+                    extracted_at=batch_time,
+                ),
+            }
+            for rel in describes_rels
+        ]
+        graph_store.merge_relations_batch(describes_batch)
         self._logger.info("═══ Stage 2.5/5 complete: %d DESCRIBES relations ═══", len(describes_rels))
 
         # Stage 2.6: 业务本体

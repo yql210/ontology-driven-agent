@@ -523,8 +523,9 @@ class TestSaveModules:
     """测试 save_modules 方法。"""
 
     def test_save_modules_creates_nodes_and_relations(self) -> None:
-        """测试保存模块 → 正确调用 merge_node 和 merge_relation。"""
+        """测试保存模块 → 正确调用 merge_nodes_batch 和 merge_relations_batch。"""
         mock_store = MagicMock(spec=GraphStore)
+        mock_store.merge_nodes_batch.return_value = 2
         clustering = ModuleClustering(mock_store)
 
         module1 = ModuleEntity(name="module1")
@@ -546,25 +547,40 @@ class TestSaveModules:
         count = clustering.save_modules([cluster1, cluster2])
 
         assert count == 2
-        # 验证 merge_node 被调用 2 次
-        assert mock_store.merge_node.call_count == 2
-        # 验证 merge_relation 被调用 3 次 (2 + 1)
-        assert mock_store.merge_relation.call_count == 3
+        # 验证 merge_nodes_batch 被调用 1 次，包含 2 个模块
+        mock_store.merge_nodes_batch.assert_called_once()
+        nodes_call = mock_store.merge_nodes_batch.call_args
+        assert nodes_call[0][0] == "ModuleEntity"
+        props_list = nodes_call[0][1]
+        assert len(props_list) == 2
+        assert props_list[0]["id"] == module1.id
+        assert props_list[0]["name"] == "module1"
+        assert props_list[0]["size"] == 2
+        assert props_list[1]["id"] == module2.id
+        assert props_list[1]["size"] == 1
 
-        # 验证第一次 merge_node 的参数
-        first_call = mock_store.merge_node.call_args_list[0]
-        assert first_call[0][0] == "ModuleEntity"
-        assert first_call[0][1]["id"] == module1.id
-        assert first_call[0][1]["name"] == "module1"
+        # 验证 merge_relations_batch 被调用 1 次，包含 3 个 contains 关系
+        mock_store.merge_relations_batch.assert_called_once()
+        rels = mock_store.merge_relations_batch.call_args[0][0]
+        assert len(rels) == 3
+        assert all(r["rel_type"] == "contains" for r in rels)
+        assert all(r["source_label"] == "ModuleEntity" for r in rels)
+        assert all(r["target_label"] == "CodeEntity" for r in rels)
+
+        # 不应再调用单条 API
+        mock_store.merge_node.assert_not_called()
+        mock_store.merge_relation.assert_not_called()
 
     def test_save_modules_empty_list_returns_zero(self) -> None:
         """测试空列表 → 返回 0。"""
         mock_store = MagicMock(spec=GraphStore)
+        mock_store.merge_nodes_batch.return_value = 0
         clustering = ModuleClustering(mock_store)
 
         count = clustering.save_modules([])
 
         assert count == 0
+        # 批量接口以空列表调用（默认实现返回 0），单条接口不应被调用
         mock_store.merge_node.assert_not_called()
         mock_store.merge_relation.assert_not_called()
 

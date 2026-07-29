@@ -95,7 +95,7 @@ def get_current_db_version(store: GraphStore) -> str | None:
         ngql = (
             "MATCH (sv:`SchemaVersion`) "
             "RETURN sv.version AS version, sv.applied_at AS applied_at "
-            "ORDER BY sv.applied_at DESC LIMIT 1;"
+            "ORDER BY applied_at DESC LIMIT 1;"
         )
     else:
         ngql = """

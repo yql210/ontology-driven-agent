@@ -753,7 +753,7 @@ class TestWriteShapesYaml:
 # =============================================================================
 
 
-@pytest.mark.unit
+@pytest.mark.integration
 class TestIntegrationWithRealFile:
     """使用真实 ontology.json 的集成测试。"""
 

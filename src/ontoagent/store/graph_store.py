@@ -134,3 +134,54 @@ class GraphStore(ABC):
         Returns:
             是否成功更新。
         """
+
+    def merge_nodes_batch(
+        self,
+        label: str,
+        properties_list: list[dict],
+        batch_size: int = 200,
+    ) -> int:
+        """批量合并（创建或更新）节点。
+
+        默认实现：循环调用 :meth:`merge_node`。子类可覆写以提供真正的批量优化
+        （如 Neo4j 的 ``UNWIND + MERGE`` 或 NebulaGraph 的 ``INSERT VERTEX``）。
+
+        Args:
+            label: 节点标签。
+            properties_list: 节点属性字典列表，每项必须包含 ``id``。
+            batch_size: 每批处理数量，默认 200（默认实现忽略此参数）。
+
+        Returns:
+            合并的节点总数。
+        """
+        for props in properties_list:
+            self.merge_node(label, props)
+        return len(properties_list)
+
+    def merge_relations_batch(
+        self,
+        relations: list[dict],
+        batch_size: int = 200,
+    ) -> int:
+        """批量合并（创建或更新）关系。
+
+        默认实现：循环调用 :meth:`merge_relation`。子类可覆写以提供真正的批量优化。
+
+        Args:
+            relations: 关系数据列表，每项 dict 含 ``source_id``/``target_id``/
+                ``rel_type``，可选 ``properties``/``source_label``/``target_label``。
+            batch_size: 每批处理数量，默认 200（默认实现忽略此参数）。
+
+        Returns:
+            合并的关系总数。
+        """
+        for rel in relations:
+            self.merge_relation(
+                source_id=rel["source_id"],
+                target_id=rel["target_id"],
+                rel_type=rel["rel_type"],
+                properties=rel.get("properties"),
+                source_label=rel.get("source_label", ""),
+                target_label=rel.get("target_label", ""),
+            )
+        return len(relations)

@@ -346,23 +346,18 @@ class ModuleClustering:
         if all_entities:
             entity_lookup = {e.id: e for e in all_entities}
 
-        saved = 0
+        # 收集所有 ModuleEntity 属性和 contains 关系，批量写入
+        module_props_list: list[dict] = []
+        relations_list: list[dict] = []
         for cluster in clusters:
-            # 计算 size
-            size = cluster.entity_count
-
-            # 生成 description（包含 class 名和 function 数量）
             description = self._generate_description(cluster, entity_lookup)
-
-            # 保存 ModuleEntity
-            self._neo4j_store.merge_node(
-                "ModuleEntity",
+            module_props_list.append(
                 add_provenance(
                     {
                         "id": cluster.module.id,
                         "name": cluster.module.name,
                         "description": description,
-                        "size": size,
+                        "size": cluster.entity_count,
                         "created_at": cluster.module.created_at,
                     },
                     source="clustering",
@@ -370,19 +365,22 @@ class ModuleClustering:
                     extracted_at=batch_time,
                 ),
             )
-
-            # 创建 contains 关系
             for entity_id in cluster.entity_ids:
-                self._neo4j_store.merge_relation(
-                    source_id=cluster.module.id,
-                    target_id=entity_id,
-                    rel_type="contains",
-                    source_label="ModuleEntity",
-                    target_label="CodeEntity",
-                    properties=add_provenance({}, source="clustering", confidence=0.8, extracted_at=batch_time),
+                relations_list.append(
+                    {
+                        "source_id": cluster.module.id,
+                        "target_id": entity_id,
+                        "rel_type": "contains",
+                        "source_label": "ModuleEntity",
+                        "target_label": "CodeEntity",
+                        "properties": add_provenance(
+                            {}, source="clustering", confidence=0.8, extracted_at=batch_time
+                        ),
+                    },
                 )
 
-            saved += 1
+        saved = self._neo4j_store.merge_nodes_batch("ModuleEntity", module_props_list)
+        self._neo4j_store.merge_relations_batch(relations_list)
 
         self._logger.info("[Clustering] Saved %d modules to Neo4j", saved)
         return saved
