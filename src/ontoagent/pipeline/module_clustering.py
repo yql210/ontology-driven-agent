@@ -63,49 +63,43 @@ class ModuleClustering:
         self._logger = logging.getLogger(self.__class__.__name__)
 
     def _load_graph(self) -> tuple[dict[str, set[str]], dict[str, dict]]:
-        """从 Neo4j 加载邻接表和实体数据。
+        """从图存储加载邻接表和实体数据。
 
-        使用 neo4j_store.query() 执行 Cypher。
+        使用 GraphStore.get_nodes_by_label / get_edges_by_types 批量读取，
+        避免在 NebulaGraph 大图上走 MATCH 全 tag 扫描。
         添加同文件虚拟边：同一文件内的实体两两互连，解决图稀疏问题。
 
         Returns:
             (adj, entity_data) 元组：
                 adj: {entity_id: {neighbor_id, ...}} 邻接表
                 entity_data: {entity_id: {name, file_path, ...}} 实体属性
-
-        Cypher 查询：
-            1. 获取所有 CodeEntity
-            2. 获取 CodeEntity 之间的关系
         """
-        # 获取所有 CodeEntity
-        entity_cypher = """
-            MATCH (c:CodeEntity)
-            RETURN c.id AS id, c.name AS name, c.file_path AS file_path
-        """
-        entity_results = self._neo4j_store.query(entity_cypher)
+        # 获取所有 CodeEntity（属性名按 camelCase 传，由 store 实现负责 YIELD）
+        self._logger.info("Loading CodeEntity nodes from store...")
+        entity_results = self._neo4j_store.get_nodes_by_label("CodeEntity", ["id", "name", "filePath"])
+        self._logger.info("Loaded %d CodeEntity nodes", len(entity_results))
 
-        # 构建实体数据
+        # 构建实体数据（store 返回的 key 是 camelCase，需映射到 snake_case）
         entity_data: dict[str, dict] = {}
         for record in entity_results:
             entity_id = record["id"]
             entity_data[entity_id] = {
                 "name": record.get("name"),
-                "file_path": record.get("file_path"),
+                "file_path": record.get("filePath") or record.get("file_path"),
             }
 
-        # 获取关系
-        relation_cypher = """
-            MATCH (c1:CodeEntity)-[r]->(c2:CodeEntity)
-            WHERE type(r) IN ['CALLS', 'IMPORTS', 'EXTENDS', 'IMPLEMENTS']
-            RETURN c1.id AS source, c2.id AS target
-        """
-        relation_results = self._neo4j_store.query(relation_cypher)
+        # 获取结构关系（CALLS/IMPORTS/EXTENDS/IMPLEMENTS）
+        self._logger.info("Loading structural edges (CALLS/IMPORTS/EXTENDS/IMPLEMENTS)...")
+        relation_results = self._neo4j_store.get_edges_by_types(
+            ["CALLS", "IMPORTS", "EXTENDS", "IMPLEMENTS"], "CodeEntity"
+        )
+        self._logger.info("Loaded %d edges", len(relation_results))
 
         # 构建邻接表（无向图）
         adj: dict[str, set[str]] = {eid: set() for eid in entity_data}
         for record in relation_results:
-            source = record["source"]
-            target = record["target"]
+            source = record["source_id"]
+            target = record["target_id"]
             if source in adj and target in adj:
                 adj[source].add(target)
                 adj[target].add(source)
@@ -373,9 +367,7 @@ class ModuleClustering:
                         "rel_type": "contains",
                         "source_label": "ModuleEntity",
                         "target_label": "CodeEntity",
-                        "properties": add_provenance(
-                            {}, source="clustering", confidence=0.8, extracted_at=batch_time
-                        ),
+                        "properties": add_provenance({}, source="clustering", confidence=0.8, extracted_at=batch_time),
                     },
                 )
 

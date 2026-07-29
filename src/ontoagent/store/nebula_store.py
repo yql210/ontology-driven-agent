@@ -109,13 +109,7 @@ def _format_value(value: Any) -> str:
     # int/float/str 统一按字符串处理（schema 字段全是 string 类型）
     # 转义顺序：反斜杠必须最先，否则后续替换会引入新的反斜杠被二次转义
     s = str(value)
-    s = (
-        s.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-    )
+    s = s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
     return f'"{s}"'
 
 
@@ -916,6 +910,56 @@ class NebulaGraphStore(GraphStore):
                     )
 
         return written
+
+    def get_nodes_by_label(self, label: str, properties: list[str] | None = None) -> list[dict]:
+        """NebulaGraph: 用 LOOKUP ON 走 tag 索引扫描全量节点。
+
+        利用已有的 ``idx_{label}_name`` 索引（见 nebula_schema.py），通过
+        ``WHERE name != ""`` 触发索引扫描全量。比 ``MATCH (c:label)`` 全 tag 扫描快几个数量级。
+
+        LOOKUP 失败（如索引未建好）时降级到默认 Cypher 实现（走 query/CypherToNgqlAdapter）。
+        """
+        props = properties or ["id", "name"]
+        # YIELD 中用 vertex.`Tag`.`prop` 格式访问属性；id 由 id(vertex) 单独提供
+        prop_yield = ", ".join(f"vertex.`{label}`.`{p}` AS `{p}`" for p in props if p != "id")
+        ngql = (
+            f'LOOKUP ON `{label}` WHERE `{label}`.name != "" '
+            f"YIELD id(vertex) AS id{', ' + prop_yield if prop_yield else ''};"
+        )
+        with self._session_scope() as session:
+            result = session.execute(ngql)
+            if not result.is_succeeded():
+                logger.warning(
+                    "[NebulaStore] LOOKUP ON %s failed, falling back to MATCH: %s",
+                    label,
+                    safe_error_msg(result),
+                )
+                props_clause = ", ".join(f"n.{p} AS {p}" for p in props)
+                return self.query(f"MATCH (n:{label}) RETURN id(n) AS id, {props_clause}")
+            if result.is_empty():
+                return []
+            return _resultset_to_dicts(result)
+
+    def get_edges_by_types(self, rel_types: list[str], node_label: str = "") -> list[dict]:
+        """NebulaGraph: 对每个 edge type 做 LOOKUP ON 扫描全部边。
+
+        NebulaGraph edge 自带索引，``LOOKUP ON edge_type`` 可直接遍历全部边。
+        ``node_label`` 参数在此实现中被忽略（NebulaGraph 的 LOOKUP ON edge 无法
+        直接过滤端点 tag，过滤逻辑由调用方在内存中处理）。
+        """
+        all_edges: list[dict] = []
+        if not rel_types:
+            return all_edges
+        with self._session_scope() as session:
+            for rt in rel_types:
+                ngql = f"LOOKUP ON `{rt}` YIELD src(edge) AS source_id, dst(edge) AS target_id;"
+                result = session.execute(ngql)
+                if not result.is_succeeded():
+                    logger.warning("[NebulaStore] LOOKUP ON edge %s failed: %s", rt, safe_error_msg(result))
+                    continue
+                if not result.is_empty():
+                    all_edges.extend(_resultset_to_dicts(result))
+        return all_edges
 
     def ensure_constraints(self) -> None:
         """确保 NebulaGraph schema 存在（Space + Tag + Edge + Index）。

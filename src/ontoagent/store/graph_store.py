@@ -185,3 +185,40 @@ class GraphStore(ABC):
                 target_label=rel.get("target_label", ""),
             )
         return len(relations)
+
+    def get_nodes_by_label(self, label: str, properties: list[str] | None = None) -> list[dict]:
+        """批量读取指定 label 的全部节点。
+
+        默认实现用 Cypher MATCH（Neo4j 高效）。NebulaGraph 子类应覆写为 LOOKUP ON，
+        避免大图上的 MATCH 全 tag 扫描。
+
+        Args:
+            label: 节点标签名。
+            properties: 需要读取的属性名列表（camelCase）。``None`` 表示只读 id 和 name。
+
+        Returns:
+            节点属性字典列表，每项至少含 ``id``。
+        """
+        props = properties or ["id", "name"]
+        prop_clause = ", ".join(f"n.{p} AS {p}" for p in props)
+        return self.query(f"MATCH (n:{label}) RETURN id(n) AS id, {prop_clause}")
+
+    def get_edges_by_types(self, rel_types: list[str], node_label: str = "") -> list[dict]:
+        """批量读取指定类型的全部关系。
+
+        默认实现用 Cypher MATCH（Neo4j 高效）。NebulaGraph 子类应覆写为 LOOKUP ON edge_type，
+        利用 edge 自带索引。
+
+        Args:
+            rel_types: 关系类型列表（如 ``['CALLS', 'IMPORTS']``）。
+            node_label: 可选，限制端点节点 label（默认实现会下推到 MATCH）。
+
+        Returns:
+            关系字典列表，每项含 ``source_id`` 和 ``target_id``。
+        """
+        type_filter = "|".join(rel_types)
+        label_part = f":{node_label}" if node_label else ""
+        cypher = (
+            f"MATCH (a{label_part})-[r:{type_filter}]->(b{label_part}) RETURN id(a) AS source_id, id(b) AS target_id"
+        )
+        return self.query(cypher)

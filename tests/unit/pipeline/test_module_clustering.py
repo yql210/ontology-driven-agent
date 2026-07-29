@@ -83,19 +83,15 @@ class TestLoadGraph:
         """测试正常加载图结构。"""
         mock_store = MagicMock(spec=GraphStore)
 
-        # Mock 实体查询返回
-        mock_store.query.side_effect = [
-            # 第一次调用：获取实体
-            [
-                {"id": "e1", "name": "Entity1", "file_path": "src/module1/file1.py"},
-                {"id": "e2", "name": "Entity2", "file_path": "src/module1/file2.py"},
-                {"id": "e3", "name": "Entity3", "file_path": "src/module2/file3.py"},
-            ],
-            # 第二次调用：获取关系
-            [
-                {"source": "e1", "target": "e2"},
-                {"source": "e2", "target": "e3"},
-            ],
+        # Mock 新接口：get_nodes_by_label / get_edges_by_types
+        mock_store.get_nodes_by_label.return_value = [
+            {"id": "e1", "name": "Entity1", "filePath": "src/module1/file1.py"},
+            {"id": "e2", "name": "Entity2", "filePath": "src/module1/file2.py"},
+            {"id": "e3", "name": "Entity3", "filePath": "src/module2/file3.py"},
+        ]
+        mock_store.get_edges_by_types.return_value = [
+            {"source_id": "e1", "target_id": "e2"},
+            {"source_id": "e2", "target_id": "e3"},
         ]
 
         clustering = ModuleClustering(mock_store)
@@ -111,12 +107,16 @@ class TestLoadGraph:
             "e2": {"name": "Entity2", "file_path": "src/module1/file2.py"},
             "e3": {"name": "Entity3", "file_path": "src/module2/file3.py"},
         }
-        assert mock_store.query.call_count == 2
+        # 应调用新批量接口，不应调用 query()
+        mock_store.get_nodes_by_label.assert_called_once()
+        mock_store.get_edges_by_types.assert_called_once()
+        mock_store.query.assert_not_called()
 
     def test_load_graph_empty_graph(self) -> None:
         """测试空图（无实体）。"""
         mock_store = MagicMock(spec=GraphStore)
-        mock_store.query.side_effect = [[], []]  # 无实体，无关系
+        mock_store.get_nodes_by_label.return_value = []
+        mock_store.get_edges_by_types.return_value = []
 
         clustering = ModuleClustering(mock_store)
         adj, entity_data = clustering._load_graph()
@@ -128,13 +128,11 @@ class TestLoadGraph:
         """测试孤立节点（有实体无关系）。"""
         mock_store = MagicMock(spec=GraphStore)
 
-        mock_store.query.side_effect = [
-            [
-                {"id": "e1", "name": "Entity1", "file_path": "src/file1.py"},
-                {"id": "e2", "name": "Entity2", "file_path": "src/file2.py"},
-            ],
-            [],  # 无关系
+        mock_store.get_nodes_by_label.return_value = [
+            {"id": "e1", "name": "Entity1", "filePath": "src/file1.py"},
+            {"id": "e2", "name": "Entity2", "filePath": "src/file2.py"},
         ]
+        mock_store.get_edges_by_types.return_value = []
 
         clustering = ModuleClustering(mock_store)
         adj, entity_data = clustering._load_graph()
@@ -155,15 +153,13 @@ class TestLoadGraph:
         # 同文件 src/module1.py 有 3 个实体：e1, e2, e3
         # 不同文件 src/module2.py 有 1 个实体：e4
         # 无结构关系，全靠虚拟边连接
-        mock_store.query.side_effect = [
-            [
-                {"id": "e1", "name": "Entity1", "file_path": "src/module1.py"},
-                {"id": "e2", "name": "Entity2", "file_path": "src/module1.py"},
-                {"id": "e3", "name": "Entity3", "file_path": "src/module1.py"},
-                {"id": "e4", "name": "Entity4", "file_path": "src/module2.py"},
-            ],
-            [],  # 无结构关系
+        mock_store.get_nodes_by_label.return_value = [
+            {"id": "e1", "name": "Entity1", "filePath": "src/module1.py"},
+            {"id": "e2", "name": "Entity2", "filePath": "src/module1.py"},
+            {"id": "e3", "name": "Entity3", "filePath": "src/module1.py"},
+            {"id": "e4", "name": "Entity4", "filePath": "src/module2.py"},
         ]
+        mock_store.get_edges_by_types.return_value = []
 
         clustering = ModuleClustering(mock_store)
         adj, _entity_data = clustering._load_graph()
@@ -194,15 +190,13 @@ class TestLoadGraph:
         # e1, e2 同文件 src/file1.py（虚拟边）
         # e1 -> e3 有结构关系 CALLS
         # e3 在不同文件 src/file2.py
-        mock_store.query.side_effect = [
-            [
-                {"id": "e1", "name": "Entity1", "file_path": "src/file1.py"},
-                {"id": "e2", "name": "Entity2", "file_path": "src/file1.py"},
-                {"id": "e3", "name": "Entity3", "file_path": "src/file2.py"},
-            ],
-            [
-                {"source": "e1", "target": "e3"},  # 结构边
-            ],
+        mock_store.get_nodes_by_label.return_value = [
+            {"id": "e1", "name": "Entity1", "filePath": "src/file1.py"},
+            {"id": "e2", "name": "Entity2", "filePath": "src/file1.py"},
+            {"id": "e3", "name": "Entity3", "filePath": "src/file2.py"},
+        ]
+        mock_store.get_edges_by_types.return_value = [
+            {"source_id": "e1", "target_id": "e3"},  # 结构边
         ]
 
         clustering = ModuleClustering(mock_store)
@@ -220,10 +214,9 @@ class TestLoadGraph:
         mock_store = MagicMock(spec=GraphStore)
 
         # 单文件 35 个实体（超过阈值 30），无结构关系
-        entity_records = [
-            {"id": f"e{i}", "name": f"Entity{i}", "file_path": "src/big_file.py"} for i in range(35)
-        ]
-        mock_store.query.side_effect = [entity_records, []]
+        entity_records = [{"id": f"e{i}", "name": f"Entity{i}", "filePath": "src/big_file.py"} for i in range(35)]
+        mock_store.get_nodes_by_label.return_value = entity_records
+        mock_store.get_edges_by_types.return_value = []
 
         clustering = ModuleClustering(mock_store)
         adj, _entity_data = clustering._load_graph()
@@ -237,10 +230,9 @@ class TestLoadGraph:
         mock_store = MagicMock(spec=GraphStore)
 
         # 单文件 5 个实体（在阈值内），无结构关系
-        entity_records = [
-            {"id": f"e{i}", "name": f"Entity{i}", "file_path": "src/small_file.py"} for i in range(5)
-        ]
-        mock_store.query.side_effect = [entity_records, []]
+        entity_records = [{"id": f"e{i}", "name": f"Entity{i}", "filePath": "src/small_file.py"} for i in range(5)]
+        mock_store.get_nodes_by_label.return_value = entity_records
+        mock_store.get_edges_by_types.return_value = []
 
         clustering = ModuleClustering(mock_store)
         adj, _entity_data = clustering._load_graph()
