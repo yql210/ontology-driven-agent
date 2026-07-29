@@ -8,6 +8,29 @@ from ontoagent.domain.schema import RELATION_TYPE_TO_NEO4J, VALID_ENTITY_LABELS
 from ontoagent.store.nebula_schema import NebulaSchemaInitializer
 
 
+def _make_show_spaces_result(space_names: list[str]) -> MagicMock:
+    """构造 SHOW SPACES 的 ResultSet mock。
+
+    nebula3 SDK 中 SHOW SPACES 返回单列 ``Name``，每行是一个 ValueWrapper，
+    通过 ``row.values[0].get_sVal().value`` 取 space 名称（字符串）。
+    """
+    result = MagicMock()
+    result.is_succeeded = MagicMock(return_value=True)
+    result.error_msg = ""
+
+    rows = []
+    for name in space_names:
+        sval = MagicMock()
+        sval.value = name
+        cell = MagicMock()
+        cell.get_sVal = MagicMock(return_value=sval)
+        row = MagicMock()
+        row.values = [cell]
+        rows.append(row)
+    result.rows = rows
+    return result
+
+
 @pytest.fixture
 def mock_session() -> MagicMock:
     """mock nebula Session。execute 返回成功的 ResultSet。"""
@@ -40,12 +63,15 @@ class TestNebulaSchemaSpace:
         assert any("my_space" in c for c in calls)
 
     def test_ensure_space_is_idempotent(self, mock_session: MagicMock) -> None:
-        """DDL 必须含 IF NOT EXISTS。"""
+        """CREATE SPACE DDL 必须含 IF NOT EXISTS。"""
         initializer = NebulaSchemaInitializer(mock_session)
         initializer.ensure_space()
 
         calls = [call.args[0] for call in mock_session.execute.call_args_list]
-        assert all("IF NOT EXISTS" in c for c in calls)
+        # 过滤 CREATE 语句（排除 SHOW SPACES 检测语句）
+        create_calls = [c for c in calls if "CREATE" in c]
+        assert create_calls, "Expected at least one CREATE call"
+        assert all("IF NOT EXISTS" in c for c in create_calls)
 
     def test_ensure_space_returns_false_on_failure(self, mock_session: MagicMock) -> None:
         result = MagicMock()
@@ -56,6 +82,179 @@ class TestNebulaSchemaSpace:
         initializer = NebulaSchemaInitializer(mock_session)
         ok = initializer.ensure_space()
         assert ok is False
+
+    def test_ensure_space_skips_create_if_exists(self, mock_session: MagicMock) -> None:
+        """space 已存在时（SHOW SPACES 包含目标 space），不应执行 CREATE SPACE。
+
+        共享集群场景：普通用户对 CREATE SPACE 无权限，但 SHOW SPACES 普通用户可执行。
+        先 SHOW 检测已存在 → 直接返回 True，跳过 CREATE。
+        """
+        initializer = NebulaSchemaInitializer(mock_session, space_name="ontoagent")
+
+        # 构造 SHOW SPACES 返回值：包含 "ontoagent"
+        show_result = _make_show_spaces_result(["ontoagent", "other_space"])
+        # CREATE 不会被执行，但若被执行返回失败模拟权限错误
+        create_result = MagicMock()
+        create_result.is_succeeded = MagicMock(return_value=False)
+        create_result.error_msg = "PermissionError"
+
+        def execute_side_effect(stmt: str):
+            if "SHOW SPACES" in stmt:
+                return show_result
+            return create_result
+
+        mock_session.execute = MagicMock(side_effect=execute_side_effect)
+
+        ok = initializer.ensure_space()
+        assert ok is True
+
+        # 验证没有 CREATE SPACE 被执行
+        calls = [call.args[0] for call in mock_session.execute.call_args_list]
+        assert not any("CREATE SPACE" in c for c in calls), (
+            f"CREATE SPACE should not be executed when space exists: {calls}"
+        )
+
+    def test_ensure_space_creates_if_not_exists(self, mock_session: MagicMock) -> None:
+        """space 不在 SHOW SPACES 列表中时，执行 CREATE SPACE。"""
+        initializer = NebulaSchemaInitializer(mock_session, space_name="ontoagent")
+
+        show_result = _make_show_spaces_result(["other_space"])  # 不含 ontoagent
+        create_result = MagicMock()
+        create_result.is_succeeded = MagicMock(return_value=True)
+        create_result.error_msg = ""
+
+        def execute_side_effect(stmt: str):
+            if "SHOW SPACES" in stmt:
+                return show_result
+            return create_result
+
+        mock_session.execute = MagicMock(side_effect=execute_side_effect)
+
+        ok = initializer.ensure_space()
+        assert ok is True
+
+        # 验证 CREATE SPACE 被执行
+        calls = [call.args[0] for call in mock_session.execute.call_args_list]
+        assert any("CREATE SPACE" in c for c in calls), f"CREATE SPACE should be executed: {calls}"
+
+    def test_ensure_space_creates_when_show_spaces_fails(self, mock_session: MagicMock) -> None:
+        """SHOW SPACES 执行失败时，降级到直接 CREATE SPACE（保持原有行为）。"""
+        initializer = NebulaSchemaInitializer(mock_session, space_name="ontoagent")
+
+        show_result = MagicMock()
+        show_result.is_succeeded = MagicMock(return_value=False)
+        show_result.error_msg = "permission denied for SHOW"
+        create_result = MagicMock()
+        create_result.is_succeeded = MagicMock(return_value=True)
+        create_result.error_msg = ""
+
+        def execute_side_effect(stmt: str):
+            if "SHOW SPACES" in stmt:
+                return show_result
+            return create_result
+
+        mock_session.execute = MagicMock(side_effect=execute_side_effect)
+
+        ok = initializer.ensure_space()
+        assert ok is True
+
+        # 验证 CREATE SPACE 被执行（降级路径）
+        calls = [call.args[0] for call in mock_session.execute.call_args_list]
+        assert any("CREATE SPACE" in c for c in calls)
+
+    def test_ensure_space_creates_when_show_spaces_decode_fails(self, mock_session: MagicMock) -> None:
+        """SHOW SPACES 返回值结构无法解析时，降级到直接 CREATE SPACE。"""
+        initializer = NebulaSchemaInitializer(mock_session, space_name="ontoagent")
+
+        # 返回 succeeded=True 但 rows 结构异常（解析抛异常）
+        show_result = MagicMock()
+        show_result.is_succeeded = MagicMock(return_value=True)
+        show_result.rows = MagicMock(side_effect=RuntimeError("decode failed"))
+        create_result = MagicMock()
+        create_result.is_succeeded = MagicMock(return_value=True)
+
+        def execute_side_effect(stmt: str):
+            if "SHOW SPACES" in stmt:
+                return show_result
+            return create_result
+
+        mock_session.execute = MagicMock(side_effect=execute_side_effect)
+
+        ok = initializer.ensure_space()
+        assert ok is True
+
+        # 验证 CREATE SPACE 被执行（解析失败降级）
+        calls = [call.args[0] for call in mock_session.execute.call_args_list]
+        assert any("CREATE SPACE" in c for c in calls)
+
+    def test_ensure_space_accepts_custom_vid_type(self, mock_session: MagicMock) -> None:
+        """ensure_space(vid_type=...) 透传到 CREATE SPACE DDL。"""
+        initializer = NebulaSchemaInitializer(mock_session, space_name="ontoagent")
+        # SHOW SPACES 返回空 → 走 CREATE 路径
+        show_result = _make_show_spaces_result([])
+        create_result = MagicMock()
+        create_result.is_succeeded = MagicMock(return_value=True)
+
+        def execute_side_effect(stmt: str):
+            if "SHOW SPACES" in stmt:
+                return show_result
+            return create_result
+
+        mock_session.execute = MagicMock(side_effect=execute_side_effect)
+
+        ok = initializer.ensure_space(vid_type="FIXED_STRING(64)")
+        assert ok is True
+
+        calls = [call.args[0] for call in mock_session.execute.call_args_list]
+        create_call = next(c for c in calls if "CREATE SPACE" in c)
+        assert "FIXED_STRING(64)" in create_call
+
+    def test_initializer_accepts_vid_type_param(self, mock_session: MagicMock) -> None:
+        """NebulaSchemaInitializer 接收 vid_type，initialize() 使用该值生成 CREATE SPACE。
+
+        增强功能：vid_type 可通过构造器注入，避免每次调用 ensure_space 都重复传参。
+        """
+        initializer = NebulaSchemaInitializer(
+            mock_session, space_name="ontoagent", vid_type="FIXED_STRING(64)"
+        )
+        # SHOW SPACES 返回空 → 走 CREATE 路径
+        show_result = _make_show_spaces_result([])
+        create_result = MagicMock()
+        create_result.is_succeeded = MagicMock(return_value=True)
+
+        def execute_side_effect(stmt: str):
+            if "SHOW SPACES" in stmt:
+                return show_result
+            return create_result
+
+        mock_session.execute = MagicMock(side_effect=execute_side_effect)
+
+        ok = initializer.ensure_space()
+        assert ok is True
+
+        calls = [call.args[0] for call in mock_session.execute.call_args_list]
+        create_call = next(c for c in calls if "CREATE SPACE" in c)
+        assert "FIXED_STRING(64)" in create_call
+
+    def test_initializer_default_vid_type_unchanged(self, mock_session: MagicMock) -> None:
+        """无 vid_type 参数时，默认值仍为 FIXED_STRING(36)（保持向后兼容）。"""
+        initializer = NebulaSchemaInitializer(mock_session, space_name="ontoagent")
+        show_result = _make_show_spaces_result([])
+        create_result = MagicMock()
+        create_result.is_succeeded = MagicMock(return_value=True)
+
+        def execute_side_effect(stmt: str):
+            if "SHOW SPACES" in stmt:
+                return show_result
+            return create_result
+
+        mock_session.execute = MagicMock(side_effect=execute_side_effect)
+
+        initializer.ensure_space()
+
+        calls = [call.args[0] for call in mock_session.execute.call_args_list]
+        create_call = next(c for c in calls if "CREATE SPACE" in c)
+        assert "FIXED_STRING(36)" in create_call
 
 
 @pytest.mark.unit

@@ -71,34 +71,68 @@ class NebulaSchemaInitializer:
     保留字（timestamp、path 等）自动加反引号。
     """
 
-    def __init__(self, session: Session, space_name: str = "ontoagent") -> None:
+    def __init__(
+        self,
+        session: Session,
+        space_name: str = "ontoagent",
+        vid_type: str = "FIXED_STRING(36)",
+    ) -> None:
         """初始化 schema 创建器。
 
         Args:
             session: nebula3 Session 对象（已登录）。
             space_name: 目标 Space 名称，默认 ``ontoagent``。
+            vid_type: VID 类型，默认 ``FIXED_STRING(36)`` 匹配 OntoAgent UUID。
+                通过 ``ONTOAGENT_NEBULA_VID_TYPE`` 环境变量配置。
         """
         self._session = session
         self._space_name = space_name
+        self._vid_type = vid_type
 
-    def ensure_space(self, vid_type: str = "FIXED_STRING(36)") -> bool:
+    def ensure_space(self, vid_type: str | None = None) -> bool:
         """创建或确认 Space 存在。
 
+        共享集群友好：先 SHOW SPACES 检测是否已存在，已存在则跳过 CREATE。
+        无 CREATE SPACE 权限的普通用户在 space 已由管理员创建的场景下也能正常使用。
+
         Args:
-            vid_type: VID 类型，默认 ``FIXED_STRING(36)`` 匹配 OntoAgent UUID。
+            vid_type: VID 类型。None 表示用构造器传入的 ``self._vid_type``
+                （默认 ``FIXED_STRING(36)``，匹配 OntoAgent UUID）。
 
         Returns:
             是否执行成功。
         """
+        effective_vid_type = vid_type or self._vid_type
+        # 先检测 space 是否已存在（SHOW SPACES 只需普通用户权限）
+        # 解析失败时降级到直接 CREATE（保持原有行为）
+        try:
+            check_result = self._session.execute("SHOW SPACES;")
+            if check_result.is_succeeded():
+                existing_spaces: set[str] = set()
+                for row in check_result.rows:
+                    if row.values and row.values[0].get_sVal().value:
+                        existing_spaces.add(row.values[0].get_sVal().value)
+                if self._space_name in existing_spaces:
+                    logger.info(
+                        "[NebulaSchema] space '%s' already exists, skipping CREATE",
+                        self._space_name,
+                    )
+                    return True
+        except Exception:
+            logger.debug("[NebulaSchema] SHOW SPACES check failed, falling back to CREATE", exc_info=True)
+
+        # space 不存在或检测失败，执行 CREATE
         ddl = (
             f"CREATE SPACE IF NOT EXISTS `{self._space_name}` "
-            f"(vid_type={vid_type}, partition_num=10, replica_factor=1);"
+            f"(vid_type={effective_vid_type}, partition_num=10, replica_factor=1);"
         )
         result = self._session.execute(ddl)
         if not result.is_succeeded():
             logger.error("[NebulaSchema] create space failed: %s", _safe_error_msg(result))
             return False
-        logger.info("[NebulaSchema] space '%s' ensured (vid_type=%s)", self._space_name, vid_type)
+        logger.info(
+            "[NebulaSchema] space '%s' ensured (vid_type=%s)", self._space_name, effective_vid_type
+        )
         return True
 
     def create_tags(self) -> list[str]:
@@ -169,14 +203,15 @@ class NebulaSchemaInitializer:
             ddl_list.append(ddl)
         return ddl_list
 
-    def initialize(self, vid_type: str = "FIXED_STRING(36)") -> bool:
+    def initialize(self, vid_type: str | None = None) -> bool:
         """完整初始化：Space + Tag + Edge + Index。
 
         DDL 全部幂等。注意 NebulaGraph DDL 是异步的，调用方需等待 ~20s 生效
         （本方法不在内部 sleep，避免单元测试阻塞；由调用方负责等待）。
 
         Args:
-            vid_type: VID 类型，默认 ``FIXED_STRING(36)``。
+            vid_type: VID 类型。None 表示用构造器传入的 ``self._vid_type``
+                （默认 ``FIXED_STRING(36)``）。
 
         Returns:
             是否全部执行成功。

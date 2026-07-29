@@ -922,6 +922,64 @@ class TestFormatValueSerialization:
         result = _format_value('hello "world"')
         assert '\\"' in result
 
+    def test_string_with_newline_escaped(self) -> None:
+        """含字面换行符的字符串必须被转义为 ``\\n``，不能留在输出里。
+
+        nGQL 不允许字符串字面量内含字面 chr(10)/chr(13)/chr(9)，
+        否则 parser 会在换行处提前关闭语句。
+        """
+        from ontoagent.store.nebula_store import _format_value
+
+        result = _format_value("line1\nline2")
+        # 输出中不能含字面换行符
+        assert "\n" not in result, f"literal newline leaked into output: {result!r}"
+        # 应包含转义后的 \n 字面（两个字符：反斜杠 + n）
+        assert "\\n" in result
+
+    def test_string_with_carriage_return_and_tab_escaped(self) -> None:
+        """chr(13) 和 chr(9) 同样必须被转义。"""
+        from ontoagent.store.nebula_store import _format_value
+
+        result = _format_value("a\r\tb")
+        assert "\r" not in result
+        assert "\t" not in result
+        assert "\\r" in result
+        assert "\\t" in result
+
+    def test_format_value_str_round_trip(self) -> None:
+        """多行 str 经 _format_value 输出 + nGQL 反转义后必须能还原原始字符串。"""
+        from ontoagent.store.nebula_store import _format_value
+
+        original = "line1\nline2\nline3"
+        formatted = _format_value(original)
+
+        # 反转义步骤：去掉外层引号，再 \\ → \，\" → "，\n → 换行，\r → 回车，\t → 制表
+        inner = formatted[1:-1]
+        unescaped = (
+            inner.replace("\\\\", "\\")
+            .replace('\\"', '"')
+            .replace("\\n", "\n")
+            .replace("\\r", "\r")
+            .replace("\\t", "\t")
+        )
+        assert unescaped == original
+
+    def test_format_value_str_backslash_not_double_escaped_for_newline_marker(self) -> None:
+        """回归保护：反斜杠替换必须最先。
+
+        若把 ``\\`` 替换放在 ``\\n`` 之后，真换行符会被先替换为字面反斜杠+n，
+        然后这个新引入的反斜杠又被 ``\\`` 替换二次转义为 ``\\\\n``（双反斜杠+n），
+        最终输出 ``"\\\\n"``（6 字符）而非正确的 ``"\\n"``（5 字符）。
+        """
+        from ontoagent.store.nebula_store import _format_value
+
+        # 输入是 1 个真换行符
+        result = _format_value("\n")
+        # 正确转义：外层引号 + \n（2 字符反斜杠+n） → 5 字符 '"\\n"'
+        assert result == '"\\n"', f"got {result!r}"
+        # 不应含双反斜杠（错误的二次转义标志）
+        assert "\\\\" not in result, "newline was double-escaped (backslash replaced after \\n substitution)"
+
 
 @pytest.mark.unit
 class TestSessionRetryAndHealthCheck:

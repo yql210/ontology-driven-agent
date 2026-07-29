@@ -100,6 +100,7 @@ class OntoAgentConfig:
     nebula_user: str = "root"
     nebula_password: str = "nebula"
     nebula_space: str = "ontoagent"
+    nebula_vid_type: str = "FIXED_STRING(36)"  # VID 类型，匹配 OntoAgent UUID 长度
 
     @classmethod
     def from_env(cls) -> OntoAgentConfig:
@@ -115,7 +116,8 @@ class OntoAgentConfig:
             ONTOAGENT_AGENT_LLM_PROVIDER, ONTOAGENT_AGENT_LLM_MODEL,
             ONTOAGENT_AGENT_API_KEY, ONTOAGENT_AGENT_BASE_URL,
             ONTOAGENT_GRAPH_BACKEND, ONTOAGENT_NEBULA_HOST, ONTOAGENT_NEBULA_PORT,
-            ONTOAGENT_NEBULA_USER, ONTOAGENT_NEBULA_PASSWORD, ONTOAGENT_NEBULA_SPACE
+            ONTOAGENT_NEBULA_USER, ONTOAGENT_NEBULA_PASSWORD, ONTOAGENT_NEBULA_SPACE,
+            ONTOAGENT_NEBULA_VID_TYPE
         """
         _load_dotenv()
 
@@ -163,4 +165,5 @@ class OntoAgentConfig:
             nebula_user=os.getenv("ONTOAGENT_NEBULA_USER", cls.nebula_user),
             nebula_password=os.getenv("ONTOAGENT_NEBULA_PASSWORD", cls.nebula_password),
             nebula_space=os.getenv("ONTOAGENT_NEBULA_SPACE", cls.nebula_space),
+            nebula_vid_type=os.getenv("ONTOAGENT_NEBULA_VID_TYPE", cls.nebula_vid_type),
         )

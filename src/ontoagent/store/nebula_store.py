@@ -107,8 +107,15 @@ def _format_value(value: Any) -> str:
         s = s.replace("\\", "\\\\").replace('"', '\\"')
         return f'"{s}"'
     # int/float/str 统一按字符串处理（schema 字段全是 string 类型）
+    # 转义顺序：反斜杠必须最先，否则后续替换会引入新的反斜杠被二次转义
     s = str(value)
-    s = s.replace("\\", "\\\\").replace('"', '\\"')
+    s = (
+        s.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
     return f'"{s}"'
 
 

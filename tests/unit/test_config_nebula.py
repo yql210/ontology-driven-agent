@@ -33,6 +33,11 @@ class TestConfigNebulaFields:
         config = OntoAgentConfig()
         assert config.nebula_space == "ontoagent"
 
+    def test_nebula_vid_type_default(self) -> None:
+        """vid_type 默认 FIXED_STRING(36) 匹配 OntoAgent UUID。"""
+        config = OntoAgentConfig()
+        assert config.nebula_vid_type == "FIXED_STRING(36)"
+
 
 class TestConfigNebulaFromEnv:
     """测试 from_env 读取 NebulaGraph 环境变量。"""
@@ -44,6 +49,7 @@ class TestConfigNebulaFromEnv:
         "ONTOAGENT_NEBULA_USER",
         "ONTOAGENT_NEBULA_PASSWORD",
         "ONTOAGENT_NEBULA_SPACE",
+        "ONTOAGENT_NEBULA_VID_TYPE",
     )
 
     def _stash_env(self) -> dict[str, str | None]:
