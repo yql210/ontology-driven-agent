@@ -917,11 +917,14 @@ class NebulaGraphStore(GraphStore):
         利用已有的 ``idx_{label}_name`` 索引（见 nebula_schema.py），通过
         ``WHERE name != ""`` 触发索引扫描全量。比 ``MATCH (c:label)`` 全 tag 扫描快几个数量级。
 
-        LOOKUP 失败（如索引未建好）时降级到默认 Cypher 实现（走 query/CypherToNgqlAdapter）。
+        LOOKUP 失败（如索引未建好）时降级到 MATCH（走 query/CypherToNgqlAdapter）。
+
+        nGQL 语法注意：LOOKUP ON 的 YIELD 中属性访问格式是 ``Tag.prop``，
+        **不带** ``vertex.`` 前缀（与 MATCH 的 ``vertex.Tag.prop`` 不同）。
         """
         props = properties or ["id", "name"]
-        # YIELD 中用 vertex.`Tag`.`prop` 格式访问属性；id 由 id(vertex) 单独提供
-        prop_yield = ", ".join(f"vertex.`{label}`.`{p}` AS `{p}`" for p in props if p != "id")
+        # LOOKUP YIELD 格式: Tag.prop AS alias（不带 vertex. 前缀）
+        prop_yield = ", ".join(f"`{label}`.`{p}` AS `{p}`" for p in props if p != "id")
         ngql = (
             f'LOOKUP ON `{label}` WHERE `{label}`.name != "" '
             f"YIELD id(vertex) AS id{', ' + prop_yield if prop_yield else ''};"
@@ -934,6 +937,7 @@ class NebulaGraphStore(GraphStore):
                     label,
                     safe_error_msg(result),
                 )
+                # 降级到 MATCH（经 CypherToNgqlAdapter 转换为合法 nGQL）
                 props_clause = ", ".join(f"n.{p} AS {p}" for p in props)
                 return self.query(f"MATCH (n:{label}) RETURN id(n) AS id, {props_clause}")
             if result.is_empty():
@@ -941,25 +945,19 @@ class NebulaGraphStore(GraphStore):
             return _resultset_to_dicts(result)
 
     def get_edges_by_types(self, rel_types: list[str], node_label: str = "") -> list[dict]:
-        """NebulaGraph: 对每个 edge type 做 LOOKUP ON 扫描全部边。
+        """NebulaGraph: 读取指定类型的全部关系。
 
-        NebulaGraph edge 自带索引，``LOOKUP ON edge_type`` 可直接遍历全部边。
-        ``node_label`` 参数在此实现中被忽略（NebulaGraph 的 LOOKUP ON edge 无法
-        直接过滤端点 tag，过滤逻辑由调用方在内存中处理）。
+        当前 schema 未创建 edge index，``LOOKUP ON edge_type`` 会报错。
+        因此使用 MATCH（经 CypherToNgqlAdapter 转换），与已有 query 路径一致。
+
+        如果未来添加了 edge index，可切换为 LOOKUP ON edge_type 提速。
         """
-        all_edges: list[dict] = []
         if not rel_types:
-            return all_edges
-        with self._session_scope() as session:
-            for rt in rel_types:
-                ngql = f"LOOKUP ON `{rt}` YIELD src(edge) AS source_id, dst(edge) AS target_id;"
-                result = session.execute(ngql)
-                if not result.is_succeeded():
-                    logger.warning("[NebulaStore] LOOKUP ON edge %s failed: %s", rt, safe_error_msg(result))
-                    continue
-                if not result.is_empty():
-                    all_edges.extend(_resultset_to_dicts(result))
-        return all_edges
+            return []
+        # 用 MATCH 走 CypherToNgqlAdapter（adapter 把 id(a) → id(a)、属性访问补全 Tag 前缀）
+        type_filter = "|".join(rel_types)
+        cypher = f"MATCH (a)-[r:{type_filter}]->(b) RETURN id(a) AS source_id, id(b) AS target_id"
+        return self.query(cypher)
 
     def ensure_constraints(self) -> None:
         """确保 NebulaGraph schema 存在（Space + Tag + Edge + Index）。

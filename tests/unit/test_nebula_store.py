@@ -1028,9 +1028,11 @@ class TestNebulaStoreGetNodesByLabel:
         stmt = lookup_stmts[0]
         assert "LOOKUP ON `CodeEntity`" in stmt
         assert '`CodeEntity`.name != ""' in stmt or '`CodeEntity`.`name` != ""' in stmt
-        # YIELD 中属性访问用 vertex.`CodeEntity`.`prop` 格式
-        assert "vertex.`CodeEntity`.`name`" in stmt
-        assert "vertex.`CodeEntity`.`filePath`" in stmt
+        # YIELD 中属性访问用 `Tag`.`prop` 格式（不带 vertex. 前缀）
+        assert "`CodeEntity`.`name`" in stmt
+        assert "`CodeEntity`.`filePath`" in stmt
+        # 不应有 vertex. 前缀
+        assert "vertex.`CodeEntity`" not in stmt
         # id(vertex) 作为 id 返回
         assert "id(vertex) AS id" in stmt
 
@@ -1046,7 +1048,7 @@ class TestNebulaStoreGetNodesByLabel:
 
         stmts = [c.args[0] for c in mock_session.execute.call_args_list]
         lookup_stmt = next(s for s in stmts if "LOOKUP ON" in s)
-        assert "vertex.`CodeEntity`.`name`" in lookup_stmt
+        assert "`CodeEntity`.`name`" in lookup_stmt
 
     def test_decodes_result_rows(self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock) -> None:
         """成功 LOOKUP ResultSet 应通过 _resultset_to_dicts 转为 list[dict]。"""
@@ -1115,12 +1117,16 @@ class TestNebulaStoreGetNodesByLabel:
 
 @pytest.mark.unit
 class TestNebulaStoreGetEdgesByTypes:
-    """get_edges_by_types 覆写测试 — 用 LOOKUP ON edge_type 扫描边。"""
+    """get_edges_by_types 覆写测试 — 用 MATCH（经 CypherToNgqlAdapter）读取边。
 
-    def test_uses_lookup_on_per_edge_type(
+    当前 schema 未建 edge index，LOOKUP ON edge_type 会报错。
+    改用 MATCH 走 CypherToNgqlAdapter 转换路径。
+    """
+
+    def test_uses_match_not_lookup(
         self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
     ) -> None:
-        """每个 edge type 应单独发起一条 LOOKUP ON edge_type YIELD src(edge), dst(edge)。"""
+        """get_edges_by_types 应使用 MATCH（含 type filter），不使用 LOOKUP ON edge。"""
         empty = _make_successful_result(rows=[])
         empty.is_empty = MagicMock(return_value=True)
         mock_session.execute = MagicMock(return_value=empty)
@@ -1128,111 +1134,19 @@ class TestNebulaStoreGetEdgesByTypes:
         store_with_mock_pool.get_edges_by_types(["CALLS", "IMPORTS"], "CodeEntity")
 
         stmts = [c.args[0] for c in mock_session.execute.call_args_list]
-        lookup_stmts = [s for s in stmts if "LOOKUP ON" in s]
-        assert len(lookup_stmts) == 2
-        assert any("LOOKUP ON `CALLS`" in s for s in lookup_stmts)
-        assert any("LOOKUP ON `IMPORTS`" in s for s in lookup_stmts)
-        # YIELD 中用 src(edge) 和 dst(edge)
-        for stmt in lookup_stmts:
-            assert "src(edge) AS source_id" in stmt
-            assert "dst(edge) AS target_id" in stmt
-
-    def test_aggregates_results_across_types(
-        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
-    ) -> None:
-        """多个 edge type 的结果应合并为一个列表。"""
-        # CALLS → 1 条边
-        result_calls = MagicMock()
-        result_calls.is_succeeded = MagicMock(return_value=True)
-        result_calls.is_empty = MagicMock(return_value=False)
-        result_calls.row_size = MagicMock(return_value=1)
-        result_calls.keys = MagicMock(return_value=["source_id", "target_id"])
-
-        # IMPORTS → 1 条边
-        result_imports = MagicMock()
-        result_imports.is_succeeded = MagicMock(return_value=True)
-        result_imports.is_empty = MagicMock(return_value=False)
-        result_imports.row_size = MagicMock(return_value=1)
-        result_imports.keys = MagicMock(return_value=["source_id", "target_id"])
-
-        def _column_values_factory(values_per_key):
-            def _impl(key):
-                return values_per_key[key]
-
-            return _impl
-
-        src1, tgt1 = MagicMock(), MagicMock()
-        src1.as_string = MagicMock(return_value="a1")
-        tgt1.as_string = MagicMock(return_value="b1")
-        result_calls.column_values = MagicMock(
-            side_effect=_column_values_factory({"source_id": [src1], "target_id": [tgt1]})
-        )
-
-        src2, tgt2 = MagicMock(), MagicMock()
-        src2.as_string = MagicMock(return_value="a2")
-        tgt2.as_string = MagicMock(return_value="b2")
-        result_imports.column_values = MagicMock(
-            side_effect=_column_values_factory({"source_id": [src2], "target_id": [tgt2]})
-        )
-
-        def _execute(stmt: str):
-            # _session_scope 会先执行 USE SPACE；总是成功
-            if stmt.startswith("USE "):
-                ok = MagicMock()
-                ok.is_succeeded = MagicMock(return_value=True)
-                return ok
-            if "CALLS" in stmt:
-                return result_calls
-            if "IMPORTS" in stmt:
-                return result_imports
-            return _make_successful_result(rows=[])
-
-        mock_session.execute = MagicMock(side_effect=_execute)
-
-        result = store_with_mock_pool.get_edges_by_types(["CALLS", "IMPORTS"])
-        assert len(result) == 2
-        assert result[0]["source_id"] == "a1"
-        assert result[0]["target_id"] == "b1"
-        assert result[1]["source_id"] == "a2"
-        assert result[1]["target_id"] == "b2"
-
-    def test_skips_failed_edge_type_continues_others(
-        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
-    ) -> None:
-        """某个 edge type LOOKUP 失败应跳过，其他 type 继续执行。"""
-        failed = MagicMock()
-        failed.is_succeeded = MagicMock(return_value=False)
-        failed.error_msg = "EdgeNotFound"
-
-        success = MagicMock()
-        success.is_succeeded = MagicMock(return_value=True)
-        success.is_empty = MagicMock(return_value=True)
-        success.row_size = MagicMock(return_value=0)
-        success.keys = MagicMock(return_value=[])
-
-        def _execute(stmt: str):
-            if stmt.startswith("USE "):
-                return success
-            if "CALLS" in stmt:
-                return failed
-            if "IMPORTS" in stmt:
-                return success
-            return success
-
-        mock_session.execute = MagicMock(side_effect=_execute)
-
-        # 不抛异常
-        result = store_with_mock_pool.get_edges_by_types(["CALLS", "IMPORTS"])
-        assert result == []
+        # 应包含一条 MATCH 语句（经 CypherToNgqlAdapter 转换后可能仍是 MATCH）
+        match_stmts = [s for s in stmts if "MATCH" in s or "match" in s]
+        assert match_stmts, f"Expected MATCH in stmts: {stmts}"
+        # 不应有 LOOKUP ON edge（没有 edge index）
+        lookup_edge_stmts = [s for s in stmts if "LOOKUP ON" in s and ("CALLS" in s or "IMPORTS" in s)]
+        assert not lookup_edge_stmts, f"Should not use LOOKUP ON edge: {lookup_edge_stmts}"
 
     def test_empty_rel_types_returns_empty(
         self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
     ) -> None:
-        """空 rel_types → 不发起任何 LOOKUP，返回 []。"""
+        """空 rel_types → 不发起任何查询，返回 []。"""
         result = store_with_mock_pool.get_edges_by_types([])
         assert result == []
-        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
-        assert not any("LOOKUP ON" in s for s in stmts)
 
     def test_retry_config_defaults(self) -> None:
         """_SESSION_RETRY_MAX 和 _SESSION_RETRY_DELAY 有合理默认值。"""
