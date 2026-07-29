@@ -109,9 +109,12 @@ class NebulaSchemaInitializer:
             check_result = self._session.execute("SHOW SPACES;")
             if check_result.is_succeeded():
                 existing_spaces: set[str] = set()
-                for row in check_result.rows:
-                    if row.values and row.values[0].get_sVal().value:
-                        existing_spaces.add(row.values[0].get_sVal().value)
+                # nebula3 SDK: column_values("Name") 返回 list[ValueWrapper]
+                # ValueWrapper.as_string() 取字符串值（可能带反引号，需 strip）
+                for val in check_result.column_values("Name"):
+                    name = val.as_string()
+                    if name:
+                        existing_spaces.add(name.strip("`").strip('"').strip("'"))
                 if self._space_name in existing_spaces:
                     logger.info(
                         "[NebulaSchema] space '%s' already exists, skipping CREATE",

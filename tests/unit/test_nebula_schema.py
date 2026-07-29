@@ -9,25 +9,29 @@ from ontoagent.store.nebula_schema import NebulaSchemaInitializer
 
 
 def _make_show_spaces_result(space_names: list[str]) -> MagicMock:
-    """构造 SHOW SPACES 的 ResultSet mock。
+    """构造 SHOW SPACES 的 ResultSet mock（贴近真实 nebula3 SDK 行为）。
 
-    nebula3 SDK 中 SHOW SPACES 返回单列 ``Name``，每行是一个 ValueWrapper，
-    通过 ``row.values[0].get_sVal().value`` 取 space 名称（字符串）。
+    nebula3 SDK 中:
+    - SHOW SPACES 返回单列 ``Name``。
+    - ``result.column_values("Name")`` 是方法，返回 ``list[ValueWrapper]``。
+    - ``ValueWrapper.as_string()`` 是方法，返回字符串值。
+
+    重要：mock 必须模拟这些方法的 callable 特性，不能用属性赋值。
+    之前用 result.rows = list 掩盖了 rows 是方法的事实，导致真实 SDK 下静默失败。
     """
     result = MagicMock()
     result.is_succeeded = MagicMock(return_value=True)
     result.error_msg = ""
 
-    rows = []
+    # 构造 ValueWrapper mock: as_string() 是方法返回字符串
+    values = []
     for name in space_names:
-        sval = MagicMock()
-        sval.value = name
-        cell = MagicMock()
-        cell.get_sVal = MagicMock(return_value=sval)
-        row = MagicMock()
-        row.values = [cell]
-        rows.append(row)
-    result.rows = rows
+        vw = MagicMock()
+        vw.as_string = MagicMock(return_value=name)
+        values.append(vw)
+
+    # column_values 是方法，不是属性
+    result.column_values = MagicMock(return_value=values)
     return result
 
 
