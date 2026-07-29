@@ -860,11 +860,36 @@ class TestFormatValueSerialization:
         assert _format_value(False) == '"false"'
 
     def test_list_becomes_json_string(self) -> None:
-        """list 不应变成 ``"['a', 'b']"``（Python repr），而应是 JSON ``'["a","b"]'``。"""
+        """list 不应变成 ``"['a', 'b']"``（Python repr），而应是 JSON ``'["a","b"]'``。
+
+        nGQL 双引号字符串中，内嵌的双引号必须转义为 ``\\"``，否则 parser 会提前关闭字符串。
+        因此 ``["a", "b"]`` 的正确输出是 ``"[\\"a\\", \\"b\\"]"``（外层引号包裹，内层引号转义）。
+        """
         from ontoagent.store.nebula_store import _format_value
 
         result = _format_value(["a", "b"])
-        assert result == '"["a", "b"]"' or result == '"[\\"a\\", \\"b\\"]"'
+        assert result == '"[\\"a\\", \\"b\\"]"'
+
+    def test_format_value_list_round_trip(self) -> None:
+        """``_format_value`` 输出经 nGQL 反转义后必须能还原原始 Python 值。
+
+        验证 multi-line 字符串和带特殊字符的 list 都能 round-trip。
+        nGQL parser 反转义后字符串中可能含真正换行符，json.loads 需用 strict=False。
+        """
+        import json as _json
+
+        from ontoagent.store.nebula_store import _format_value
+
+        original = ["line1\nline2", "hello"]
+        formatted = _format_value(original)
+
+        # nGQL 字面量：外层引号包裹，内部双引号转义为 \"，反斜杠转义为 \\
+        # 反转义步骤：先去掉外层引号，再 \\ → \，\" → "，\n → 换行
+        inner = formatted[1:-1]
+        unescaped = inner.replace("\\\\", "\\").replace('\\"', '"').replace("\\n", "\n")
+        restored = _json.loads(unescaped, strict=False)
+
+        assert restored == original
 
     def test_dict_becomes_json_string(self) -> None:
         from ontoagent.store.nebula_store import _format_value

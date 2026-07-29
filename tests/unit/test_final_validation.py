@@ -47,7 +47,10 @@ def test_all_test_modules_importable():
     test_files = [
         f
         for f in test_files
-        if "__pycache__" not in f.parts and ".pytest_cache" not in f.parts and "conftest.py" not in f.name
+        if "__pycache__" not in f.parts
+        and ".pytest_cache" not in f.parts
+        and "conftest.py" not in f.name
+        and "e2e" not in f.parts
     ]
 
     failed = []

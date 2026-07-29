@@ -54,6 +54,17 @@ def build(
         )
         if verbose_build:
             click.echo(str(result))
+            if result.aborted:
+                raise click.Abort()
+        elif result.aborted:
+            click.echo(
+                f"Build ABORTED: {result.files_scanned} files scanned, "
+                f"{result.entities_created} entities created",
+                err=True,
+            )
+            for err in result.errors:
+                click.echo(f"  ERROR: {err}", err=True)
+            raise click.Abort()
         else:
             click.echo(
                 f"Build complete: {result.files_scanned} files scanned, "

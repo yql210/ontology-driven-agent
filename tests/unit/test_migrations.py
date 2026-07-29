@@ -120,9 +120,9 @@ class TestMigrationRegistry:
 
     def test_get_latest_version(self):
         reg = MigrationRegistry()
-        # builtin migrations now include v2.0.0
-        assert reg.get_latest_version() == "2.0.0"
-        reg.register(DummyMigration("2.0.0", "3.0.0"))
+        # builtin migrations now include v2.1.0
+        assert reg.get_latest_version() == "2.1.0"
+        reg.register(DummyMigration("2.1.0", "3.0.0"))
         assert reg.get_latest_version() == "3.0.0"
 
 
@@ -266,6 +266,33 @@ def test_migration_registry_includes_v5_capability() -> None:
 
 
 @pytest.mark.unit
-def test_current_schema_version_is_2_0_0() -> None:
-    """Phase 0: CURRENT_SCHEMA_VERSION must be '2.0.0'."""
-    assert CURRENT_SCHEMA_VERSION == "2.0.0", f"Expected 2.0.0, got {CURRENT_SCHEMA_VERSION}"
+def test_current_schema_version_is_2_1_0() -> None:
+    """P1-#1: CURRENT_SCHEMA_VERSION must be '2.1.0' (ModuleEntity.size)."""
+    assert CURRENT_SCHEMA_VERSION == "2.1.0", f"Expected 2.1.0, got {CURRENT_SCHEMA_VERSION}"
+
+
+@pytest.mark.unit
+def test_migration_registry_includes_v2_1_0_module_size() -> None:
+    """P1-#1: migration registry must include v2.1.0 for ModuleEntity.size."""
+    reg = MigrationRegistry()
+    versions = [m.version_to for m in reg.migrations]
+    assert "2.1.0" in versions, f"v2.1.0 not found in migration registry: {versions}"
+
+
+@pytest.mark.unit
+def test_v2_1_0_migration_targets_module_entity_size() -> None:
+    """P1-#1: v2.1.0 迁移必须从 2.0.0 升级到 2.1.0。"""
+    from ontoagent.store.migrations.v2_1_0_add_module_size import ModuleEntitySizeMigration
+
+    migration = ModuleEntitySizeMigration()
+    assert migration.version_from == "2.0.0"
+    assert migration.version_to == "2.1.0"
+
+
+@pytest.mark.unit
+def test_module_entity_field_names_include_size() -> None:
+    """P1-#1: entity_field_names('ModuleEntity') 必须包含 'size'。"""
+    from ontoagent.domain.schema import entity_field_names
+
+    fields = entity_field_names("ModuleEntity")
+    assert "size" in fields, f"'size' not in ModuleEntity fields: {fields}"

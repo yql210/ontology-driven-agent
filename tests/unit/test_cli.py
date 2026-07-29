@@ -101,6 +101,64 @@ class TestBuildCommand:
             assert "entities created" in result.output
             assert "relations created" in result.output
 
+    def test_build_aborted_shows_errors_and_exits_nonzero(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """P0-#3: build 失败中止时必须在 stderr 输出 errors 并返回非零 exit code。"""
+        # Arrange
+        aborted_result = BuildResult(
+            files_scanned=3,
+            entities_created=0,
+            relations_created=0,
+            aborted=True,
+            errors=["Stage 2 structural write failed: connection lost", "Another error"],
+        )
+        mock_builder = MagicMock()
+        mock_builder.build.return_value = aborted_result
+        mock_builder.__enter__ = MagicMock(return_value=mock_builder)
+        mock_builder.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.OntoAgentBuilder", return_value=mock_builder),
+        ):
+            mock_config_cls.from_env.return_value = MagicMock()
+
+            # Act
+            result = runner.invoke(main, ["build", str(tmp_path)])
+
+            # Assert
+            assert result.exit_code != 0
+            # CliRunner 默认把 stderr 混入 output；output 应包含 ABORTED 摘要和每条 error
+            assert "ABORTED" in result.output
+            assert "3 files scanned" in result.output
+            assert "Stage 2 structural write failed" in result.output
+            assert "Another error" in result.output
+
+    def test_build_success_normal_output_no_errors_in_stderr(
+        self, runner: CliRunner, tmp_path: Path, mock_build_result: BuildResult
+    ) -> None:
+        """P0-#3: build 成功时保持原有 stdout 输出，不含 ABORTED。"""
+        # Arrange
+        mock_builder = MagicMock()
+        mock_builder.build.return_value = mock_build_result
+        mock_builder.__enter__ = MagicMock(return_value=mock_builder)
+        mock_builder.__exit__ = MagicMock(return_value=False)
+
+        with (
+            patch("ontoagent.api.cli.OntoAgentConfig") as mock_config_cls,
+            patch("ontoagent.api.cli.OntoAgentBuilder", return_value=mock_builder),
+        ):
+            mock_config_cls.from_env.return_value = MagicMock()
+
+            # Act
+            result = runner.invoke(main, ["build", str(tmp_path)])
+
+            # Assert
+            assert result.exit_code == 0
+            assert "Build complete" in result.output
+            assert "ABORTED" not in result.output
+
 
 class TestQueryCommand:
     """测试 query 命令。"""

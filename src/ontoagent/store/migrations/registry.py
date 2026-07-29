@@ -14,6 +14,7 @@ _BUILTIN_MIGRATIONS: list[str] = [
     "1.1.0",
     "1.2.0",
     "2.0.0",
+    "2.1.0",
 ]
 
 
@@ -45,6 +46,12 @@ def _load_migration(version: str) -> MigrationBase:
         )
 
         return CapabilityEntityMigration()
+    if version == "2.1.0":
+        from ontoagent.store.migrations.v2_1_0_add_module_size import (
+            ModuleEntitySizeMigration,
+        )
+
+        return ModuleEntitySizeMigration()
     raise ValueError(f"Unknown migration version: {version}")
 
 

@@ -566,6 +566,9 @@ _EXTRA_FIELDS: dict[str, set[str]] = {
         "outputContract",
         "keywords",
     },
+    "ModuleEntity": {
+        "size",  # P1-#1: 模块内实体数量（聚类元数据）
+    },
 }
 
 

@@ -215,6 +215,45 @@ class TestLoadGraph:
         # e3 通过结构边连 e1
         assert adj["e3"] == {"e1"}
 
+    def test_large_file_skips_virtual_edges(self) -> None:
+        """测试单文件实体数 > 30 阈值时跳过虚拟边（全或无策略）。"""
+        mock_store = MagicMock(spec=GraphStore)
+
+        # 单文件 35 个实体（超过阈值 30），无结构关系
+        entity_records = [
+            {"id": f"e{i}", "name": f"Entity{i}", "file_path": "src/big_file.py"} for i in range(35)
+        ]
+        mock_store.query.side_effect = [entity_records, []]
+
+        clustering = ModuleClustering(mock_store)
+        adj, _entity_data = clustering._load_graph()
+
+        # 35 个实体应该全部孤立（虚拟边被跳过）
+        for i in range(35):
+            assert adj[f"e{i}"] == set(), f"e{i} 不应该有虚拟边"
+
+    def test_small_file_keeps_virtual_edges(self) -> None:
+        """测试单文件实体数 ≤ 30 阈值时保留虚拟边。"""
+        mock_store = MagicMock(spec=GraphStore)
+
+        # 单文件 5 个实体（在阈值内），无结构关系
+        entity_records = [
+            {"id": f"e{i}", "name": f"Entity{i}", "file_path": "src/small_file.py"} for i in range(5)
+        ]
+        mock_store.query.side_effect = [entity_records, []]
+
+        clustering = ModuleClustering(mock_store)
+        adj, _entity_data = clustering._load_graph()
+
+        # 5 个实体两两互连：C(5,2) = 10 条边，每个节点连其他 4 个
+        for i in range(5):
+            expected_neighbors = {f"e{j}" for j in range(5) if j != i}
+            assert adj[f"e{i}"] == expected_neighbors, f"e{i} 应该连接其他 4 个实体"
+
+        # 验证总边数：5*4/2 = 10
+        total_edges = sum(len(neighbors) for neighbors in adj.values()) // 2
+        assert total_edges == 10
+
 
 # =============================================================================
 # Task 4: _label_propagation (5 tests)

@@ -28,6 +28,9 @@ class ModuleCluster:
             raise AssertionError(msg)
 
 
+_MAX_FILE_ENTITIES_FOR_VIRTUAL_EDGES = 30
+
+
 class ModuleClustering:
     """模块聚类器：基于图结构的社区发现。
 
@@ -117,11 +120,19 @@ class ModuleClustering:
 
         # 为每个文件内的实体添加全连接虚拟边
         for _file_path, entities_in_file in file_to_entities.items():
-            if len(entities_in_file) > 1:
-                # 同文件内的实体两两互连
-                for e1, e2 in combinations(entities_in_file, 2):
-                    adj[e1].add(e2)
-                    adj[e2].add(e1)
+            if len(entities_in_file) <= 1:
+                continue
+            if len(entities_in_file) > _MAX_FILE_ENTITIES_FOR_VIRTUAL_EDGES:
+                self._logger.warning(
+                    "File has %d entities (> %d threshold), skipping virtual edges: %s",
+                    len(entities_in_file),
+                    _MAX_FILE_ENTITIES_FOR_VIRTUAL_EDGES,
+                    _file_path,
+                )
+                continue
+            for e1, e2 in combinations(entities_in_file, 2):
+                adj[e1].add(e2)
+                adj[e2].add(e1)
 
         return adj, entity_data
 
