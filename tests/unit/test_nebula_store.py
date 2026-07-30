@@ -1117,29 +1117,44 @@ class TestNebulaStoreGetNodesByLabel:
 
 @pytest.mark.unit
 class TestNebulaStoreGetEdgesByTypes:
-    """get_edges_by_types 覆写测试 — 用 MATCH（经 CypherToNgqlAdapter）读取边。
+    """get_edges_by_types 测试 — GO FROM 沿边遍历（替代 MATCH 全扫描）。
 
-    当前 schema 未建 edge index，LOOKUP ON edge_type 会报错。
-    改用 MATCH 走 CypherToNgqlAdapter 转换路径。
+    NebulaGraph 的 MATCH 全关系扫描在大图上性能差。改用 LOOKUP ON 拿起点 VID →
+    分批 GO FROM vid OVER edge_types 沿边遍历，性能提升几倍~几十倍。
     """
 
-    def test_uses_match_not_lookup(
-        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
-    ) -> None:
-        """get_edges_by_types 应使用 MATCH（含 type filter），不使用 LOOKUP ON edge。"""
-        empty = _make_successful_result(rows=[])
-        empty.is_empty = MagicMock(return_value=True)
-        mock_session.execute = MagicMock(return_value=empty)
+    def _make_lookup_result(self, vids: list[str]) -> MagicMock:
+        """构造 LOOKUP ON 返回的 ResultSet（返回 id 列）。"""
+        result = MagicMock()
+        result.is_succeeded = MagicMock(return_value=True)
+        result.is_empty = MagicMock(return_value=False)
+        result.row_size = MagicMock(return_value=len(vids))
+        result.keys = MagicMock(return_value=["id"])
+        vws = []
+        for vid in vids:
+            vw = MagicMock()
+            vw.as_string = MagicMock(return_value=vid)
+            vws.append(vw)
+        result.column_values = MagicMock(return_value=vws)
+        return result
 
-        store_with_mock_pool.get_edges_by_types(["CALLS", "IMPORTS"], "CodeEntity")
-
-        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
-        # 应包含一条 MATCH 语句（经 CypherToNgqlAdapter 转换后可能仍是 MATCH）
-        match_stmts = [s for s in stmts if "MATCH" in s or "match" in s]
-        assert match_stmts, f"Expected MATCH in stmts: {stmts}"
-        # 不应有 LOOKUP ON edge（没有 edge index）
-        lookup_edge_stmts = [s for s in stmts if "LOOKUP ON" in s and ("CALLS" in s or "IMPORTS" in s)]
-        assert not lookup_edge_stmts, f"Should not use LOOKUP ON edge: {lookup_edge_stmts}"
+    def _make_go_result(self, edges: list[tuple[str, str]]) -> MagicMock:
+        """构造 GO FROM 返回的 ResultSet（source_id/target_id 两列）。"""
+        result = MagicMock()
+        result.is_succeeded = MagicMock(return_value=True)
+        result.is_empty = MagicMock(return_value=len(edges) == 0)
+        result.row_size = MagicMock(return_value=len(edges))
+        result.keys = MagicMock(return_value=["source_id", "target_id"])
+        src_vws, dst_vws = [], []
+        for src, dst in edges:
+            vw_s = MagicMock()
+            vw_s.as_string = MagicMock(return_value=src)
+            vw_d = MagicMock()
+            vw_d.as_string = MagicMock(return_value=dst)
+            src_vws.append(vw_s)
+            dst_vws.append(vw_d)
+        result.column_values = MagicMock(side_effect=lambda key: src_vws if key == "source_id" else dst_vws)
+        return result
 
     def test_empty_rel_types_returns_empty(
         self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
@@ -1147,8 +1162,196 @@ class TestNebulaStoreGetEdgesByTypes:
         """空 rel_types → 不发起任何查询，返回 []。"""
         result = store_with_mock_pool.get_edges_by_types([])
         assert result == []
+        # 不应调用任何 execute（除了 USE SPACE）
+        for call in mock_session.execute.call_args_list:
+            assert "USE" in call.args[0] or "GO FROM" not in call.args[0]
+
+    def test_uses_go_from_not_match(self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock) -> None:
+        """get_edges_by_types 应使用 GO FROM（沿边遍历），不使用 MATCH 全扫描。"""
+        lookup_result = self._make_lookup_result(["vid-1", "vid-2"])
+        go_result = self._make_go_result([("vid-1", "vid-2")])
+
+        def _execute(stmt: str):
+            if stmt.startswith("USE "):
+                ok = MagicMock()
+                ok.is_succeeded = MagicMock(return_value=True)
+                return ok
+            if "LOOKUP ON" in stmt:
+                return lookup_result
+            if "GO FROM" in stmt:
+                return go_result
+            return _make_successful_result(rows=[])
+
+        mock_session.execute = MagicMock(side_effect=_execute)
+
+        result = store_with_mock_pool.get_edges_by_types(["CALLS", "IMPORTS"], "CodeEntity")
+
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        # 必须有 GO FROM 语句
+        go_stmts = [s for s in stmts if "GO FROM" in s]
+        assert go_stmts, f"Expected GO FROM in stmts: {stmts}"
+        # GO FROM 语句应包含所有 edge type（反引号包裹）
+        assert "`CALLS`" in go_stmts[0]
+        assert "`IMPORTS`" in go_stmts[0]
+        # YIELD 应使用 src(edge) / dst(edge)
+        assert "src(edge)" in go_stmts[0]
+        assert "dst(edge)" in go_stmts[0]
+        # 不应有 MATCH 语句（主路径不走 MATCH）
+        match_stmts = [s for s in stmts if "MATCH" in s]
+        assert not match_stmts, f"Should not use MATCH: {match_stmts}"
+        # 返回值格式正确
+        assert len(result) == 1
+        assert result[0]["source_id"] == "vid-1"
+        assert result[0]["target_id"] == "vid-2"
+
+    def test_default_label_is_codeentity(self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock) -> None:
+        """node_label="" 时默认用 CodeEntity 做 LOOKUP。"""
+        empty_lookup = self._make_lookup_result([])
+        mock_session.execute = MagicMock(return_value=empty_lookup)
+
+        # 重新设置：LOOKUP 返回空 → 整体返回空
+        def _execute(stmt: str):
+            if stmt.startswith("USE "):
+                ok = MagicMock()
+                ok.is_succeeded = MagicMock(return_value=True)
+                return ok
+            return empty_lookup
+
+        mock_session.execute = MagicMock(side_effect=_execute)
+
+        store_with_mock_pool.get_edges_by_types(["CALLS"])
+
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        lookup_stmt = next(s for s in stmts if "LOOKUP ON" in s)
+        assert "`CodeEntity`" in lookup_stmt
+
+    def test_batching_large_vid_set(self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock) -> None:
+        """VID 数超过 _GO_BATCH_SIZE 时分批执行 GO FROM。"""
+        # 生成 2500 个 VID（_GO_BATCH_SIZE 默认 1000 → 3 批）
+        store_with_mock_pool._GO_BATCH_SIZE = 1000
+        vids = [f"vid-{i:04d}" for i in range(2500)]
+        lookup_result = self._make_lookup_result(vids)
+        go_result = self._make_go_result([])  # GO 返回空（只验证批次数）
+
+        go_call_count = [0]
+
+        def _execute(stmt: str):
+            if stmt.startswith("USE "):
+                ok = MagicMock()
+                ok.is_succeeded = MagicMock(return_value=True)
+                return ok
+            if "LOOKUP ON" in stmt:
+                return lookup_result
+            if "GO FROM" in stmt:
+                go_call_count[0] += 1
+                return go_result
+            return _make_successful_result(rows=[])
+
+        mock_session.execute = MagicMock(side_effect=_execute)
+
+        store_with_mock_pool.get_edges_by_types(["CALLS"], "CodeEntity")
+
+        # 2500 / 1000 = 3 批
+        assert go_call_count[0] == 3, f"Expected 3 GO FROM batches, got {go_call_count[0]}"
+
+        # 验证每批不超过 _GO_BATCH_SIZE 个 VID
+        go_stmts = [c.args[0] for c in mock_session.execute.call_args_list if "GO FROM" in c.args[0]]
+        for stmt in go_stmts:
+            vid_count = stmt.count("->")  # 粗略计数方式可能不准，用引号计数
+            # 每批 VID 数 = (GO FROM 后的引号对数) / 2
+            from_part = stmt.split("OVER")[0]
+            vid_count = from_part.count('"') // 2
+            assert vid_count <= store_with_mock_pool._GO_BATCH_SIZE
+
+    def test_falls_back_to_match_on_go_failure(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """GO FROM 失败时应降级到 MATCH（不抛异常）。"""
+        lookup_result = self._make_lookup_result(["vid-1"])
+        go_failed = MagicMock()
+        go_failed.is_succeeded = MagicMock(return_value=False)
+        go_failed.error_msg = "SemanticError"
+        match_empty = _make_successful_result(rows=[])
+        match_empty.is_empty = MagicMock(return_value=True)
+
+        def _execute(stmt: str):
+            if stmt.startswith("USE "):
+                ok = MagicMock()
+                ok.is_succeeded = MagicMock(return_value=True)
+                return ok
+            if "LOOKUP ON" in stmt:
+                return lookup_result
+            if "GO FROM" in stmt:
+                return go_failed
+            # MATCH fallback
+            return match_empty
+
+        mock_session.execute = MagicMock(side_effect=_execute)
+
+        # 不应抛异常
+        result = store_with_mock_pool.get_edges_by_types(["CALLS"], "CodeEntity")
+        assert result == []
+
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        # 应有 MATCH 兜底
+        match_stmts = [s for s in stmts if "MATCH" in s]
+        assert match_stmts, f"Expected MATCH fallback in stmts: {stmts}"
+
+    def test_falls_back_to_match_on_lookup_failure(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """LOOKUP ON 拿 VID 失败（抛异常）时降级到 MATCH。"""
+        match_empty = _make_successful_result(rows=[])
+        match_empty.is_empty = MagicMock(return_value=True)
+
+        def _execute(stmt: str):
+            if stmt.startswith("USE "):
+                ok = MagicMock()
+                ok.is_succeeded = MagicMock(return_value=True)
+                return ok
+            # LOOKUP 失败
+            if "LOOKUP ON" in stmt:
+                failed = MagicMock()
+                failed.is_succeeded = MagicMock(return_value=False)
+                failed.error_msg = "SemanticError"
+                return failed
+            # MATCH fallback
+            return match_empty
+
+        mock_session.execute = MagicMock(side_effect=_execute)
+
+        result = store_with_mock_pool.get_edges_by_types(["CALLS"], "CodeEntity")
+        assert result == []
+
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        match_stmts = [s for s in stmts if "MATCH" in s]
+        assert match_stmts, "Expected MATCH fallback when LOOKUP fails"
+
+    def test_empty_vids_returns_empty(self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock) -> None:
+        """LOOKUP 返回空 VID 列表 → 不发 GO FROM，返回 []。"""
+        empty_lookup = self._make_lookup_result([])
+
+        def _execute(stmt: str):
+            if stmt.startswith("USE "):
+                ok = MagicMock()
+                ok.is_succeeded = MagicMock(return_value=True)
+                return ok
+            return empty_lookup
+
+        mock_session.execute = MagicMock(side_effect=_execute)
+
+        result = store_with_mock_pool.get_edges_by_types(["CALLS"], "CodeEntity")
+        assert result == []
+
+        # 不应发 GO FROM（没有起点 VID）
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        assert not any("GO FROM" in s for s in stmts), "Should not execute GO FROM with empty VIDs"
 
     def test_retry_config_defaults(self) -> None:
         """_SESSION_RETRY_MAX 和 _SESSION_RETRY_DELAY 有合理默认值。"""
         assert NebulaGraphStore._SESSION_RETRY_MAX >= 1
         assert NebulaGraphStore._SESSION_RETRY_DELAY > 0
+
+    def test_go_batch_size_default(self) -> None:
+        """_GO_BATCH_SIZE 默认值合理（>=100）。"""
+        assert NebulaGraphStore._GO_BATCH_SIZE >= 100

@@ -944,19 +944,86 @@ class NebulaGraphStore(GraphStore):
                 return []
             return _resultset_to_dicts(result)
 
+    #: get_edges_by_types 中 GO FROM 分批大小（每批起点 VID 数）。
+    _GO_BATCH_SIZE: int = 1000
+
     def get_edges_by_types(self, rel_types: list[str], node_label: str = "") -> list[dict]:
-        """NebulaGraph: 读取指定类型的全部关系。
+        """NebulaGraph: 用 GO FROM 沿边遍历，读取指定类型的全部关系。
 
-        当前 schema 未创建 edge index，``LOOKUP ON edge_type`` 会报错。
-        因此使用 MATCH（经 CypherToNgqlAdapter 转换），与已有 query 路径一致。
+        与 Neo4j 的 MATCH 全关系扫描不同，NebulaGraph 的 MATCH 在分布式架构下
+        需跨 storage 节点扫描全图（44828 节点 + 6 万边实测卡顿严重）。
 
-        如果未来添加了 edge index，可切换为 LOOKUP ON edge_type 提速。
+        优化策略：``LOOKUP ON`` 拿起点 VID → 分批 ``GO FROM`` 沿边遍历。
+        GO FROM 直接从给定 VID 出发遍历邻接边（index-free adjacency），
+        无需 edge index，在 NebulaGraph 大图上快几倍~几十倍。
+
+        Args:
+            rel_types: 关系类型列表（如 ``['CALLS', 'IMPORTS']``）。
+            node_label: 起点节点的 tag（默认 ``CodeEntity``）。GO 只从该 tag 的
+                VID 出发遍历，过滤掉不相关 tag 的边。
+
+        Returns:
+            关系字典列表，每项含 ``source_id`` 和 ``target_id``。
+
+        Raises:
+            RuntimeError: 当 GO FROM 查询失败且 fallback 也失败时。
         """
         if not rel_types:
             return []
-        # 用 MATCH 走 CypherToNgqlAdapter（adapter 把 id(a) → id(a)、属性访问补全 Tag 前缀）
+
+        label = node_label or "CodeEntity"
+
+        # 1. LOOKUP ON 拿起点 VID 列表（复用 get_nodes_by_label 的 tag 索引扫描）
+        try:
+            node_rows = self.get_nodes_by_label(label, ["id"])
+        except Exception:
+            logger.exception("[NebulaStore] get_edges_by_types: LOOKUP for source VIDs failed")
+            return self._get_edges_by_types_match_fallback(rel_types)
+
+        vids = [r["id"] for r in node_rows if r.get("id")]
+        if not vids:
+            return []
+
+        # 2. 分批 GO FROM vid OVER edge_types — NebulaGraph 原生沿边遍历
+        edge_over = ", ".join(f"`{e}`" for e in rel_types)
+        results: list[dict] = []
+        batch_size = self._GO_BATCH_SIZE
+
+        with self._session_scope() as session:
+            for i in range(0, len(vids), batch_size):
+                batch = vids[i : i + batch_size]
+                vid_list = ", ".join(f'"{v}"' for v in batch)
+                ngql = f"GO FROM {vid_list} OVER {edge_over} YIELD src(edge) AS source_id, dst(edge) AS target_id;"
+                result = session.execute(ngql)
+                if not result.is_succeeded():
+                    err = safe_error_msg(result)
+                    logger.warning(
+                        "[NebulaStore] get_edges_by_types: GO FROM batch %d failed, "
+                        "falling back to MATCH: %s | stmt=%s",
+                        i // batch_size,
+                        err,
+                        ngql[:200],
+                    )
+                    return self._get_edges_by_types_match_fallback(rel_types)
+                if not result.is_empty():
+                    results.extend(_resultset_to_dicts(result))
+
+        logger.info(
+            "[NebulaStore] get_edges_by_types: GO FROM %d VIDs over %s → %d edges",
+            len(vids),
+            edge_over,
+            len(results),
+        )
+        return results
+
+    def _get_edges_by_types_match_fallback(self, rel_types: list[str]) -> list[dict]:
+        """GO FROM 不可用时的降级路径：MATCH 全关系扫描。
+
+        与 Neo4j 后端的默认实现一致（经 CypherToNgqlAdapter 转换为合法 nGQL）。
+        """
         type_filter = "|".join(rel_types)
         cypher = f"MATCH (a)-[r:{type_filter}]->(b) RETURN id(a) AS source_id, id(b) AS target_id"
+        logger.warning("[NebulaStore] get_edges_by_types: falling back to MATCH: %s", cypher)
         return self.query(cypher)
 
     def ensure_constraints(self) -> None:
