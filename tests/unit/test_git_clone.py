@@ -123,8 +123,9 @@ class TestCloneCommand:
     async def test_clone_raises_on_git_failure(self, service: GitCloneService) -> None:
         """git 子进程非零退出必须抛 GitCloneError。"""
         err = subprocess.CalledProcessError(returncode=128, cmd=["git", "clone"], stderr="auth failed")
-        with patch("ontoagent.service.git_clone.subprocess.run", side_effect=err), pytest.raises(
-            GitCloneError, match="auth failed"
+        with (
+            patch("ontoagent.service.git_clone.subprocess.run", side_effect=err),
+            pytest.raises(GitCloneError, match="auth failed"),
         ):
             await service.clone("https://github.com/foo/bar.git")
 
@@ -132,16 +133,18 @@ class TestCloneCommand:
     async def test_clone_raises_on_timeout(self, service: GitCloneService) -> None:
         """git 超时必须抛 GitCloneError（含超时秒数）。"""
         timeout = subprocess.TimeoutExpired(cmd=["git", "clone"], timeout=10)
-        with patch("ontoagent.service.git_clone.subprocess.run", side_effect=timeout), pytest.raises(
-            GitCloneError, match="timed out"
+        with (
+            patch("ontoagent.service.git_clone.subprocess.run", side_effect=timeout),
+            pytest.raises(GitCloneError, match="timed out"),
         ):
             await service.clone("https://github.com/foo/bar.git")
 
     @pytest.mark.asyncio
     async def test_clone_rejects_bad_url_before_subprocess(self, service: GitCloneService) -> None:
         """非法 URL 在调用 subprocess 前就被拒绝。"""
-        with patch("ontoagent.service.git_clone.subprocess.run") as mock_run, pytest.raises(
-            GitCloneError, match="whitelist"
+        with (
+            patch("ontoagent.service.git_clone.subprocess.run") as mock_run,
+            pytest.raises(GitCloneError, match="whitelist"),
         ):
             await service.clone("https://evil.com/foo.git")
         mock_run.assert_not_called()

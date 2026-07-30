@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 
 from ontoagent.api.web.rate_limit import limiter
+from ontoagent.auth import is_acl_enabled, require_access
 from ontoagent.config import OntoAgentConfig
 from ontoagent.service.git_clone import GitCloneError, GitCloneService
 
@@ -182,6 +183,10 @@ async def start_build(req: BuildRequest, request: Request) -> JSONResponse:
     """
     repo_id = req.repo_id.strip() or _derive_repo_id(req.repo_url)
     task_id = uuid4().hex
+
+    # ACL 校验：启用 ACL 时，调用者必须对 repo_id 有 write 权限
+    if is_acl_enabled():
+        require_access(request, repo_id, action="write")
 
     initial = BuildStatusResponse(task_id=task_id, status="pending", repo_id=repo_id)
     _set_status(request, task_id, initial)

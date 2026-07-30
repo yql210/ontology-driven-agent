@@ -13,6 +13,7 @@ from ontoagent.agent.trace import TraceCollector
 from ontoagent.api.web.rate_limit import limiter
 from ontoagent.api.web.router import chat as chat_router
 from ontoagent.api.web.router.graph import router as graph_router
+from ontoagent.auth import RepoAccessControl, RepoAuthMiddleware
 from ontoagent.config import OntoAgentConfig
 from ontoagent.observability import (
     record_http_request,
@@ -37,8 +38,13 @@ async def lifespan(app: FastAPI):
     # 后台构建任务状态：task_id -> BuildStatusResponse（内存级，重启丢失）
     app.state.build_tasks = {}
     app.state.build_asyncio_tasks = {}
+    # ACL：SQLite 持久化（默认文件 ontoagent_acl.db，可通过 env 覆盖）
+    acl_db_path = os.getenv("ONTOAGENT_ACL_DB", "ontoagent_acl.db")
+    app.state.acl = RepoAccessControl(acl_db_path)
+    app.state.acl_enabled = os.getenv("ONTOAGENT_ACL_ENABLED", "").lower() == "true"
     yield
     store.close()
+    app.state.acl.close()
 
 
 def create_app() -> FastAPI:
@@ -102,6 +108,10 @@ def create_app() -> FastAPI:
 
         app.add_middleware(APIKeyMiddleware)
         logger.info("API Key authentication enabled")
+
+    # ===== 仓库权限中间件：从 X-User-ID 提取 user_id 注入 request.state =====
+    # 始终注入 user_id；具体拦截由路由层 require_access 触发（受 ONTOAGENT_ACL_ENABLED 控制）。
+    app.add_middleware(RepoAuthMiddleware)
 
     # ===== 请求追踪 + 计时中间件（request_id + Prometheus metrics） =====
     @app.middleware("http")
