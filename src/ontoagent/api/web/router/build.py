@@ -16,6 +16,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
+from sse_starlette import EventSourceResponse
 
 from ontoagent.api.web.rate_limit import limiter
 from ontoagent.auth import is_acl_enabled, require_access
@@ -239,3 +240,37 @@ def get_build_status(task_id: str, request: Request) -> BuildStatusResponse:
     if status is None:
         raise HTTPException(status_code=404, detail=f"task {task_id} not found")
     return status
+
+
+@router.get("/build/stream/{task_id}")
+@limiter.limit("60/minute")
+async def stream_build_status(task_id: str, request: Request) -> EventSourceResponse:
+    """SSE 推送构建任务状态。
+
+    每秒轮询 ``app.state.build_tasks[task_id]``，每次推送 ``event=status`` +
+    ``BuildStatusResponse.model_dump_json()``。状态变为 ``success`` 或 ``failed`` 后
+    推送最后一个事件并关闭连接。超时 600 秒自动关闭。
+
+    Raises:
+        HTTPException 404: task_id 不存在。
+    """
+    if request.app.state.build_tasks.get(task_id) is None:
+        raise HTTPException(status_code=404, detail=f"task {task_id} not found")
+
+    app_state = request.app.state
+
+    async def event_generator():
+        try:
+            async with asyncio.timeout(600):
+                while True:
+                    current = app_state.build_tasks.get(task_id)
+                    if current is None:
+                        return
+                    yield {"event": "status", "data": current.model_dump_json()}
+                    if current.status in {"success", "failed"}:
+                        return
+                    await asyncio.sleep(1)
+        except TimeoutError:
+            return
+
+    return EventSourceResponse(event_generator())

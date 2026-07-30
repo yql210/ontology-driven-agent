@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ontoagent.api.web import app as app_module
+from ontoagent.api.web.router.build import BuildStatusResponse
 
 
 @pytest.fixture
@@ -79,3 +80,22 @@ def test_build_invalid_remote_url_returns_400(test_client: TestClient):
     """POST /api/build 远程 URL 校验失败返回 400。"""
     response = test_client.post("/api/build", json={"repo_url": "not-a-valid-url"})
     assert response.status_code == 400
+
+
+@pytest.mark.unit
+def test_stream_build_status_returns_sse(test_client: TestClient):
+    """GET /api/build/stream/{task_id} 返回 text/event-stream。"""
+    task_id = "test-sse-task-id"
+    # 预置终态状态：SSE 推一次后立即关闭，避免测试阻塞
+    test_client.app.state.build_tasks[task_id] = BuildStatusResponse(task_id=task_id, status="success", repo_id="test")
+
+    response = test_client.get(f"/api/build/stream/{task_id}")
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers.get("content-type", "")
+
+
+@pytest.mark.unit
+def test_stream_build_status_404_for_unknown_task(test_client: TestClient):
+    """GET /api/build/stream/{unknown} 返回 404。"""
+    response = test_client.get("/api/build/stream/nonexistent-task-id")
+    assert response.status_code == 404
