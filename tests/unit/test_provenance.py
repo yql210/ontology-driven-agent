@@ -174,11 +174,11 @@ class TestProvenanceSources:
 
     def test_provenance_sources_not_empty(self) -> None:
         """PROVENANCE_SOURCES 非空。"""
-        assert len(PROVENANCE_SOURCES) == 5
+        assert len(PROVENANCE_SOURCES) == 6
 
     def test_provenance_sources_contains_expected(self) -> None:
         """包含所有预期来源。"""
-        expected = {"ast_parser", "llm_extraction", "clustering", "manual", "imported"}
+        expected = {"ast_parser", "llm_extraction", "clustering", "manual", "imported", "builder"}
         assert expected == PROVENANCE_SOURCES
 
     def test_provenance_sources_is_frozenset(self) -> None:

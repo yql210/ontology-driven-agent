@@ -133,9 +133,7 @@ class NebulaSchemaInitializer:
         if not result.is_succeeded():
             logger.error("[NebulaSchema] create space failed: %s", _safe_error_msg(result))
             return False
-        logger.info(
-            "[NebulaSchema] space '%s' ensured (vid_type=%s)", self._space_name, effective_vid_type
-        )
+        logger.info("[NebulaSchema] space '%s' ensured (vid_type=%s)", self._space_name, effective_vid_type)
         return True
 
     def create_tags(self) -> list[str]:
@@ -159,6 +157,7 @@ class NebulaSchemaInitializer:
             "confidence",
             "extractedAt",
             "codeParameters",  # entity_to_dict 产出的 key（不同于 schema.parameters）
+            "repoId",  # 多仓库归属（P1-Task 1-3）
         }
         ddl_list: list[str] = []
         for label in VALID_ENTITY_LABELS:
@@ -198,12 +197,18 @@ class NebulaSchemaInitializer:
         return ddl_list
 
     def create_indexes(self) -> list[str]:
-        """为每个 Tag 的 ``name`` 属性创建 Tag Index DDL（不执行，仅返回语句列表）。"""
+        """为每个 Tag 的 ``name`` 与 ``repoId`` 属性创建 Tag Index DDL（不执行，仅返回语句列表）。
+
+        ``repoId`` 索引支撑多仓库场景下的按仓库过滤查询（P1-Task 1-3）。
+        """
         ddl_list: list[str] = []
         for label in VALID_ENTITY_LABELS:
             # name(64) — 字符串索引长度 64（足够覆盖大多数业务标识符）
             ddl = f"CREATE TAG INDEX IF NOT EXISTS `idx_{label}_name` ON `{label}`(`name`(64));"
             ddl_list.append(ddl)
+            # repoId(64) — 多仓库归属索引，加速 WHERE repoId == $repo 查询
+            ddl_repo = f"CREATE TAG INDEX IF NOT EXISTS `idx_{label}_repoId` ON `{label}`(`repoId`(64));"
+            ddl_list.append(ddl_repo)
         return ddl_list
 
     def initialize(self, vid_type: str | None = None) -> bool:

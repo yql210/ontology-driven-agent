@@ -34,6 +34,9 @@ async def lifespan(app: FastAPI):
     config = OntoAgentConfig.from_env()
     store = create_graph_store(config)
     app.state.graph_store = store
+    # 后台构建任务状态：task_id -> BuildStatusResponse（内存级，重启丢失）
+    app.state.build_tasks = {}
+    app.state.build_asyncio_tasks = {}
     yield
     store.close()
 
@@ -135,6 +138,13 @@ def create_app() -> FastAPI:
 
     trace_router.collector = _trace_collector
     app.include_router(trace_router.router, prefix="/api")
+
+    # 挂载 build / repo router
+    from ontoagent.api.web.router import build as build_router
+    from ontoagent.api.web.router import repo as repo_router
+
+    app.include_router(build_router.router, prefix="/api")
+    app.include_router(repo_router.router, prefix="/api")
 
     @app.get("/health")
     async def health(request: Request):

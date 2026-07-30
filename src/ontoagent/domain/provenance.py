@@ -14,6 +14,7 @@ PROVENANCE_SOURCES = frozenset(
         "clustering",  # 模块聚类
         "manual",  # 手动添加
         "imported",  # 外部导入
+        "builder",  # builder 写入仓库元数据（RepositoryEntity）
     }
 )
 

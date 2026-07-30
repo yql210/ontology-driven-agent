@@ -115,16 +115,16 @@ class TestMigrationRegistry:
         reg.register(m1)
         reg.register(m3)
         path = reg.get_migration_path("0.0.0", "3.0.0")
-        # builtin 1.0.0→1.1.0→1.2.0→2.0.0→2.1.0→2.2.0 + m1(0→1) + m3(2→3) = 8? No:
-        # m1 covers 0→1, builtin fills 1→1.1→1.2→2→2.1→2.2 = 6, m3 covers 2→3 but overlaps
-        # actual: m1 + 4 builtins (1.1, 1.2, 2.0, 2.1) + 2.2 + m3 = check dynamically
-        assert len(path) == 6
+        # builtin 1.0.0→1.1.0→1.2.0→2.0.0→2.1.0→2.2.0→2.3.0 + m1(0→1) + m3(2→3) = 8? No:
+        # m1 covers 0→1, builtin fills 1→1.1→1.2→2→2.1→2.2→2.3 = 7, m3 covers 2→3 but overlaps
+        # actual: m1 + 5 builtins (1.1, 1.2, 2.0, 2.1, 2.2) + 2.3 + m3 = check dynamically
+        assert len(path) == 7
 
     def test_get_latest_version(self):
         reg = MigrationRegistry()
-        # builtin migrations now include v2.2.0
-        assert reg.get_latest_version() == "2.2.0"
-        reg.register(DummyMigration("2.2.0", "3.0.0"))
+        # builtin migrations now include v2.3.0
+        assert reg.get_latest_version() == "2.3.0"
+        reg.register(DummyMigration("2.3.0", "3.0.0"))
         assert reg.get_latest_version() == "3.0.0"
 
 
@@ -268,9 +268,9 @@ def test_migration_registry_includes_v5_capability() -> None:
 
 
 @pytest.mark.unit
-def test_current_schema_version_is_2_2_0() -> None:
-    """P1-#1: CURRENT_SCHEMA_VERSION must be '2.1.0' (ModuleEntity.size)."""
-    assert CURRENT_SCHEMA_VERSION == "2.2.0", f"Expected 2.2.0, got {CURRENT_SCHEMA_VERSION}"
+def test_current_schema_version_is_2_3_0() -> None:
+    """P1-Task 1-3: CURRENT_SCHEMA_VERSION must be '2.3.0' (multi-repo)."""
+    assert CURRENT_SCHEMA_VERSION == "2.3.0", f"Expected 2.3.0, got {CURRENT_SCHEMA_VERSION}"
 
 
 @pytest.mark.unit

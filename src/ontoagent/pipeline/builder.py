@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from ontoagent.config import OntoAgentConfig
 from ontoagent.domain.provenance import add_provenance, clamp_confidence
-from ontoagent.domain.schema import CodeEntity, ConceptEntity, DocEntity, Relation
+from ontoagent.domain.schema import CodeEntity, ConceptEntity, DocEntity, Relation, RepositoryEntity
 from ontoagent.parsing.extractor.relation import RelationExtractor
 from ontoagent.parsing.extractor.semantic import SemanticExtractor
 from ontoagent.parsing.parser.base import BaseParser
@@ -149,6 +149,7 @@ class OntoAgentBuilder:
         self._doc_parser: DocParser | None = None
         self._logger = logging.getLogger(__name__)
         self._repo_root: Path | None = None
+        self._repo_id: str = "default"
 
     def _register_parser(self, parser: BaseParser) -> None:
         """注册解析器。
@@ -478,6 +479,7 @@ class OntoAgentBuilder:
         self,
         repo_path: Path,
         *,
+        repo_id: str = "default",
         skip_semantic: bool = False,
         skip_clustering: bool = False,
         clear: bool = False,
@@ -493,6 +495,8 @@ class OntoAgentBuilder:
 
         Args:
             repo_path: 仓库根目录路径。
+            repo_id: 仓库标识符（多仓库隔离），默认 ``default``。
+                会写入 ``repoId`` 属性到所有实体，并 MERGE 一个 ``RepositoryEntity`` 节点。
             skip_semantic: 跳过语义提取（Stage 3）。
             skip_clustering: 跳过模块聚类（Stage 4）。
 
@@ -500,6 +504,8 @@ class OntoAgentBuilder:
             构建结果统计。
         """
         import time
+
+        self._repo_id = repo_id
 
         # Schema 版本检查（lazy import 避免循环引用）
         try:
@@ -555,6 +561,12 @@ class OntoAgentBuilder:
         self._logger.info("═══ Stage 1/5: Parse ═══")
         all_entities, doc_entities, relations, files_scanned, unresolved_imports = self._stage_parse(repo_path)
 
+        # 标记每个实体的 repoId（多仓库隔离）
+        for entity in all_entities:
+            entity.repo_id = self._repo_id
+        for entity in doc_entities:
+            entity.repo_id = self._repo_id
+
         # Service & Topic 聚合（在 Stage 1 解析之后，注入主流程）
         service_entities, svc_relations = build_service_relations(unresolved_imports)
         topic_entities, topic_relations = build_topic_relations(all_entities, unresolved_imports)
@@ -563,6 +575,23 @@ class OntoAgentBuilder:
             len(service_entities),
             len(topic_entities),
         )
+
+        # 写入 RepositoryEntity 节点（多仓库根节点）
+        repo_entity = RepositoryEntity(name=self._repo_id)
+        graph_store = self._get_graph_store()
+        repo_props = add_provenance(
+            {
+                "id": repo_entity.id,
+                "name": repo_entity.name,
+                "url": "",
+                "branch": "main",
+                "status": "building",
+            },
+            source="builder",
+            confidence=1.0,
+            extracted_at=batch_time,
+        )
+        graph_store.merge_node("RepositoryEntity", repo_props)
 
         # Stage 2: 结构写入（关键路径）
         self._logger.info("═══ Stage 2/5: Structural Write ═══")

@@ -46,6 +46,7 @@ class CodeEntity:
 
     name: str
     entity_type: str
+    repo_id: str = ""
     id: str = ""
     file_path: str | None = None
     start_line: int | None = None
@@ -69,6 +70,7 @@ class CodeEntity:
         """校验字段。"""
         if not self.id:
             self.id = _stable_id(
+                self.repo_id,
                 self.name,
                 self.entity_type,
                 self.file_path,
@@ -176,6 +178,7 @@ class DocEntity:
     Attributes:
         name: 实体名称（非空）。
         entity_type: 实体类型，必须是 readme/module_doc/api_doc/comment/wiki/architecture_doc 之一。
+        repo_id: 所属仓库 ID（多仓库隔离），空串表示默认仓库。
         id: 内容派生稳定哈希（name+entity_type+file_path），可显式传入。
         content: 文档内容（可选）。
         file_path: 文件路径（可选）。
@@ -185,6 +188,7 @@ class DocEntity:
 
     name: str
     entity_type: str
+    repo_id: str = ""
     id: str = ""
     content: str | None = None
     file_path: str | None = None
@@ -399,6 +403,7 @@ class ServiceEntity:
         name: 服务名称（非空）。
         version: 服务版本。
         status: 服务状态，必须是 running/stopped/degraded 之一。
+        repo_id: 所属仓库 ID（多仓库隔离），空串表示默认仓库。
         id: 内容派生稳定哈希（name），可显式传入。
         endpoint: 服务端点（可选）。
         code_entity_id: 关联的 CodeEntity ID（可选）。
@@ -409,6 +414,7 @@ class ServiceEntity:
     name: str
     version: str
     status: str
+    repo_id: str = ""
     id: str = ""
     endpoint: str | None = None
     code_entity_id: str | None = None
@@ -464,6 +470,44 @@ class ComplianceItem:
         if self.severity not in self.VALID_SEVERITIES:
             raise SchemaValidationError(
                 f"ComplianceItem.severity must be one of {self.VALID_SEVERITIES}, got '{self.severity}'"
+            )
+
+
+@dataclass
+class RepositoryEntity:
+    """仓库实体：Git 仓库元数据，用于多仓库管理和打标。
+
+    Attributes:
+        name: 仓库名称（非空）。
+        url: Git 远端地址（可选）。
+        branch: 默认分支，默认 ``main``。
+        commit_hash: 当前构建对应的 commit 哈希。
+        status: 构建状态，必须是 pending/building/success/failed 之一。
+        id: 内容派生稳定哈希（name+url），可显式传入。
+        built_at: 最近一次构建时间（ISO 8601），未构建时为 None。
+        created_at: 记录创建时间，自动生成。
+    """
+
+    name: str
+    url: str = ""
+    branch: str = "main"
+    commit_hash: str = ""
+    status: str = "pending"
+    id: str = ""
+    built_at: str | None = None
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+
+    VALID_STATUSES = {"pending", "building", "success", "failed"}
+
+    def __post_init__(self) -> None:
+        """校验字段。"""
+        if not self.id:
+            self.id = _stable_id(self.name, self.url)
+        if not self.name or not self.name.strip():
+            raise SchemaValidationError("RepositoryEntity.name cannot be empty")
+        if self.status not in self.VALID_STATUSES:
+            raise SchemaValidationError(
+                f"RepositoryEntity.status must be one of {self.VALID_STATUSES}, got '{self.status}'"
             )
 
 
@@ -561,6 +605,7 @@ VALID_ENTITY_LABELS: frozenset[str] = frozenset(
         "ComplianceItem",
         "CapabilityEntity",
         "ProcessEntity",
+        "RepositoryEntity",
     }
 )
 
@@ -579,6 +624,7 @@ _LABEL_TO_DATACLASS: dict[str, type] = {
     "ComplianceItem": ComplianceItem,
     "CapabilityEntity": CapabilityEntity,
     "ProcessEntity": ProcessEntity,
+    "RepositoryEntity": RepositoryEntity,
 }
 
 
@@ -600,17 +646,24 @@ _EXTRA_FIELDS: dict[str, set[str]] = {
         "businessPriority",
         "businessLifecycle",
         "businessOwner",
+        "repoId",
     },
     "DataAsset": {
         "aliases",  # list[str]，序列化为 JSON string
+        "repoId",
     },
     "CapabilityEntity": {
         "inputContract",
         "outputContract",
         "keywords",
+        "repoId",
     },
     "ModuleEntity": {
         "size",  # P1-#1: 模块内实体数量（聚类元数据）
+        "repoId",
+    },
+    "RepositoryEntity": {
+        "repoId",
     },
 }
 
@@ -673,6 +726,8 @@ VALID_RELATION_TYPES = frozenset(
         "realized_by",
         "precedes",
         "equivalent_to",
+        "belongs_to_repo",
+        "depends_on_repo",
     }
 )
 
@@ -705,6 +760,9 @@ RELATION_TYPE_TO_NEO4J: dict[str, str] = {
     "realized_by": "REALIZED_BY",
     "precedes": "PRECEDES",
     "equivalent_to": "EQUIVALENT_TO",
+    # 多仓库关系
+    "belongs_to_repo": "BELONGS_TO_REPO",
+    "depends_on_repo": "DEPENDS_ON_REPO",
 }
 
 # ============================================================
@@ -898,6 +956,17 @@ RELATION_CONSTRAINTS: dict[str, RelationConstraint] = {
         domain="CapabilityEntity",
         range="CapabilityEntity",
         description="两个能力语义等价（可互相替代）",
+    ),
+    # --- 多仓库关系 ---
+    "belongs_to_repo": RelationConstraint(
+        domain={"CodeEntity", "DocEntity", "ModuleEntity", "ResourceEntity", "ServiceEntity"},
+        range="RepositoryEntity",
+        description="实体属于某仓库",
+    ),
+    "depends_on_repo": RelationConstraint(
+        domain="RepositoryEntity",
+        range="RepositoryEntity",
+        description="仓库间依赖关系",
     ),
 }
 

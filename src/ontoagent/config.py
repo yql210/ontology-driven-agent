@@ -102,6 +102,11 @@ class OntoAgentConfig:
     nebula_space: str = "ontoagent"
     nebula_vid_type: str = "FIXED_STRING(36)"  # VID 类型，匹配 OntoAgent UUID 长度
 
+    # Git 多仓库克隆配置（P1-Task 1-3）
+    git_allowed_hosts: list[str] = field(default_factory=lambda: ["github.com", "gitee.com", "gitlab.com"])
+    git_clone_timeout: int = 300  # 秒
+    git_work_dir: str = "/tmp/ontoagent-repos"
+
     @classmethod
     def from_env(cls) -> OntoAgentConfig:
         """从环境变量创建配置（自动加载 .env 文件）。
@@ -117,7 +122,8 @@ class OntoAgentConfig:
             ONTOAGENT_AGENT_API_KEY, ONTOAGENT_AGENT_BASE_URL,
             ONTOAGENT_GRAPH_BACKEND, ONTOAGENT_NEBULA_HOST, ONTOAGENT_NEBULA_PORT,
             ONTOAGENT_NEBULA_USER, ONTOAGENT_NEBULA_PASSWORD, ONTOAGENT_NEBULA_SPACE,
-            ONTOAGENT_NEBULA_VID_TYPE
+            ONTOAGENT_NEBULA_VID_TYPE,
+            ONTOAGENT_GIT_ALLOWED_HOSTS, ONTOAGENT_GIT_CLONE_TIMEOUT, ONTOAGENT_GIT_WORK_DIR
         """
         _load_dotenv()
 
@@ -135,6 +141,14 @@ class OntoAgentConfig:
             {d.strip() for d in skip_dirs_str.split(",") if d.strip()}
             if skip_dirs_str
             else cls.__dataclass_fields__["build_skip_dirs"].default_factory()
+        )
+
+        # 解析 git_allowed_hosts（逗号分隔）
+        git_hosts_str = os.getenv("ONTOAGENT_GIT_ALLOWED_HOSTS")
+        git_allowed_hosts = (
+            [h.strip() for h in git_hosts_str.split(",") if h.strip()]
+            if git_hosts_str
+            else list(cls.__dataclass_fields__["git_allowed_hosts"].default_factory())
         )
 
         return cls(
@@ -166,4 +180,7 @@ class OntoAgentConfig:
             nebula_password=os.getenv("ONTOAGENT_NEBULA_PASSWORD", cls.nebula_password),
             nebula_space=os.getenv("ONTOAGENT_NEBULA_SPACE", cls.nebula_space),
             nebula_vid_type=os.getenv("ONTOAGENT_NEBULA_VID_TYPE", cls.nebula_vid_type),
+            git_allowed_hosts=git_allowed_hosts,
+            git_clone_timeout=int(os.getenv("ONTOAGENT_GIT_CLONE_TIMEOUT", str(cls.git_clone_timeout))),
+            git_work_dir=os.getenv("ONTOAGENT_GIT_WORK_DIR", cls.git_work_dir),
         )

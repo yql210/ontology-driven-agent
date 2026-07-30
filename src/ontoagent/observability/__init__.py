@@ -129,13 +129,33 @@ def render_metrics() -> tuple[bytes, str]:
 # ===== Structured Logging =====
 
 # LogRecord 的内置属性集合（这些不作为 extra 字段输出）
-_RECORD_BUILTINS = frozenset({
-    "name", "msg", "args", "created", "relativeCreated",
-    "exc_info", "exc_text", "stack_info", "lineno", "funcName",
-    "filename", "module", "threadName", "thread", "msecs",
-    "processName", "process", "levelname", "levelno", "pathname",
-    "message", "taskName", "request_id",
-})
+_RECORD_BUILTINS = frozenset(
+    {
+        "name",
+        "msg",
+        "args",
+        "created",
+        "relativeCreated",
+        "exc_info",
+        "exc_text",
+        "stack_info",
+        "lineno",
+        "funcName",
+        "filename",
+        "module",
+        "threadName",
+        "thread",
+        "msecs",
+        "processName",
+        "process",
+        "levelname",
+        "levelno",
+        "pathname",
+        "message",
+        "taskName",
+        "request_id",
+    }
+)
 
 
 class JsonFormatter(logging.Formatter):

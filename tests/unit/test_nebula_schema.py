@@ -218,9 +218,7 @@ class TestNebulaSchemaSpace:
 
         增强功能：vid_type 可通过构造器注入，避免每次调用 ensure_space 都重复传参。
         """
-        initializer = NebulaSchemaInitializer(
-            mock_session, space_name="ontoagent", vid_type="FIXED_STRING(64)"
-        )
+        initializer = NebulaSchemaInitializer(mock_session, space_name="ontoagent", vid_type="FIXED_STRING(64)")
         # SHOW SPACES 返回空 → 走 CREATE 路径
         show_result = _make_show_spaces_result([])
         create_result = MagicMock()
@@ -361,10 +359,13 @@ class TestNebulaSchemaIndexes:
         initializer = NebulaSchemaInitializer(mock_session)
         ddl_list = initializer.create_indexes()
 
-        # 每个标签都应该有对应的索引
+        # 每个标签都应有 name 和 repoId 两个索引（多仓库 P1-Task 1-3）
         for label in VALID_ENTITY_LABELS:
-            assert any("TAG INDEX" in ddl and label in ddl for ddl in ddl_list), f"Missing TAG INDEX for {label}"
-        assert len(ddl_list) == len(VALID_ENTITY_LABELS)
+            name_idx = f"idx_{label}_name"
+            repo_idx = f"idx_{label}_repoId"
+            assert any("TAG INDEX" in ddl and name_idx in ddl for ddl in ddl_list), f"Missing TAG INDEX {name_idx}"
+            assert any("TAG INDEX" in ddl and repo_idx in ddl for ddl in ddl_list), f"Missing TAG INDEX {repo_idx}"
+        assert len(ddl_list) == len(VALID_ENTITY_LABELS) * 2
 
     def test_create_indexes_is_idempotent(self, mock_session: MagicMock) -> None:
         initializer = NebulaSchemaInitializer(mock_session)
@@ -390,6 +391,6 @@ class TestNebulaSchemaInitialize:
         # 26 个 CREATE EDGE
         edge_calls = [c for c in calls if "CREATE EDGE IF NOT EXISTS" in c]
         assert len(edge_calls) == len(RELATION_TYPE_TO_NEO4J)
-        # 13 个 TAG INDEX
+        # TAG INDEX：每个 label 两个（name + repoId）
         idx_calls = [c for c in calls if "CREATE TAG INDEX" in c]
-        assert len(idx_calls) == len(VALID_ENTITY_LABELS)
+        assert len(idx_calls) == len(VALID_ENTITY_LABELS) * 2

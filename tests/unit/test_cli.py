@@ -101,9 +101,7 @@ class TestBuildCommand:
             assert "entities created" in result.output
             assert "relations created" in result.output
 
-    def test_build_aborted_shows_errors_and_exits_nonzero(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_build_aborted_shows_errors_and_exits_nonzero(self, runner: CliRunner, tmp_path: Path) -> None:
         """P0-#3: build 失败中止时必须在 stderr 输出 errors 并返回非零 exit code。"""
         # Arrange
         aborted_result = BuildResult(

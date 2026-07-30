@@ -64,6 +64,8 @@ def entity_to_dict(entity: CodeEntity) -> dict:
         d["business_lifecycle"] = entity.business_lifecycle
     if entity.business_owner:
         d["business_owner"] = entity.business_owner
+    if hasattr(entity, "repo_id") and entity.repo_id:
+        d["repo_id"] = entity.repo_id
     return d
 
 
@@ -87,6 +89,8 @@ def doc_entity_to_dict(entity: DocEntity) -> dict:
         d["content"] = entity.content
     if entity.language:
         d["language"] = entity.language
+    if hasattr(entity, "repo_id") and entity.repo_id:
+        d["repo_id"] = entity.repo_id
     return d
 
 
@@ -246,6 +250,8 @@ def service_entity_to_dict(entity: ServiceEntity) -> dict[str, object]:
         d["capability_label"] = entity.capability_label
     if entity.team:
         d["team"] = entity.team
+    if hasattr(entity, "repo_id") and entity.repo_id:
+        d["repo_id"] = entity.repo_id
     return d
 
 

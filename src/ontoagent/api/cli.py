@@ -58,8 +58,7 @@ def build(
                 raise click.Abort()
         elif result.aborted:
             click.echo(
-                f"Build ABORTED: {result.files_scanned} files scanned, "
-                f"{result.entities_created} entities created",
+                f"Build ABORTED: {result.files_scanned} files scanned, {result.entities_created} entities created",
                 err=True,
             )
             for err in result.errors:
