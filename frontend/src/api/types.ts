@@ -129,3 +129,37 @@ export interface TraceListItem {
   created_at: number
   approval_status?: string
 }
+
+// ========= Repo / Build Types =========
+
+export interface Repository {
+  id: string
+  name: string
+  url: string
+  branch?: string
+  status: string
+  builtAt?: string
+}
+
+export interface BuildRequest {
+  repo_url: string
+  branch?: string
+  repo_id?: string
+  token?: string
+  skip_semantic?: boolean
+  skip_clustering?: boolean
+  clear?: boolean
+}
+
+export interface BuildTriggerResponse {
+  task_id: string
+  status: string
+}
+
+export interface BuildStatus {
+  task_id: string
+  status: string
+  repo_id: string
+  message?: string
+  result?: Record<string, unknown> | null
+}
