@@ -207,7 +207,7 @@ class DocEntity:
     def __post_init__(self) -> None:
         """校验字段。"""
         if not self.id:
-            self.id = _stable_id(self.name, self.entity_type, self.file_path)
+            self.id = _stable_id(self.repo_id, self.name, self.entity_type, self.file_path)
         if not self.name or not self.name.strip():
             raise SchemaValidationError("DocEntity.name cannot be empty")
         if self.entity_type not in self.VALID_ENTITY_TYPES:

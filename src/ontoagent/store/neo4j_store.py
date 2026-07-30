@@ -551,6 +551,13 @@ class Neo4jGraphStore(GraphStore):
                 session.run(cypher)
             logger.debug(f"Ensured constraint for {label}")
 
+        # 为所有实体 label 创建 repoId 索引（多仓库隔离查询加速）
+        for label in ENTITY_LABELS:
+            cypher = f"CREATE INDEX IF NOT EXISTS idx_{label}_repoId FOR (n:{label}) ON (n.repoId)"
+            with self._driver.session() as session:
+                session.run(cypher)
+            logger.debug(f"Ensured repoId index for {label}")
+
         # Schema 版本约束
         schema_version_cypher = "CREATE CONSTRAINT IF NOT EXISTS FOR (n:SchemaVersion) REQUIRE n.version IS UNIQUE"
         with self._driver.session() as session:

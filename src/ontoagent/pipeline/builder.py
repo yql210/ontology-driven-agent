@@ -613,6 +613,22 @@ class OntoAgentBuilder:
                 errors=all_errors,
             )
 
+        # 收集实体→仓库归属关系
+        belongs_rels = [
+            {
+                "source_id": entity.id,
+                "target_id": repo_entity.id,
+                "rel_type": "belongs_to_repo",
+                "source_label": "CodeEntity",
+                "target_label": "RepositoryEntity",
+                "properties": add_provenance({}, source="builder", confidence=1.0, extracted_at=batch_time),
+            }
+            for entity in all_entities
+        ]
+        if belongs_rels:
+            graph_store.merge_relations_batch(belongs_rels, batch_size=200)
+            self._logger.info("[Neo4j] Wrote %d BELONGS_TO_REPO relations", len(belongs_rels))
+
         # 写入 ServiceEntity 和 Topic ConceptEntity 及相关关系
         service_entity_count, service_rel_count, topic_entity_count, topic_rel_count = (
             self._write_service_topic_entities(
