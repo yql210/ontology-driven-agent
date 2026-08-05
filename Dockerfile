@@ -10,6 +10,10 @@ RUN uv sync --frozen --no-dev
 # Stage 2: Runtime
 FROM python:3.13-slim
 
+# 安装运行时系统依赖：git（用于 GitCloneService clone 远端仓库 + 增量更新的 git diff）
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 # 创建非 root 用户
 RUN groupadd -r ontoagent && useradd -r -g ontoagent -d /app -s /sbin/nologin ontoagent
 
@@ -27,8 +31,8 @@ ENV UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN=10
 # 默认日志格式（生产环境设为 json）
 ENV ONTOAGENT_LOG_FORMAT=console
 
-# 数据目录
-RUN mkdir -p /data/chroma && chown -R ontoagent:ontoagent /app /data
+# 数据目录：/data/chroma（向量数据库）+ /tmp/ontoagent-repos（Git clone 工作目录）
+RUN mkdir -p /data/chroma /tmp/ontoagent-repos && chown -R ontoagent:ontoagent /app /data /tmp/ontoagent-repos
 
 USER ontoagent
 
