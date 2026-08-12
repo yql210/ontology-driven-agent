@@ -425,6 +425,95 @@ class TestBuilderClear:
         assert "Cleared 5 existing nodes" in caplog.text
 
 
+class TestBuildProgressCallback:
+    """测试 build() 的 progress_callback 按阶段上报。"""
+
+    def test_build_reports_stages_in_order(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
+        """spy 收集回调 → 断言阶段顺序与 stage_detail 含计数。"""
+        # Arrange
+        mock_graph = MagicMock()
+        mock_chroma = MagicMock()
+        spy: list[tuple[str, str]] = []
+
+        with (
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+            patch("ontoagent.pipeline.builder.check_llm_available", return_value=False),
+        ):
+            # Act
+            builder.build(temp_repo, progress_callback=lambda s, d: spy.append((s, d)))
+
+        # Assert
+        stages = [s for s, _ in spy]
+        assert stages == [
+            "parse",
+            "structural_write",
+            "doc_link",
+            "semantic",
+            "clustering",
+            "vector_index",
+        ]
+        details = dict(spy)
+        assert "Parsed" in details["parse"]
+        assert "Resolved" in details["parse"]
+        assert "Wrote" in details["structural_write"]
+        assert "DESCRIBES" in details["doc_link"]
+        assert "Extracted" in details["semantic"]
+        assert "concepts" in details["semantic"]
+        assert "Clustered" in details["clustering"]
+        assert "modules" in details["clustering"]
+        assert details["vector_index"] == "Vector index complete"
+
+    def test_build_clear_reports_prebuild_stage(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
+        """clear=True 时首个回调为 prebuild，detail 含清库数量。"""
+        # Arrange
+        mock_graph = MagicMock()
+        mock_graph.clear_all.return_value = 5
+        mock_chroma = MagicMock()
+        spy: list[tuple[str, str]] = []
+
+        with (
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+        ):
+            # Act
+            builder.build(
+                temp_repo,
+                clear=True,
+                skip_semantic=True,
+                skip_clustering=True,
+                progress_callback=lambda s, d: spy.append((s, d)),
+            )
+
+        # Assert
+        assert spy[0][0] == "prebuild"
+        assert "Cleared 5 existing nodes" in spy[0][1]
+
+    def test_build_progress_callback_error_tolerated(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
+        """回调抛异常不中断 build。"""
+        # Arrange
+        mock_graph = MagicMock()
+        mock_chroma = MagicMock()
+
+        def boom(stage: str, detail: str) -> None:
+            raise RuntimeError(f"callback failed at {stage}")
+
+        with (
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+            patch("ontoagent.pipeline.builder.check_llm_available", return_value=False),
+        ):
+            # Act
+            result = builder.build(temp_repo, progress_callback=boom)
+
+        # Assert
+        assert result.aborted is False
+        assert result.entities_created > 0
+
+
 class TestBuilderQuery:
     """测试 query 方法。"""
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -475,6 +476,23 @@ class OntoAgentBuilder:
         )
         return concepts_created, semantic_relations_created, skipped_semantic, errors, new_concepts
 
+    def _report_progress(
+        self,
+        progress_callback: Callable[[str, str], None] | None,
+        stage: str,
+        detail: str,
+    ) -> None:
+        """调用进度回调，回调抛错只告警不中断 build。
+
+        stage 取值必须与 frontend/src/views/RepoView.vue 进度条映射一致。
+        """
+        if progress_callback is None:
+            return
+        try:
+            progress_callback(stage, detail)
+        except Exception as e:
+            self._logger.warning("progress callback failed for stage %s: %s", stage, e)
+
     def build(
         self,
         repo_path: Path,
@@ -483,6 +501,7 @@ class OntoAgentBuilder:
         skip_semantic: bool = False,
         skip_clustering: bool = False,
         clear: bool = False,
+        progress_callback: Callable[[str, str], None] | None = None,
     ) -> BuildResult:
         """全量构建：5阶段流水线编排。
 
@@ -499,6 +518,8 @@ class OntoAgentBuilder:
                 会写入 ``repoId`` 属性到所有实体，并 MERGE 一个 ``RepositoryEntity`` 节点。
             skip_semantic: 跳过语义提取（Stage 3）。
             skip_clustering: 跳过模块聚类（Stage 4）。
+            progress_callback: 阶段完成回调 ``(stage, detail)``，stage 取值见
+                ``frontend/src/views/RepoView.vue`` 进度条映射；默认 None 不上报。
 
         Returns:
             构建结果统计。
@@ -548,6 +569,7 @@ class OntoAgentBuilder:
                 graph_store = self._get_graph_store()
                 cleared = graph_store.clear_all()
                 self._logger.info("═══ Pre-build: Cleared %d existing nodes ═══", cleared)
+                self._report_progress(progress_callback, "prebuild", f"Cleared {cleared} existing nodes")
             except Exception as e:
                 self._logger.warning("Pre-build: graph clear failed, continuing incremental: %s", e)
             # Bug #1 fix: 同步清理 ChromaDB
@@ -564,6 +586,11 @@ class OntoAgentBuilder:
         # Stage 1: 解析
         self._logger.info("═══ Stage 1/5: Parse ═══")
         all_entities, doc_entities, relations, files_scanned, unresolved_imports = self._stage_parse(repo_path)
+        self._report_progress(
+            progress_callback,
+            "parse",
+            f"Parsed {len(all_entities)} entities, Resolved {len(relations)} relations",
+        )
 
         # 标记每个实体的 repoId（多仓库隔离）
         for entity in all_entities:
@@ -617,6 +644,8 @@ class OntoAgentBuilder:
                 errors=all_errors,
             )
 
+        self._report_progress(progress_callback, "structural_write", f"Wrote {len(relations)} relations")
+
         # 收集实体→仓库归属关系
         belongs_rels = [
             {
@@ -668,6 +697,7 @@ class OntoAgentBuilder:
         ]
         graph_store.merge_relations_batch(describes_batch)
         self._logger.info("═══ Stage 2.5/5 complete: %d DESCRIBES relations ═══", len(describes_rels))
+        self._report_progress(progress_callback, "doc_link", f"Linked {len(describes_rels)} DESCRIBES relations")
 
         # Stage 2.6: 业务本体
         self._logger.info("═══ Stage 2.6/5: Business Ontology ═══")
@@ -708,6 +738,11 @@ class OntoAgentBuilder:
         self._logger.info(
             "═══ Stage 3/5 complete: %d concepts, %d semantic relations ═══", concepts_created, semantic_rels_created
         )
+        self._report_progress(
+            progress_callback,
+            "semantic",
+            f"Extracted {concepts_created} concepts, {semantic_rels_created} relations",
+        )
 
         # Stage 4: 模块聚类（可降级）
         self._logger.info("═══ Stage 4/5: Module Clustering ═══")
@@ -723,6 +758,7 @@ class OntoAgentBuilder:
                 clusters_count = 0
                 clusters = []
         self._logger.info("═══ Stage 4/5 complete: %d modules ═══", clusters_count)
+        self._report_progress(progress_callback, "clustering", f"Clustered {clusters_count} modules")
 
         # Stage 5: 向量写入（可降级）
         self._logger.info("═══ Stage 5/5: Vector Index ═══")
@@ -732,6 +768,7 @@ class OntoAgentBuilder:
         except Exception as e:
             self._logger.warning("Vector write failed: %s", e)
             all_errors.append(f"Vector write error: {e}")
+        self._report_progress(progress_callback, "vector_index", "Vector index complete")
 
         elapsed = (time.monotonic() - t0) * 1000
         return BuildResult(

@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
+from collections import deque
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sse_starlette import EventSourceResponse
 
 from ontoagent.api.web.rate_limit import limiter
@@ -73,6 +75,9 @@ class BuildStatusResponse(BaseModel):
     repo_id: str
     message: str = ""
     result: dict | None = None
+    stage: str = ""  # prebuild/parse/structural_write/doc_link/semantic/clustering/vector_index
+    stage_detail: str = ""  # "Parsed 17069 entities, Resolved 19386 relations"
+    logs: list[str] = Field(default_factory=list)  # 最近 N 行构建日志
 
 
 def _is_local_path(repo_url: str) -> bool:
@@ -87,6 +92,28 @@ def _derive_repo_id(repo_url: str) -> str:
         cleaned = cleaned[:-4]
     name = cleaned.rsplit("/", 1)[-1]
     return name or "default"
+
+
+class _BuildLogHandler(logging.Handler):
+    """捕获 ``ontoagent.pipeline`` 下最近的 INFO+ 日志，供构建状态展示。
+
+    ``emit`` 与 ``snapshot`` 用锁保护：build 运行在线程池，emit 可能在子线程触发。
+    """
+
+    def __init__(self, maxlen: int = 50) -> None:
+        super().__init__(level=logging.INFO)
+        self._logs: deque[str] = deque(maxlen=maxlen)
+        self._lock = threading.Lock()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno < logging.INFO:
+            return
+        with self._lock:
+            self._logs.append(record.getMessage())
+
+    def snapshot(self) -> list[str]:
+        with self._lock:
+            return list(self._logs)
 
 
 def _set_status(request: Request, task_id: str, status: BuildStatusResponse) -> None:
@@ -115,26 +142,29 @@ async def _run_build(
         logger.error("build task %s vanished before run", task_id)
         return
 
+    log_handler = _BuildLogHandler()
+    pipeline_logger = logging.getLogger("ontoagent.pipeline")
+    prev_level = pipeline_logger.level
+    pipeline_logger.setLevel(logging.INFO)
+    pipeline_logger.addHandler(log_handler)
+
+    def _report_progress(stage: str, detail: str) -> None:
+        current.stage = stage
+        current.stage_detail = detail
+        current.logs = log_handler.snapshot()
+
     try:
         if _is_local_path(repo_url):
             repo_path = Path(repo_url)
             if not repo_path.exists():
                 raise FileNotFoundError(f"local repo path not found: {repo_url}")
         else:
-            _set_status(
-                request,
-                task_id,
-                BuildStatusResponse(task_id=task_id, status="cloning", repo_id=repo_id),
-            )
+            current.status = "cloning"
             config = OntoAgentConfig.from_env()
             clone_service = GitCloneService(config)
             repo_path = await clone_service.clone(repo_url, branch=branch, token=token)
 
-        _set_status(
-            request,
-            task_id,
-            BuildStatusResponse(task_id=task_id, status="building", repo_id=repo_id),
-        )
+        current.status = "building"
 
         # 延迟导入避免在模块加载时拉起整条 builder 依赖链
         from ontoagent.pipeline.builder import OntoAgentBuilder
@@ -149,30 +179,20 @@ async def _run_build(
             skip_semantic=skip_semantic,
             skip_clustering=skip_clustering,
             clear=clear,
+            progress_callback=_report_progress,
         )
 
-        _set_status(
-            request,
-            task_id,
-            BuildStatusResponse(
-                task_id=task_id,
-                status="success",
-                repo_id=repo_id,
-                result=result.to_dict(),
-            ),
-        )
+        current.status = "success"
+        current.logs = log_handler.snapshot()
+        current.result = result.to_dict()
     except Exception as e:
         logger.exception("build task %s failed", task_id)
-        _set_status(
-            request,
-            task_id,
-            BuildStatusResponse(
-                task_id=task_id,
-                status="failed",
-                repo_id=repo_id,
-                message=f"{type(e).__name__}: {e}",
-            ),
-        )
+        current.status = "failed"
+        current.message = f"{type(e).__name__}: {e}"
+        current.logs = log_handler.snapshot()
+    finally:
+        pipeline_logger.removeHandler(log_handler)
+        pipeline_logger.setLevel(prev_level)
 
 
 @router.post("/build", response_model=BuildResponse, status_code=202)
