@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
-from ontoagent.config import OntoAgentConfig
+from ontoagent.config import OntoAgentConfig, _load_dotenv
 
 
 def test_llm_model_default_value():
@@ -92,3 +93,49 @@ def test_from_env_defaults():
         for key, val in originals.items():
             if val is not None:
                 os.environ[key] = val
+
+
+class TestLoadDotenv:
+    """测试 _load_dotenv 剥离行内注释。"""
+
+    def test_strips_inline_comment(self, tmp_path: Path, monkeypatch) -> None:
+        env_file = tmp_path / ".env"
+        env_file.write_text("KEY=value # comment\n")
+        monkeypatch.delenv("KEY", raising=False)
+        _load_dotenv(env_file)
+        assert os.environ.get("KEY") == "value"
+
+    def test_keeps_fragment_without_space(self, tmp_path: Path, monkeypatch) -> None:
+        env_file = tmp_path / ".env"
+        env_file.write_text("KEY=value#fragment\n")
+        monkeypatch.delenv("KEY", raising=False)
+        _load_dotenv(env_file)
+        assert os.environ.get("KEY") == "value#fragment"
+
+    def test_strips_whitespace(self, tmp_path: Path, monkeypatch) -> None:
+        env_file = tmp_path / ".env"
+        env_file.write_text("KEY= value \n")
+        monkeypatch.delenv("KEY", raising=False)
+        _load_dotenv(env_file)
+        assert os.environ.get("KEY") == "value"
+
+    def test_comment_after_fragment(self, tmp_path: Path, monkeypatch) -> None:
+        env_file = tmp_path / ".env"
+        env_file.write_text("KEY=ab#cd # 注释\n")
+        monkeypatch.delenv("KEY", raising=False)
+        _load_dotenv(env_file)
+        assert os.environ.get("KEY") == "ab#cd"
+
+    def test_skips_full_line_comment_and_blank(self, tmp_path: Path, monkeypatch) -> None:
+        env_file = tmp_path / ".env"
+        env_file.write_text("# comment\n\nKEY=value\n")
+        monkeypatch.delenv("KEY", raising=False)
+        _load_dotenv(env_file)
+        assert os.environ.get("KEY") == "value"
+
+    def test_does_not_overwrite_existing_env(self, tmp_path: Path, monkeypatch) -> None:
+        env_file = tmp_path / ".env"
+        env_file.write_text("EXISTING=new_value\n")
+        monkeypatch.setenv("EXISTING", "old_value")
+        _load_dotenv(env_file)
+        assert os.environ["EXISTING"] == "old_value"

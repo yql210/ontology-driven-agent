@@ -543,9 +543,13 @@ class OntoAgentBuilder:
 
         # Pre-build: 清库（如果指定）
         if clear:
-            graph_store = self._get_graph_store()
-            cleared = graph_store.clear_all()
-            self._logger.info("═══ Pre-build: Cleared %d existing nodes ═══", cleared)
+            # Bug #2 fix: 与 ChromaDB 一致，graph clear 失败不中止 build
+            try:
+                graph_store = self._get_graph_store()
+                cleared = graph_store.clear_all()
+                self._logger.info("═══ Pre-build: Cleared %d existing nodes ═══", cleared)
+            except Exception as e:
+                self._logger.warning("Pre-build: graph clear failed, continuing incremental: %s", e)
             # Bug #1 fix: 同步清理 ChromaDB
             try:
                 chroma_store = self._get_chroma_store()

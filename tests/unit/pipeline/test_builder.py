@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -380,6 +381,48 @@ class TestBuilderBuild:
             assert result.files_scanned == 0
             assert result.entities_created == 0
             assert result.relations_created == 0
+
+
+class TestBuilderClear:
+    """测试 build(clear=True) 的 pre-build 清库容错。"""
+
+    def test_build_clear_graph_failure_tolerated(self, builder: OntoAgentBuilder, temp_repo: Path, caplog) -> None:
+        # Arrange
+        mock_graph = MagicMock()
+        mock_graph.clear_all.side_effect = RuntimeError("no CLEAR SPACE permission")
+        mock_chroma = MagicMock()
+
+        with (
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+        ):
+            caplog.set_level(logging.WARNING, logger="ontoagent.pipeline.builder")
+            # Act
+            result = builder.build(temp_repo, clear=True, skip_semantic=True, skip_clustering=True)
+
+        # Assert
+        assert result.aborted is False
+        assert "graph clear failed" in caplog.text
+
+    def test_build_clear_success_logs_cleared(self, builder: OntoAgentBuilder, temp_repo: Path, caplog) -> None:
+        # Arrange
+        mock_graph = MagicMock()
+        mock_graph.clear_all.return_value = 5
+        mock_chroma = MagicMock()
+
+        with (
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+        ):
+            caplog.set_level(logging.INFO, logger="ontoagent.pipeline.builder")
+            # Act
+            result = builder.build(temp_repo, clear=True, skip_semantic=True, skip_clustering=True)
+
+        # Assert
+        assert result.aborted is False
+        assert "Cleared 5 existing nodes" in caplog.text
 
 
 class TestBuilderQuery:
