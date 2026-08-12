@@ -121,6 +121,19 @@ def _set_status(request: Request, task_id: str, status: BuildStatusResponse) -> 
     request.app.state.build_tasks[task_id] = status
 
 
+def _update_repo_status(request: Request, repo_id: str, status: str) -> None:
+    """按 name=repo_id 查找 RepositoryEntity 并回写 status（失败仅告警，不中断主流程）。"""
+    try:
+        store = request.app.state.graph_store
+        nodes = store.get_nodes_by_label("RepositoryEntity", ["id", "name", "status"])
+        for n in nodes:
+            if n.get("name") == repo_id and n.get("id"):
+                store.merge_node("RepositoryEntity", {"id": n["id"], "name": repo_id, "status": status})
+                return
+    except Exception as e:
+        logger.warning("Failed to update repo status for %s: %s", repo_id, e)
+
+
 async def _run_build(
     request: Request,
     task_id: str,
@@ -185,11 +198,13 @@ async def _run_build(
         current.status = "success"
         current.logs = log_handler.snapshot()
         current.result = result.to_dict()
+        _update_repo_status(request, repo_id, "success")
     except Exception as e:
         logger.exception("build task %s failed", task_id)
         current.status = "failed"
         current.message = f"{type(e).__name__}: {e}"
         current.logs = log_handler.snapshot()
+        _update_repo_status(request, repo_id, "failed")
     finally:
         pipeline_logger.removeHandler(log_handler)
         pipeline_logger.setLevel(prev_level)

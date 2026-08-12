@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ontoagent.api.web import app as app_module
-from ontoagent.api.web.router.build import BuildStatusResponse
+from ontoagent.api.web.router.build import BuildStatusResponse, _update_repo_status
 from ontoagent.pipeline.builder import BuildResult
 
 
@@ -118,6 +118,19 @@ def _wait_for_status(test_client: TestClient, task_id: str, *, timeout: float = 
     pytest.fail(f"task {task_id} did not finish within {timeout}s (last: {last})")
 
 
+def _wait_for_merge_node(graph_store, *, timeout: float = 5.0) -> None:
+    """轮询等待 merge_node 被调用。
+
+    后台任务先把 task 状态置为终态，随后才回写图库，故终态到达不代表回写已完成。
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if graph_store.merge_node.called:
+            return
+        time.sleep(0.01)
+    pytest.fail(f"merge_node was not called within {timeout}s")
+
+
 @pytest.mark.unit
 def test_build_progress_updates_stage_and_logs(test_client: TestClient, tmp_path: Path) -> None:
     """mock builder.build 模拟 progress_callback → 状态中 stage/stage_detail/logs 更新。"""
@@ -198,3 +211,116 @@ def test_build_success_returns_result_and_frozen_logs(test_client: TestClient, t
     assert data["result"]["entities_created"] == 5
     assert data["result"]["relations_created"] == 3
     assert data["logs"]
+
+
+@pytest.mark.unit
+def test_build_success_writes_repo_status(test_client: TestClient, tmp_path: Path) -> None:
+    """构建成功 → RepositoryEntity.status 回写为 success。"""
+
+    # Arrange
+    graph_store = test_client.app.state.graph_store
+    graph_store.get_nodes_by_label.return_value = [{"id": "repo-uuid", "name": "test-repo", "status": "building"}]
+
+    def fake_build(*args, **kwargs):
+        return BuildResult(files_scanned=1, entities_created=1, relations_created=1)
+
+    with patch("ontoagent.pipeline.builder.OntoAgentBuilder") as mock_builder_cls:
+        mock_builder_cls.return_value.build.side_effect = fake_build
+        # Act
+        post = test_client.post(
+            "/api/build",
+            json={"repo_url": str(tmp_path), "repo_id": "test-repo"},
+        )
+    task_id = post.json()["task_id"]
+
+    # 轮询到终态，再等图库回写完成（状态置为终态后才调用 _update_repo_status）
+    data = _wait_for_status(test_client, task_id)
+    assert data["status"] == "success"
+    _wait_for_merge_node(graph_store)
+    graph_store.merge_node.assert_called_once_with(
+        "RepositoryEntity",
+        {"id": "repo-uuid", "name": "test-repo", "status": "success"},
+    )
+
+
+@pytest.mark.unit
+def test_build_failure_writes_repo_status(test_client: TestClient, tmp_path: Path) -> None:
+    """构建失败 → RepositoryEntity.status 回写为 failed。"""
+
+    # Arrange
+    graph_store = test_client.app.state.graph_store
+    graph_store.get_nodes_by_label.return_value = [{"id": "repo-uuid", "name": "test-repo", "status": "building"}]
+
+    def fake_build(*args, **kwargs):
+        raise RuntimeError("simulated build failure")
+
+    with patch("ontoagent.pipeline.builder.OntoAgentBuilder") as mock_builder_cls:
+        mock_builder_cls.return_value.build.side_effect = fake_build
+        # Act
+        post = test_client.post(
+            "/api/build",
+            json={"repo_url": str(tmp_path), "repo_id": "test-repo"},
+        )
+    task_id = post.json()["task_id"]
+
+    data = _wait_for_status(test_client, task_id)
+    assert data["status"] == "failed"
+    _wait_for_merge_node(graph_store)
+    graph_store.merge_node.assert_called_once_with(
+        "RepositoryEntity",
+        {"id": "repo-uuid", "name": "test-repo", "status": "failed"},
+    )
+
+
+@pytest.mark.unit
+def test_update_repo_status_no_nodes_does_not_merge() -> None:
+    """get_nodes_by_label 返回空列表 → 不抛异常、merge_node 不被调用。"""
+
+    # Arrange
+    graph_store = MagicMock()
+    graph_store.get_nodes_by_label.return_value = []
+    request = MagicMock()
+    request.app.state.graph_store = graph_store
+
+    # Act
+    _update_repo_status(request, "test-repo", "success")
+
+    # Assert
+    graph_store.get_nodes_by_label.assert_called_once_with("RepositoryEntity", ["id", "name", "status"])
+    graph_store.merge_node.assert_not_called()
+
+
+@pytest.mark.unit
+def test_update_repo_status_none_id_skips_merge() -> None:
+    """节点 id 为 None → 跳过（merge_node 不被调用）。"""
+
+    # Arrange
+    graph_store = MagicMock()
+    graph_store.get_nodes_by_label.return_value = [{"id": None, "name": "test-repo"}]
+    request = MagicMock()
+    request.app.state.graph_store = graph_store
+
+    # Act
+    _update_repo_status(request, "test-repo", "success")
+
+    # Assert
+    graph_store.merge_node.assert_not_called()
+
+
+@pytest.mark.unit
+def test_update_repo_status_store_error_logs_warning(caplog) -> None:
+    """graph_store 抛异常 → 仅记 warning，不向调用方传播异常。"""
+
+    # Arrange
+    graph_store = MagicMock()
+    graph_store.get_nodes_by_label.side_effect = RuntimeError("boom")
+    request = MagicMock()
+    request.app.state.graph_store = graph_store
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger="ontoagent.api.web.router.build"):
+        _update_repo_status(request, "test-repo", "success")
+
+    # Assert
+    graph_store.merge_node.assert_not_called()
+    assert any("Failed to update repo status" in r.message for r in caplog.records)
