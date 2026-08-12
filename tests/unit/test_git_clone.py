@@ -148,3 +148,101 @@ class TestCloneCommand:
         ):
             await service.clone("https://evil.com/foo.git")
         mock_run.assert_not_called()
+
+
+class TestCloneBranchFallback:
+    """P1-3：请求分支不存在时，探测远端默认分支并回退重试。"""
+
+    _BRANCH_NOT_FOUND = "fatal: Remote branch main not found in upstream origin"
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_default_branch_on_branch_not_found(self, service: GitCloneService) -> None:
+        """main 不存在时探测远端默认分支（master）并重试成功。"""
+        branch_err = subprocess.CalledProcessError(returncode=128, cmd=["git", "clone"], stderr=self._BRANCH_NOT_FOUND)
+        ls_remote_ok = MagicMock(stdout="ref: refs/heads/master HEAD\n<sha>\tHEAD")
+        clone_ok = MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+        with patch(
+            "ontoagent.service.git_clone.subprocess.run",
+            side_effect=[branch_err, ls_remote_ok, clone_ok],
+        ) as mock_run:
+            target = await service.clone("https://github.com/foo/bar.git", branch="main")
+
+        assert isinstance(target, Path)
+        assert mock_run.call_count == 3
+        # 第二次 clone 使用探测到的 master 分支
+        retry_cmd = mock_run.call_args_list[2].args[0]
+        assert "--branch" in retry_cmd
+        assert retry_cmd[retry_cmd.index("--branch") + 1] == "master"
+
+    @pytest.mark.asyncio
+    async def test_fallback_failure_raises_with_merged_error(self, service: GitCloneService) -> None:
+        """两次 clone 都失败：抛 GitCloneError，错误信息合并原始与重试 stderr。"""
+        branch_err = subprocess.CalledProcessError(returncode=128, cmd=["git", "clone"], stderr=self._BRANCH_NOT_FOUND)
+        ls_remote_ok = MagicMock(stdout="ref: refs/heads/master HEAD\n<sha>\tHEAD")
+        retry_err = subprocess.CalledProcessError(
+            returncode=128,
+            cmd=["git", "clone"],
+            stderr="fatal: unable to access 'https://github.com/foo/bar.git'",
+        )
+
+        with (
+            patch(
+                "ontoagent.service.git_clone.subprocess.run",
+                side_effect=[branch_err, ls_remote_ok, retry_err],
+            ),
+            pytest.raises(GitCloneError, match="also failed"),
+        ):
+            await service.clone("https://github.com/foo/bar.git", branch="main")
+
+    @pytest.mark.asyncio
+    async def test_no_ref_line_raises_original_without_retry(self, service: GitCloneService) -> None:
+        """ls-remote 输出无 ref 行：抛原错误，不重试。"""
+        branch_err = subprocess.CalledProcessError(returncode=128, cmd=["git", "clone"], stderr=self._BRANCH_NOT_FOUND)
+        ls_remote_no_ref = MagicMock(stdout="<sha>\tHEAD\n")
+
+        with (
+            patch(
+                "ontoagent.service.git_clone.subprocess.run",
+                side_effect=[branch_err, ls_remote_no_ref],
+            ) as mock_run,
+            pytest.raises(GitCloneError, match="Remote branch main not found"),
+        ):
+            await service.clone("https://github.com/foo/bar.git", branch="main")
+        assert mock_run.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_detected_branch_same_as_requested_raises_original(self, service: GitCloneService) -> None:
+        """探测到的分支与请求分支相同：抛原错误，不重试。"""
+        branch_err = subprocess.CalledProcessError(returncode=128, cmd=["git", "clone"], stderr=self._BRANCH_NOT_FOUND)
+        ls_remote_same = MagicMock(stdout="ref: refs/heads/main HEAD\n<sha>\tHEAD")
+
+        with (
+            patch(
+                "ontoagent.service.git_clone.subprocess.run",
+                side_effect=[branch_err, ls_remote_same],
+            ) as mock_run,
+            pytest.raises(GitCloneError, match="Remote branch main not found"),
+        ):
+            await service.clone("https://github.com/foo/bar.git", branch="main")
+        assert mock_run.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_ls_remote_failure_raises_original(self, service: GitCloneService) -> None:
+        """ls-remote 自身失败：抛原错误，不重试。"""
+        branch_err = subprocess.CalledProcessError(returncode=128, cmd=["git", "clone"], stderr=self._BRANCH_NOT_FOUND)
+        ls_remote_err = subprocess.CalledProcessError(
+            returncode=128,
+            cmd=["git", "ls-remote"],
+            stderr="could not resolve host",
+        )
+
+        with (
+            patch(
+                "ontoagent.service.git_clone.subprocess.run",
+                side_effect=[branch_err, ls_remote_err],
+            ) as mock_run,
+            pytest.raises(GitCloneError, match="Remote branch main not found"),
+        ):
+            await service.clone("https://github.com/foo/bar.git", branch="main")
+        assert mock_run.call_count == 2

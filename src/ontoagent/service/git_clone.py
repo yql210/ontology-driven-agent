@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import subprocess
 import uuid
 from pathlib import Path
@@ -19,6 +20,11 @@ from urllib.parse import urlparse, urlunparse
 from ontoagent.config import OntoAgentConfig
 
 logger = logging.getLogger(__name__)
+
+#: 远端提示请求分支不存在（如 ``fatal: Remote branch main not found in upstream origin``）
+_BRANCH_NOT_FOUND_RE = re.compile(r"Remote branch .* not found", re.IGNORECASE)
+#: ``git ls-remote --symref <url> HEAD`` 输出中的默认分支行，如 ``ref: refs/heads/master HEAD``
+_SYMREF_HEAD_RE = re.compile(r"ref:\s*refs/heads/(\S+)\s+HEAD")
 
 
 class GitCloneError(RuntimeError):
@@ -90,6 +96,36 @@ class GitCloneService:
         logger.info("[GitClone] cloning %s (branch=%s) → %s", self._mask_url(repo_url), branch, target)
 
         try:
+            await self._run_clone(cmd)
+        except GitCloneError as exc:
+            # 仅当远端明确提示分支不存在时探测默认分支回退；其余错误原样抛出
+            if not _BRANCH_NOT_FOUND_RE.search(str(exc)):
+                raise
+            fallback_branch = await self._detect_default_branch(authed_url)
+            if fallback_branch is None or fallback_branch == branch:
+                raise
+            retry_cmd = list(cmd)
+            retry_cmd[retry_cmd.index("--branch") + 1] = fallback_branch
+            logger.info(
+                "[GitClone] branch %s not found, retrying with default branch %s",
+                branch,
+                fallback_branch,
+            )
+            try:
+                await self._run_clone(retry_cmd)
+            except GitCloneError as retry_exc:
+                # 合并原始 + 重试 stderr，便于排查
+                raise GitCloneError(
+                    f"git clone failed on branch '{branch}' (original: {exc}); "
+                    f"fallback to branch '{fallback_branch}' also failed: {retry_exc}"
+                ) from retry_exc
+
+        logger.info("[GitClone] clone complete: %s", target)
+        return target
+
+    async def _run_clone(self, cmd: list[str]) -> None:
+        """执行 git clone 命令；失败抛 GitCloneError。"""
+        try:
             await asyncio.to_thread(
                 subprocess.run,
                 cmd,
@@ -104,8 +140,21 @@ class GitCloneService:
         except subprocess.TimeoutExpired as e:
             raise GitCloneError(f"git clone timed out after {self._config.git_clone_timeout}s") from e
 
-        logger.info("[GitClone] clone complete: %s", target)
-        return target
+    async def _detect_default_branch(self, authed_url: str) -> str | None:
+        """探测远端默认分支；探测失败或无 ref 行返回 None。"""
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["git", "ls-remote", "--symref", authed_url, "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=self._config.git_clone_timeout,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return None
+        match = _SYMREF_HEAD_RE.search(result.stdout)
+        return match.group(1) if match else None
 
     def _validate_url(self, url: str) -> None:
         """校验 URL scheme 和 hostname。

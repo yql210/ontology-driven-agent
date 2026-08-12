@@ -121,22 +121,29 @@ def create_app() -> FastAPI:
         token = set_request_id(request_id)
         # 在响应头中回传 request_id（客户端可追踪）
         start_time = time.time()
+        response = None
         try:
             response = await call_next(request)
+            return response
         finally:
-            duration = time.time() - start_time
-            # 用路由模板（如 /api/graph/node/{node_id}）而非实际路径，避免 Prometheus label 基数爆炸
-            route = request.scope.get("route")
-            endpoint = route.path_format if route and hasattr(route, "path_format") else request.url.path
-            record_http_request(
-                method=request.method,
-                endpoint=endpoint,
-                status=response.status_code,
-                duration=duration,
-            )
-            response.headers["X-Request-ID"] = request_id
-            reset_request_id(token)
-        return response
+            # call_next 抛异常时 response 为 None：按 500 记录，避免 UnboundLocalError 掩盖真实错误。
+            # 嵌套 finally 保证 reset_request_id 始终执行，即使 record_http_request 自身抛错。
+            try:
+                duration = time.time() - start_time
+                # 用路由模板（如 /api/graph/node/{node_id}）而非实际路径，避免 Prometheus label 基数爆炸
+                route = request.scope.get("route")
+                endpoint = route.path_format if route and hasattr(route, "path_format") else request.url.path
+                status = response.status_code if response is not None else 500
+                record_http_request(
+                    method=request.method,
+                    endpoint=endpoint,
+                    status=status,
+                    duration=duration,
+                )
+                if response is not None:
+                    response.headers["X-Request-ID"] = request_id
+            finally:
+                reset_request_id(token)
 
     # ===== 注册路由 =====
     chat_router.collector = _trace_collector
