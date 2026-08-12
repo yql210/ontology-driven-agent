@@ -1033,8 +1033,59 @@ class TestNebulaStoreGetNodesByLabel:
         assert "`CodeEntity`.`filePath`" in stmt
         # 不应有 vertex. 前缀
         assert "vertex.`CodeEntity`" not in stmt
-        # id(vertex) 作为 id 返回
+        # id 是 VID（merge_node 用 id 作 VID，不写 id 属性），必须用 id(vertex) 返回业务 id
         assert "id(vertex) AS id" in stmt
+        assert "`CodeEntity`.`id`" not in stmt
+
+    def test_properties_containing_id_yields_business_id(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """props 含 id → id 被过滤（不 YIELD Tag.id，因为 id 是 VID 不是属性），用 id(vertex) 返回业务 id。"""
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        store_with_mock_pool.get_nodes_by_label("RepositoryEntity", ["id", "name", "url", "status"])
+
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        lookup_stmt = next(s for s in stmts if "LOOKUP ON" in s)
+        assert "id(vertex) AS id" in lookup_stmt
+        assert "`RepositoryEntity`.`name` AS `name`" in lookup_stmt
+        assert "`RepositoryEntity`.`url` AS `url`" in lookup_stmt
+        assert "`RepositoryEntity`.`status` AS `status`" in lookup_stmt
+        # id 是 VID 不是属性 → 不 YIELD Tag.id
+        assert "`RepositoryEntity`.`id`" not in lookup_stmt
+        # id 只出现一次（无重复 alias）
+        assert lookup_stmt.count("AS id") == 1
+
+    def test_properties_without_id_still_yields_business_id(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        """props 不含 id（如 ["name"]）→ 仍输出 id(vertex) AS id + name（统一语义）。"""
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        store_with_mock_pool.get_nodes_by_label("RepositoryEntity", ["name"])
+
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        lookup_stmt = next(s for s in stmts if "LOOKUP ON" in s)
+        assert "id(vertex) AS id" in lookup_stmt
+        assert "`RepositoryEntity`.`name` AS `name`" in lookup_stmt
+        assert "`RepositoryEntity`.`id`" not in lookup_stmt
+
+    def test_duplicate_props_deduped(self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock) -> None:
+        """props 重复 ["id","id","name"] → 去重保序后 YIELD 无重复 alias。"""
+        empty = _make_successful_result(rows=[])
+        empty.is_empty = MagicMock(return_value=True)
+        mock_session.execute = MagicMock(return_value=empty)
+
+        store_with_mock_pool.get_nodes_by_label("CodeEntity", ["id", "id", "name"])
+
+        stmts = [c.args[0] for c in mock_session.execute.call_args_list]
+        lookup_stmt = next(s for s in stmts if "LOOKUP ON" in s)
+        assert lookup_stmt.count("AS id") == 1
+        assert lookup_stmt.count("AS `name`") == 1
 
     def test_default_properties_when_none(
         self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock

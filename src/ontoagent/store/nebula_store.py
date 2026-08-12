@@ -922,8 +922,10 @@ class NebulaGraphStore(GraphStore):
         nGQL 语法注意：LOOKUP ON 的 YIELD 中属性访问格式是 ``Tag.prop``，
         **不带** ``vertex.`` 前缀（与 MATCH 的 ``vertex.Tag.prop`` 不同）。
         """
-        props = properties or ["id", "name"]
+        props = list(dict.fromkeys(properties)) if properties else ["id", "name"]
         # LOOKUP YIELD 格式: Tag.prop AS alias（不带 vertex. 前缀）
+        # 注意：NebulaGraph 中业务 id 是 VID（merge_node 用 id 作 VID，不写 id 属性），
+        # 因此必须用 id(vertex) 返回业务 id；不能 YIELD Tag.id（属性不存在）。
         prop_yield = ", ".join(f"`{label}`.`{p}` AS `{p}`" for p in props if p != "id")
         ngql = (
             f'LOOKUP ON `{label}` WHERE `{label}`.name != "" '

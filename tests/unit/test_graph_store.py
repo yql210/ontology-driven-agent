@@ -80,3 +80,53 @@ def test_graph_store_abstract_methods():
     }
     actual = {name for name in dir(GraphStore) if not name.startswith("_")}
     assert expected.issubset(actual)
+
+
+@pytest.mark.unit
+class TestGraphStoreGetNodesByLabel:
+    """get_nodes_by_label 基类默认实现 — 统一返回业务 id（n.id）而非内部节点 id（id(n)）。"""
+
+    def _store_capturing_cypher(self, captured: list[str]) -> _DummyStore:
+        store = _DummyStore()
+
+        def _fake_query(cypher: str, params: dict | None = None) -> list[dict]:
+            captured.append(cypher)
+            return []
+
+        store.query = _fake_query  # type: ignore[method-assign]
+        return store
+
+    def test_properties_with_id_returns_business_id_no_duplicate(self) -> None:
+        captured: list[str] = []
+        store = self._store_capturing_cypher(captured)
+
+        store.get_nodes_by_label("RepositoryEntity", ["id", "name", "url", "status"])
+
+        assert captured == [
+            "MATCH (n:RepositoryEntity) RETURN n.id AS id, n.name AS name, n.url AS url, n.status AS status"
+        ]
+        assert "id(n)" not in captured[0]
+
+    def test_properties_without_id_still_returns_business_id(self) -> None:
+        captured: list[str] = []
+        store = self._store_capturing_cypher(captured)
+
+        store.get_nodes_by_label("CodeEntity", ["name"])
+
+        assert captured == ["MATCH (n:CodeEntity) RETURN n.id AS id, n.name AS name"]
+
+    def test_default_properties_read_id_and_name(self) -> None:
+        captured: list[str] = []
+        store = self._store_capturing_cypher(captured)
+
+        store.get_nodes_by_label("X")
+
+        assert captured == ["MATCH (n:X) RETURN n.id AS id, n.name AS name"]
+
+    def test_duplicate_props_deduped(self) -> None:
+        captured: list[str] = []
+        store = self._store_capturing_cypher(captured)
+
+        store.get_nodes_by_label("X", ["id", "id", "name"])
+
+        assert captured == ["MATCH (n:X) RETURN n.id AS id, n.name AS name"]

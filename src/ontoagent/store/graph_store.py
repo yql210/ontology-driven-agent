@@ -192,6 +192,10 @@ class GraphStore(ABC):
         默认实现用 Cypher MATCH（Neo4j 高效）。NebulaGraph 子类应覆写为 LOOKUP ON，
         避免大图上的 MATCH 全 tag 扫描。
 
+        统一返回业务 id（属性 ``n.id``），而非 Neo4j 内部节点 id（``id(n)``），
+        避免调用方拿到内部 id 后定位/删除失效。properties 会去重保序，
+        properties 含 ``id`` 时也不会生成重复的 RETURN alias。
+
         Args:
             label: 节点标签名。
             properties: 需要读取的属性名列表（camelCase）。``None`` 表示只读 id 和 name。
@@ -199,9 +203,13 @@ class GraphStore(ABC):
         Returns:
             节点属性字典列表，每项至少含 ``id``。
         """
-        props = properties or ["id", "name"]
+        props = list(dict.fromkeys(properties)) if properties else ["id", "name"]
+        if "id" in props:
+            rest = [p for p in props if p != "id"]
+            prop_clause = ", ".join(f"n.{p} AS {p}" for p in rest)
+            return self.query(f"MATCH (n:{label}) RETURN n.id AS id{', ' + prop_clause if prop_clause else ''}")
         prop_clause = ", ".join(f"n.{p} AS {p}" for p in props)
-        return self.query(f"MATCH (n:{label}) RETURN id(n) AS id, {prop_clause}")
+        return self.query(f"MATCH (n:{label}) RETURN n.id AS id, {prop_clause}")
 
     def get_edges_by_types(self, rel_types: list[str], node_label: str = "") -> list[dict]:
         """批量读取指定类型的全部关系。
