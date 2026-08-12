@@ -104,9 +104,12 @@ def create_agent() -> Any:
 
 def _make_config(thread_id: str = "default") -> dict[str, Any]:
     """生成 Agent 运行配置"""
+    from ontoagent.agent._helpers import get_config
+
+    cfg = get_config()
     return {
         "configurable": {"thread_id": thread_id},
-        "recursion_limit": 15,  # 防止死循环（agent→tools→agent 最多 7 轮）
+        "recursion_limit": cfg.agent_recursion_limit,  # 防止死循环（superstep 上限）
     }
 
 

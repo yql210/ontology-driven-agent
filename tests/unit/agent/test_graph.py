@@ -155,3 +155,13 @@ def test_create_llm_without_extra_body_omits_model_kwargs() -> None:
         mock_llm_class.assert_called_once()
         kwargs = mock_llm_class.call_args.kwargs
         assert "model_kwargs" not in kwargs
+
+
+def test_make_config_uses_agent_recursion_limit() -> None:
+    """_make_config 的 recursion_limit 取自 config.agent_recursion_limit。"""
+    from ontoagent.agent.graph import _make_config
+
+    cfg = OntoAgentConfig(agent_recursion_limit=30)
+    with patch("ontoagent.agent._helpers.get_config", return_value=cfg):
+        config = _make_config("test-thread")
+    assert config["recursion_limit"] == 30

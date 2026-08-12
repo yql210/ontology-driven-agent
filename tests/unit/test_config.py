@@ -116,6 +116,34 @@ def test_from_env_agent_llm_extra_body_unset(monkeypatch):
     assert config.agent_llm_extra_body is None
 
 
+def test_agent_recursion_limit_default(monkeypatch):
+    """from_env 默认 agent_recursion_limit 为 30。"""
+    monkeypatch.delenv("ONTOAGENT_AGENT_RECURSION_LIMIT", raising=False)
+    config = OntoAgentConfig.from_env()
+    assert config.agent_recursion_limit == 30
+
+
+def test_agent_recursion_limit_from_env(monkeypatch):
+    """from_env 读取 ONTOAGENT_AGENT_RECURSION_LIMIT。"""
+    monkeypatch.setenv("ONTOAGENT_AGENT_RECURSION_LIMIT", "50")
+    config = OntoAgentConfig.from_env()
+    assert config.agent_recursion_limit == 50
+
+
+def test_agent_recursion_limit_invalid(monkeypatch):
+    """非法值回落默认 30，不抛异常。"""
+    monkeypatch.setenv("ONTOAGENT_AGENT_RECURSION_LIMIT", "abc")
+    config = OntoAgentConfig.from_env()
+    assert config.agent_recursion_limit == 30
+
+
+def test_agent_recursion_limit_clamped(monkeypatch):
+    """低于 10 的值 clamp 到 10。"""
+    monkeypatch.setenv("ONTOAGENT_AGENT_RECURSION_LIMIT", "3")
+    config = OntoAgentConfig.from_env()
+    assert config.agent_recursion_limit == 10
+
+
 class TestLoadDotenv:
     """测试 _load_dotenv 剥离行内注释。"""
 
