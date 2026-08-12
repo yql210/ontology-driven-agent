@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from starlette.requests import Request as StarletteRequest
 
 from ontoagent.api.web.rate_limit import limiter
+from ontoagent.domain.schema import VALID_ENTITY_LABELS
 
 router = APIRouter(tags=["graph"])
 
@@ -70,6 +71,8 @@ def get_graph(
     depth = max(1, min(depth, 3))
     limit = max(1, min(limit, 500))
     allowed_types: list[str] = type.split(",") if type else []
+    # 白名单校验：非法标签直接忽略（不报错），保证不进入查询串
+    allowed_types = [t for t in allowed_types if t in VALID_ENTITY_LABELS]
 
     if center:
         # 中心展开模式（两步查询：先取邻居节点，再取边）
@@ -141,13 +144,14 @@ def get_graph(
         src_fn = "src" if _is_nebula(store) else "startNode"
         dst_fn = "dst" if _is_nebula(store) else "endNode"
 
+        # 类型筛选：白名单校验后字面量拼接（避免 $types list 参数在 NebulaGraph 抛 TypeError）
+        type_filter = "" if not allowed_types else f"AND {label_fn} IN [{', '.join(f'"{t}"' for t in allowed_types)}]"
         node_records = store.query(
-            f"MATCH (n) WHERE {has_label} "
-            "AND ($types = [] OR labels(n)[0] IN $types) "
+            f"MATCH (n) WHERE {has_label} {type_filter} "
             f"RETURN n.id AS id, n.name AS name, {label_fn} AS label, "
             "n.entity_type AS entity_type "
             "LIMIT $limit",
-            {"types": allowed_types, "limit": limit},
+            {"limit": limit},
         )
         node_ids = [r["id"] for r in node_records]
         if not node_ids:
@@ -173,7 +177,8 @@ def get_node_detail(node_id: str, request: StarletteRequest):
     store = request.app.state.graph_store
     # 获取节点属性
     node_rec = store.query(
-        "MATCH (n {id: $id}) RETURN n.id AS id, n.name AS name, labels(n)[0] AS label, properties(n) AS props",
+        f"MATCH (n {{id: $id}}) RETURN n.id AS id, n.name AS name, "
+        f"{_label_expr(store, 'n')} AS label, properties(n) AS props",
         {"id": node_id},
     )
     if not node_rec:
