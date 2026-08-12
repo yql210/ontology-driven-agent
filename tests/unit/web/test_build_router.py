@@ -140,6 +140,7 @@ def test_build_progress_updates_stage_and_logs(test_client: TestClient, tmp_path
         repo_path,
         *,
         repo_id: str = "default",
+        repo_url: str = "",
         skip_semantic: bool = False,
         skip_clustering: bool = False,
         clear: bool = False,
@@ -187,6 +188,29 @@ def test_build_failure_records_logs_and_message(test_client: TestClient, tmp_pat
     assert "RuntimeError" in data["message"]
     assert "simulated build failure" in data["message"]
     assert "stage 2 failed" in data["logs"]
+
+
+@pytest.mark.unit
+def test_run_build_passes_repo_url_to_builder(test_client: TestClient, tmp_path: Path) -> None:
+    """_run_build 调用 builder.build 时把 repo_url 透传。"""
+
+    # Arrange
+    captured: dict = {}
+
+    def fake_build(*args, **kwargs):
+        captured["kwargs"] = kwargs
+        return BuildResult(files_scanned=1, entities_created=1, relations_created=1)
+
+    repo_url = str(tmp_path)
+    with patch("ontoagent.pipeline.builder.OntoAgentBuilder") as mock_builder_cls:
+        mock_builder_cls.return_value.build.side_effect = fake_build
+        # Act
+        post = test_client.post("/api/build", json={"repo_url": repo_url})
+    task_id = post.json()["task_id"]
+
+    data = _wait_for_status(test_client, task_id)
+    assert data["status"] == "success"
+    assert captured["kwargs"]["repo_url"] == repo_url
 
 
 @pytest.mark.unit

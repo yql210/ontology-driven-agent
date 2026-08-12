@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ontoagent.config import OntoAgentConfig
-from ontoagent.domain.schema import CodeEntity
+from ontoagent.domain.schema import CodeEntity, RepositoryEntity
 from ontoagent.pipeline.builder import BuildResult, OntoAgentBuilder
 from ontoagent.store.schema_version import SchemaStatus
 
@@ -423,6 +423,160 @@ class TestBuilderClear:
         # Assert
         assert result.aborted is False
         assert "Cleared 5 existing nodes" in caplog.text
+
+
+class TestRepositoryEntityPersistence:
+    """测试 build() 写 RepositoryEntity 时的 url 持久化与节点复用。
+
+    RepositoryEntity.id = _stable_id(name, url) 是确定性稳定哈希；builder 按 name
+    定向查询已有节点并复用 id，url 非空才覆盖，避免与 repo.py 入口 id 不一致导致重复记录。
+    """
+
+    @staticmethod
+    def _repo_merge_props(mock_graph: MagicMock) -> dict:
+        """从 merge_node 调用列表筛出 label=RepositoryEntity 的 properties。"""
+        for args, _kwargs in mock_graph.merge_node.call_args_list:
+            if args and args[0] == "RepositoryEntity":
+                return args[1]
+        pytest.fail("merge_node was never called with label='RepositoryEntity'")
+
+    def test_build_repo_url_persisted_to_merge_node(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
+        """传入 repo_url → merge_node 收到 url，id 与 RepositoryEntity(name,url) 一致。"""
+        # Arrange
+        mock_graph = MagicMock()
+        mock_graph.get_nodes_by_label.return_value = []
+        mock_chroma = MagicMock()
+        url = "https://gitee.com/x/y.git"
+
+        with (
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+        ):
+            # Act
+            builder.build(
+                temp_repo,
+                repo_id="repoA",
+                repo_url=url,
+                skip_semantic=True,
+                skip_clustering=True,
+                clear=True,
+            )
+
+        # Assert
+        props = self._repo_merge_props(mock_graph)
+        assert props["name"] == "repoA"
+        assert props["url"] == url
+        assert props["id"] == RepositoryEntity(name="repoA", url=url).id
+
+    def test_build_keeps_existing_url_when_repo_url_empty(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
+        """已有节点 + repo_url='' → 复用节点 id，且旧 url 不被清空。"""
+        # Arrange
+        mock_graph = MagicMock()
+        mock_graph.get_nodes_by_label.return_value = [
+            {"id": "old-id", "name": "repoA", "url": "https://old.example/repo.git"}
+        ]
+        mock_chroma = MagicMock()
+
+        with (
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+        ):
+            # Act
+            builder.build(
+                temp_repo,
+                repo_id="repoA",
+                repo_url="",
+                skip_semantic=True,
+                skip_clustering=True,
+                clear=True,
+            )
+
+        # Assert
+        props = self._repo_merge_props(mock_graph)
+        assert props["id"] == "old-id"
+        assert props["url"] == "https://old.example/repo.git"
+
+    def test_build_new_repo_url_overrides_old_url(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
+        """已有节点 + 新 repo_url → 覆盖为新 url。"""
+        # Arrange
+        mock_graph = MagicMock()
+        mock_graph.get_nodes_by_label.return_value = [{"id": "old-id", "name": "repoA", "url": "old"}]
+        mock_chroma = MagicMock()
+
+        with (
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+        ):
+            # Act
+            builder.build(
+                temp_repo,
+                repo_id="repoA",
+                repo_url="new",
+                skip_semantic=True,
+                skip_clustering=True,
+                clear=True,
+            )
+
+        # Assert
+        props = self._repo_merge_props(mock_graph)
+        assert props["id"] == "old-id"
+        assert props["url"] == "new"
+
+    def test_build_creates_new_entity_when_none_exists(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
+        """无已有节点 → 用 RepositoryEntity(name=repo_id) 生成新 id。"""
+        # Arrange
+        mock_graph = MagicMock()
+        mock_graph.get_nodes_by_label.return_value = []
+        mock_chroma = MagicMock()
+
+        with (
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+        ):
+            # Act
+            builder.build(
+                temp_repo,
+                repo_id="repoA",
+                repo_url="",
+                skip_semantic=True,
+                skip_clustering=True,
+                clear=True,
+            )
+
+        # Assert
+        props = self._repo_merge_props(mock_graph)
+        assert props["id"] == RepositoryEntity(name="repoA").id
+        assert props["name"] == "repoA"
+
+    def test_build_creates_new_id_when_existing_id_none(self, builder: OntoAgentBuilder, temp_repo: Path) -> None:
+        """已有节点但 id 为 None → 兜底生成新 id。"""
+        # Arrange
+        mock_graph = MagicMock()
+        mock_graph.get_nodes_by_label.return_value = [{"id": None, "name": "repoA"}]
+        mock_chroma = MagicMock()
+
+        with (
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+        ):
+            # Act
+            builder.build(
+                temp_repo,
+                repo_id="repoA",
+                repo_url="",
+                skip_semantic=True,
+                skip_clustering=True,
+                clear=True,
+            )
+
+        # Assert
+        props = self._repo_merge_props(mock_graph)
+        assert props["id"] == RepositoryEntity(name="repoA").id
 
 
 class TestBuildProgressCallback:

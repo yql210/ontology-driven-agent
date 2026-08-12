@@ -189,6 +189,7 @@ async def _run_build(
             builder.build,
             repo_path,
             repo_id=repo_id,
+            repo_url=repo_url,
             skip_semantic=skip_semantic,
             skip_clustering=skip_clustering,
             clear=clear,

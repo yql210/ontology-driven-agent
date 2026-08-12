@@ -498,6 +498,7 @@ class OntoAgentBuilder:
         repo_path: Path,
         *,
         repo_id: str = "default",
+        repo_url: str = "",
         skip_semantic: bool = False,
         skip_clustering: bool = False,
         clear: bool = False,
@@ -516,6 +517,8 @@ class OntoAgentBuilder:
             repo_path: 仓库根目录路径。
             repo_id: 仓库标识符（多仓库隔离），默认 ``default``。
                 会写入 ``repoId`` 属性到所有实体，并 MERGE 一个 ``RepositoryEntity`` 节点。
+            repo_url: 仓库远端地址，默认空串；非空时覆盖 RepositoryEntity 的 url，
+                空串则保留已有节点的 url。
             skip_semantic: 跳过语义提取（Stage 3）。
             skip_clustering: 跳过模块聚类（Stage 4）。
             progress_callback: 阶段完成回调 ``(stage, detail)``，stage 取值见
@@ -608,13 +611,26 @@ class OntoAgentBuilder:
         )
 
         # 写入 RepositoryEntity 节点（多仓库根节点）
-        repo_entity = RepositoryEntity(name=self._repo_id)
+        # 复用已有节点：RepositoryEntity.id=_stable_id(name,url) 是确定性哈希，
+        # 但历史数据可能因 url 缺失与 repo.py 入口 id 不一致，按 name 定向查询复用
         graph_store = self._get_graph_store()
+        existing = graph_store.get_nodes_by_label("RepositoryEntity", ["id", "name", "url"])
+        repo_entity_id = ""
+        repo_url_old = ""
+        for n in existing:
+            if n.get("name") == self._repo_id:
+                repo_entity_id = n.get("id") or ""
+                repo_url_old = n.get("url") or ""
+                break
+        # url 优先本次构建传入，其次保留已有值（非空才覆盖，防清空旧 url）
+        final_url = repo_url or repo_url_old
+        if not repo_entity_id:
+            repo_entity_id = RepositoryEntity(name=self._repo_id, url=final_url).id
         repo_props = add_provenance(
             {
-                "id": repo_entity.id,
-                "name": repo_entity.name,
-                "url": "",
+                "id": repo_entity_id,
+                "name": self._repo_id,
+                "url": final_url,
                 "branch": "main",
                 "status": "building",
             },
@@ -650,7 +666,7 @@ class OntoAgentBuilder:
         belongs_rels = [
             {
                 "source_id": entity.id,
-                "target_id": repo_entity.id,
+                "target_id": repo_entity_id,
                 "rel_type": "belongs_to_repo",
                 "source_label": "CodeEntity",
                 "target_label": "RepositoryEntity",
