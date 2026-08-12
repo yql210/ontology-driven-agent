@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from ontoagent.config import OntoAgentConfig
+
 
 def test_agent_state_is_messages_state() -> None:
     """验证 AgentState 是 MessagesState 子类"""
@@ -23,6 +25,7 @@ def test_create_agent_returns_compiled_graph() -> None:
         mock_config.agent_llm_model = "gpt-4"
         mock_config.agent_base_url = "https://api.example.com"
         mock_config.agent_api_key = "test-key"
+        mock_config.agent_llm_extra_body = None
         mock_get_config.return_value = mock_config
 
         # Mock ChatAnthropic 避免真实 API 调用
@@ -51,6 +54,7 @@ def test_create_agent_has_correct_nodes() -> None:
         mock_config.agent_llm_model = "gpt-4"
         mock_config.agent_base_url = "https://api.example.com"
         mock_config.agent_api_key = "test-key"
+        mock_config.agent_llm_extra_body = None
         mock_get_config.return_value = mock_config
 
         with patch("ontoagent.agent.graph.ChatOpenAI") as mock_llm_class:
@@ -79,6 +83,7 @@ def test_llm_singleton() -> None:
         mock_config.agent_llm_model = "gpt-4"
         mock_config.agent_base_url = "https://api.example.com"
         mock_config.agent_api_key = "test-key"
+        mock_config.agent_llm_extra_body = None
         mock_get_config.return_value = mock_config
 
         from ontoagent.agent.graph import _get_llm, _reset_llm
@@ -102,6 +107,7 @@ def test_llm_reset() -> None:
         mock_config.agent_llm_model = "gpt-4"
         mock_config.agent_base_url = "https://api.example.com"
         mock_config.agent_api_key = "test-key"
+        mock_config.agent_llm_extra_body = None
         mock_get_config.return_value = mock_config
 
         from ontoagent.agent.graph import _get_llm, _reset_llm
@@ -116,3 +122,36 @@ def test_llm_reset() -> None:
         # Get new instance — should be different object
         llm2 = _get_llm()
         assert llm1 is not llm2
+
+
+# ===== _create_llm extra_body 透传 Tests =====
+
+
+def test_create_llm_passes_extra_body_via_model_kwargs() -> None:
+    """验证 _create_llm 将 extra_body 嵌套透传到 ChatOpenAI model_kwargs。"""
+    from ontoagent.agent.graph import _create_llm
+
+    cfg = OntoAgentConfig(agent_llm_extra_body={"thinking": True})
+    with (
+        patch("ontoagent.agent._helpers.get_config", return_value=cfg),
+        patch("ontoagent.agent.graph.ChatOpenAI") as mock_llm_class,
+    ):
+        _create_llm()
+        mock_llm_class.assert_called_once()
+        kwargs = mock_llm_class.call_args.kwargs
+        assert kwargs["model_kwargs"] == {"extra_body": {"thinking": True}}
+
+
+def test_create_llm_without_extra_body_omits_model_kwargs() -> None:
+    """验证不设 extra_body 时 ChatOpenAI 不收 model_kwargs 参数。"""
+    from ontoagent.agent.graph import _create_llm
+
+    cfg = OntoAgentConfig()
+    with (
+        patch("ontoagent.agent._helpers.get_config", return_value=cfg),
+        patch("ontoagent.agent.graph.ChatOpenAI") as mock_llm_class,
+    ):
+        _create_llm()
+        mock_llm_class.assert_called_once()
+        kwargs = mock_llm_class.call_args.kwargs
+        assert "model_kwargs" not in kwargs

@@ -56,13 +56,18 @@ def _create_llm() -> ChatOpenAI:
     from ontoagent.agent._helpers import get_config
 
     cfg = get_config()
-    return ChatOpenAI(
-        model=cfg.agent_llm_model,
-        base_url=cfg.agent_base_url,
-        api_key=cfg.agent_api_key,
-        timeout=180,
-        max_retries=3,
-    )
+    kwargs: dict = {
+        "model": cfg.agent_llm_model,
+        "base_url": cfg.agent_base_url,
+        "api_key": cfg.agent_api_key,
+        "timeout": 180,
+        "max_retries": 3,
+    }
+    if cfg.agent_llm_extra_body:
+        # extra_body 经 model_kwargs 嵌套透传（openai SDK create() 的合法参数），
+        # 不能把 thinking 等字段直接放 model_kwargs 顶层（会被展开成 create() 顶层 kwargs → TypeError）
+        kwargs["model_kwargs"] = {"extra_body": cfg.agent_llm_extra_body}
+    return ChatOpenAI(**kwargs)
 
 
 async def _agent_node(state: AgentState) -> dict[str, list[BaseMessage]]:

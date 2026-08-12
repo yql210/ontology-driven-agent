@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def _load_dotenv(env_path: Path | None = None) -> None:
@@ -42,6 +46,7 @@ class OntoAgentConfig:
         agent_llm_model: Agent LLM 模型名称。
         agent_api_key: Agent API 密钥。
         agent_base_url: Agent API 基础 URL。
+        agent_llm_extra_body: 经 extra_body 透传给 LLM 网关的自定义字段。
     """
 
     neo4j_uri: str = "bolt://localhost:7687"
@@ -94,6 +99,7 @@ class OntoAgentConfig:
     agent_llm_model: str = "glm-4-flash"
     agent_api_key: str = ""
     agent_base_url: str = "https://open.bigmodel.cn/api/anthropic"
+    agent_llm_extra_body: dict | None = None
 
     # Graph 后端选择 + NebulaGraph 配置（Phase 1 新增）
     graph_backend: str = "nebula"  # "neo4j" | "nebula"（生产默认 nebula）
@@ -122,6 +128,7 @@ class OntoAgentConfig:
             ONTOAGENT_SEMANTIC_API_KEY, ONTOAGENT_SEMANTIC_BASE_URL,
             ONTOAGENT_AGENT_LLM_PROVIDER, ONTOAGENT_AGENT_LLM_MODEL,
             ONTOAGENT_AGENT_API_KEY, ONTOAGENT_AGENT_BASE_URL,
+            ONTOAGENT_AGENT_LLM_EXTRA_BODY,
             ONTOAGENT_GRAPH_BACKEND, ONTOAGENT_NEBULA_HOST, ONTOAGENT_NEBULA_PORT,
             ONTOAGENT_NEBULA_USER, ONTOAGENT_NEBULA_PASSWORD, ONTOAGENT_NEBULA_SPACE,
             ONTOAGENT_NEBULA_VID_TYPE,
@@ -153,6 +160,15 @@ class OntoAgentConfig:
             else list(cls.__dataclass_fields__["git_allowed_hosts"].default_factory())
         )
 
+        # 解析 agent_llm_extra_body（JSON）
+        extra_body_str = os.getenv("ONTOAGENT_AGENT_LLM_EXTRA_BODY")
+        agent_llm_extra_body = None
+        if extra_body_str:
+            try:
+                agent_llm_extra_body = json.loads(extra_body_str)
+            except json.JSONDecodeError as e:
+                logger.warning("ONTOAGENT_AGENT_LLM_EXTRA_BODY JSON 解析失败: %s", e)
+
         return cls(
             neo4j_uri=os.getenv("ONTOAGENT_NEO4J_URI", cls.neo4j_uri),
             neo4j_user=os.getenv("ONTOAGENT_NEO4J_USER", cls.neo4j_user),
@@ -175,6 +191,7 @@ class OntoAgentConfig:
             agent_llm_model=os.getenv("ONTOAGENT_AGENT_LLM_MODEL", cls.agent_llm_model),
             agent_api_key=os.getenv("ONTOAGENT_AGENT_API_KEY", cls.agent_api_key),
             agent_base_url=os.getenv("ONTOAGENT_AGENT_BASE_URL", cls.agent_base_url),
+            agent_llm_extra_body=agent_llm_extra_body,
             graph_backend=os.getenv("ONTOAGENT_GRAPH_BACKEND", cls.graph_backend),
             nebula_host=os.getenv("ONTOAGENT_NEBULA_HOST", cls.nebula_host),
             nebula_port=int(os.getenv("ONTOAGENT_NEBULA_PORT", str(cls.nebula_port))),

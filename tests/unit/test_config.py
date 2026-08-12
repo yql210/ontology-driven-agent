@@ -95,6 +95,27 @@ def test_from_env_defaults():
                 os.environ[key] = val
 
 
+def test_from_env_agent_llm_extra_body(monkeypatch):
+    """from_env 解析 ONTOAGENT_AGENT_LLM_EXTRA_BODY JSON。"""
+    monkeypatch.setenv("ONTOAGENT_AGENT_LLM_EXTRA_BODY", '{"thinking":true,"thinking_budget":1024}')
+    config = OntoAgentConfig.from_env()
+    assert config.agent_llm_extra_body == {"thinking": True, "thinking_budget": 1024}
+
+
+def test_from_env_agent_llm_extra_body_invalid_json(monkeypatch):
+    """非法 JSON 不抛异常，agent_llm_extra_body 为 None。"""
+    monkeypatch.setenv("ONTOAGENT_AGENT_LLM_EXTRA_BODY", "not-json")
+    config = OntoAgentConfig.from_env()
+    assert config.agent_llm_extra_body is None
+
+
+def test_from_env_agent_llm_extra_body_unset(monkeypatch):
+    """未设置时 agent_llm_extra_body 为 None。"""
+    monkeypatch.delenv("ONTOAGENT_AGENT_LLM_EXTRA_BODY", raising=False)
+    config = OntoAgentConfig.from_env()
+    assert config.agent_llm_extra_body is None
+
+
 class TestLoadDotenv:
     """测试 _load_dotenv 剥离行内注释。"""
 
