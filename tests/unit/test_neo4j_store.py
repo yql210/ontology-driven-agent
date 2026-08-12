@@ -558,15 +558,31 @@ class TestNeo4jGraphStoreConstraints:
         # 验证实体约束都有 REQUIRE n.id IS UNIQUE
         for cypher in constraint_cyphers[:8]:  # 前 8 个是实体约束
             assert "REQUIRE n.id IS UNIQUE" in cypher
-        # 验证每个实体标签都创建了 repoId 索引
+        # 验证每个实体标签都创建了 repoId 索引（Neo4j 合法关键字顺序：索引名在 IF NOT EXISTS 之前）
         index_cyphers = [c for c in cyphers if "CREATE INDEX" in c]
         assert len(index_cyphers) == 8
         for label in labels:
-            assert any(
-                label in cypher and "CREATE INDEX" in cypher and "n.repoId" in cypher for cypher in index_cyphers
-            )
+            expected = f"CREATE INDEX idx_{label}_repoId IF NOT EXISTS FOR (n:{label}) ON (n.repoId)"
+            assert any(expected in cypher for cypher in index_cyphers)
         # 验证 register_schema_version 的 MERGE 语句
         assert any("MERGE" in cypher and "SchemaVersion" in cypher for cypher in cyphers)
+
+    def test_ensure_constraints_index_cypher_keyword_order(self, mock_driver: MagicMock, mock_session: MagicMock):
+        """测试 repoId 索引使用合法的关键字顺序：索引名在 IF NOT EXISTS 之前。"""
+        # Arrange
+        mock_result = MagicMock()
+        mock_session.run = MagicMock(return_value=mock_result)
+
+        store = Neo4jGraphStore("bolt://localhost:7687", "neo4j", "password")
+        store._driver = mock_driver
+
+        # Act
+        store.ensure_constraints()
+
+        # Assert: 捕获的第一个实体标签索引 cypher 为修正后的完整语法
+        cyphers = [call[0][0] for call in mock_session.run.call_args_list]
+        expected = "CREATE INDEX idx_CodeEntity_repoId IF NOT EXISTS FOR (n:CodeEntity) ON (n.repoId)"
+        assert expected in cyphers
 
 
 @pytest.mark.unit

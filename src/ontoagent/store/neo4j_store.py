@@ -553,7 +553,7 @@ class Neo4jGraphStore(GraphStore):
 
         # 为所有实体 label 创建 repoId 索引（多仓库隔离查询加速）
         for label in ENTITY_LABELS:
-            cypher = f"CREATE INDEX IF NOT EXISTS idx_{label}_repoId FOR (n:{label}) ON (n.repoId)"
+            cypher = f"CREATE INDEX idx_{label}_repoId IF NOT EXISTS FOR (n:{label}) ON (n.repoId)"
             with self._driver.session() as session:
                 session.run(cypher)
             logger.debug(f"Ensured repoId index for {label}")
