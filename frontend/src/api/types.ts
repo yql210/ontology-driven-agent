@@ -162,4 +162,7 @@ export interface BuildStatus {
   repo_id: string
   message?: string
   result?: Record<string, unknown> | null
+  stage?: string
+  stage_detail?: string
+  logs?: string[]
 }

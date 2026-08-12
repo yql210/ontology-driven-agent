@@ -11,6 +11,9 @@ interface ActiveBuild {
   repoId: string
   status: string
   message: string
+  stage: string
+  stageDetail: string
+  logs: string[]
   attempts: number
   timer: ReturnType<typeof setInterval> | null
 }
@@ -133,6 +136,9 @@ function startPolling(taskId: string, repoId: string) {
     repoId,
     status: 'pending',
     message: '',
+    stage: '',
+    stageDetail: '',
+    logs: [],
     attempts: 0,
     timer: null,
   }
@@ -147,6 +153,9 @@ function startPolling(taskId: string, repoId: string) {
       const s = await repoApi.getBuildStatus(taskId)
       build.status = s.status
       build.message = s.message ?? ''
+      build.stage = s.stage ?? ''
+      build.stageDetail = s.stage_detail ?? ''
+      build.logs = s.logs ?? []
       setRepoStatus(repoId, s.status)
 
       if (s.status === 'success' || s.status === 'failed') {
@@ -186,6 +195,24 @@ function stopPolling(taskId: string) {
 function setRepoStatus(repoId: string, status: string) {
   const r = repos.value.find((x) => x.id === repoId)
   if (r) r.status = status
+}
+
+// stage 取值必须与 src/ontoagent/pipeline/builder.py 的 progress_callback 一致
+const STAGE_PERCENT: Record<string, number> = {
+  prebuild: 5,
+  parse: 20,
+  structural_write: 40,
+  doc_link: 60,
+  semantic: 80,
+  clustering: 90,
+  vector_index: 100,
+}
+function stagePercent(stage: string): number {
+  return STAGE_PERCENT[stage] ?? 0
+}
+
+function visibleLogs(build: ActiveBuild): string[] {
+  return build.status === 'failed' ? build.logs.slice(-5) : build.logs
 }
 
 function statusBadge(status: string): { cls: string; label: string } {
@@ -256,8 +283,24 @@ onUnmounted(() => {
             <span :class="['badge', statusBadge(repo.status).cls]">
               {{ statusBadge(repo.status).label }}
             </span>
-            <div v-if="activeBuildByRepoId[repo.id]?.message" class="build-message">
-              {{ activeBuildByRepoId[repo.id]?.message }}
+            <div v-if="activeBuildByRepoId[repo.id]" class="build-progress">
+              <!-- 进度条 -->
+              <div class="progress-track">
+                <div class="progress-fill"
+                     :style="{ width: stagePercent(activeBuildByRepoId[repo.id].stage) + '%' }"></div>
+              </div>
+              <!-- 阶段描述 -->
+              <div v-if="activeBuildByRepoId[repo.id].stageDetail" class="stage-detail">
+                {{ activeBuildByRepoId[repo.id].stageDetail }}
+              </div>
+              <!-- 日志面板（building/cloning 或 failed 时显示） -->
+              <div v-if="activeBuildByRepoId[repo.id].logs.length > 0" class="log-panel"
+                   :class="{ 'log-error': activeBuildByRepoId[repo.id].status === 'failed' }">
+                <div v-for="(line, i) in visibleLogs(activeBuildByRepoId[repo.id])" :key="i" class="log-line">{{ line }}</div>
+              </div>
+              <div v-if="activeBuildByRepoId[repo.id].message" class="build-message">
+                {{ activeBuildByRepoId[repo.id].message }}
+              </div>
             </div>
           </td>
           <td class="time-cell">{{ repo.builtAt ?? '-' }}</td>
@@ -570,6 +613,51 @@ onUnmounted(() => {
   font-size: 11px;
   color: var(--text-muted);
   font-family: var(--font-mono);
+}
+
+.build-progress {
+  margin-top: 8px;
+}
+
+.progress-track {
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: rgba(148, 163, 184, 0.15);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, #a78bfa, #60a5fa);
+  transition: width 0.3s ease;
+}
+
+.stage-detail {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.log-panel {
+  max-height: 90px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-sm);
+  margin-top: 6px;
+  padding: 4px 8px;
+}
+
+.log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-secondary);
+}
+
+.log-panel.log-error .log-line {
+  color: #f87171;
 }
 
 /* Modal */
