@@ -8,7 +8,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -91,3 +92,67 @@ def test_record_http_request_raising_still_resets_request_id(client):
 
     assert response.status_code == 500
     mock_reset.assert_called_once()
+
+
+# ===== lifespan shutdown 优雅清理（U4）=====
+
+
+def _lifespan_app():
+    """构造最小 app 对象：仅需可挂属性（graph_store / acl 等）的 state。"""
+    return SimpleNamespace(state=SimpleNamespace())
+
+
+@pytest.mark.unit
+async def test_lifespan_shutdown_closes_store_and_acl():
+    """退出 lifespan 上下文后，store.close 与 acl.close 均被调用。"""
+    app = _lifespan_app()
+    mock_store = MagicMock()
+    mock_acl = MagicMock()
+
+    with (
+        patch("ontoagent.api.web.app.create_graph_store", return_value=mock_store),
+        patch("ontoagent.api.web.app.RepoAccessControl", return_value=mock_acl),
+    ):
+        async with app_module.lifespan(app):
+            pass
+
+    mock_store.close.assert_called_once()
+    mock_acl.close.assert_called_once()
+
+
+@pytest.mark.unit
+async def test_lifespan_shutdown_store_close_error_still_closes_acl(caplog):
+    """store.close 抛异常：被捕获不向上抛，acl.close 仍被调用，并记录 warning 日志。"""
+    app = _lifespan_app()
+    mock_store = MagicMock()
+    mock_store.close.side_effect = RuntimeError("store close failed")
+    mock_acl = MagicMock()
+
+    with (
+        patch("ontoagent.api.web.app.create_graph_store", return_value=mock_store),
+        patch("ontoagent.api.web.app.RepoAccessControl", return_value=mock_acl),
+    ):
+        async with app_module.lifespan(app):  # 不应抛异常
+            pass
+
+    mock_acl.close.assert_called_once()
+    assert any("graph store close failed" in r.message for r in caplog.records)
+
+
+@pytest.mark.unit
+async def test_lifespan_shutdown_acl_close_error_does_not_raise(caplog):
+    """acl.close 抛异常：被捕获不向上抛，退出上下文不中断，并记录 warning 日志。"""
+    app = _lifespan_app()
+    mock_store = MagicMock()
+    mock_acl = MagicMock()
+    mock_acl.close.side_effect = RuntimeError("acl close failed")
+
+    with (
+        patch("ontoagent.api.web.app.create_graph_store", return_value=mock_store),
+        patch("ontoagent.api.web.app.RepoAccessControl", return_value=mock_acl),
+    ):
+        async with app_module.lifespan(app):  # 不应抛异常
+            pass
+
+    mock_store.close.assert_called_once()
+    assert any("acl close failed" in r.message for r in caplog.records)

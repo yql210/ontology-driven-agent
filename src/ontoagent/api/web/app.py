@@ -43,8 +43,16 @@ async def lifespan(app: FastAPI):
     app.state.acl = RepoAccessControl(acl_db_path)
     app.state.acl_enabled = os.getenv("ONTOAGENT_ACL_ENABLED", "").lower() == "true"
     yield
-    store.close()
-    app.state.acl.close()
+    # ---- shutdown: 逐个清理资源（独立 try/except，一个失败不阻塞其余）----
+    # 未来若 app.state 增加 httpx / embed client，在此追加独立 try/except
+    try:
+        store.close()  # Neo4j driver / NebulaGraph 连接池
+    except Exception:
+        logger.warning("graph store close failed", exc_info=True)
+    try:
+        app.state.acl.close()  # SQLite
+    except Exception:
+        logger.warning("acl close failed", exc_info=True)
 
 
 def create_app() -> FastAPI:
