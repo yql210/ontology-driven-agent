@@ -23,6 +23,7 @@ chroma.sqlite3
 *.sqlite
 *.sqlite3
 *.traces.db
+ontoagent_acl.db
 .layerkg/
 .ontoagent/
 
@@ -57,5 +58,5 @@ docker-compose.override.yml
 frontend/node_modules/
 frontend/dist/
 
-# Claude Code 本地权限配置（个人本地，不入库）
-.claude/settings.local.json
+# Codex 本地配置（个人本地，不入库）
+.codex/settings.local.json

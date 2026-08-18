@@ -1,8 +1,8 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex when working with code in this repository.
 
-> **For Hermes:** 使用 claude-code skill 的 print mode (`-p`) 执行任务。每个任务 2-5 分钟粒度。强制 TDD。详细规范见 `.claude/rules/` 目录。
+> **For Hermes:** 本项目仅使用 Codex 作为本地代码执行器。运行 `codex exec --json`，解析 `thread.started`、`agent_message`、`turn.completed` 和 `turn.failed`。运行时将 `/opt/data/.env` 的实际 `CUSTOM_API_KEY` 注入 `OPENAI_API_KEY`；不得写入 key 或使用 `${CUSTOM_API_KEY}` 字面量。Codex 无额外 turn 参数；Hermes 管控范围、超时、重试及质量门禁。每个任务 2-5 分钟粒度。强制 TDD。详细规范见 `.codex/rules/` 目录。
 
 ## 项目简介
 
@@ -75,7 +75,7 @@ Semantic（语义层）  Schema（9 实体 13 关系）· GraphStore（Neo4j + C
 | Butler | `butler/` | `engine.py`、`event_bus.py`、`scheduler.py`、`handlers/` |
 | API | `api/` | `cli.py`、`mcp_server.py`、`web/` |
 
-> 架构约束详见 `.claude/rules/architecture.md`（根目录文件上限 5 个、单文件行数上限 800、分层单向依赖）。
+> 架构约束详见 `.codex/rules/architecture.md`（根目录文件上限 5 个、单文件行数上限 800、分层单向依赖）。
 
 ## 知识图谱构建流水线（`pipeline/builder.py::OntoAgentBuilder.build`）
 
@@ -107,8 +107,8 @@ tests/
 └── evaluation/             # 评测集 + run_eval.py
 ```
 - 优先测真实行为，只对 LLM/外部服务 mock；mock 放测试函数内，不放 conftest。
-- 测试子目录与 `src/ontoagent/` 子包对应，详见 `.claude/rules/architecture.md`。
-- 详细 TDD / 命名 / AAA / 覆盖率规范见 `.claude/rules/testing.md`。
+- 测试子目录与 `src/ontoagent/` 子包对应，详见 `.codex/rules/architecture.md`。
+- 详细 TDD / 命名 / AAA / 覆盖率规范见 `.codex/rules/testing.md`。
 
 ## OntoAgent Schema 速查
 **9 实体**（Neo4j Label = dataclass 名）：`CodeEntity`（function/class/interface/module/file/enum/record/field）、`ConceptEntity`（business_concept/design_pattern/api_contract/data_model/process）、`DocEntity`、`ResourceEntity`、`ModuleEntity`、`ChangeSetEntity`、`DataAsset`、`ComplianceItem`、`ServiceEntity`。
@@ -119,7 +119,7 @@ tests/
 - 变更：`CHANGED_IN` `AFFECTS`
 - 业务：`PROCESSES_DATA` `SUBJECT_TO`
 
-属性名 camelCase（`entityType`、`filePath`）；Cypher 必须**参数化**，禁止字符串拼接。约束规范见 `.claude/rules/neo4j.md`。
+属性名 camelCase（`entityType`、`filePath`）；Cypher 必须**参数化**，禁止字符串拼接。约束规范见 `.codex/rules/neo4j.md`。
 
 ## 配置 & 外部服务（`.env`，参考 `.env.example`）
 - **Neo4j**：`ONTOAGENT_NEO4J_URI` / `_USER` / `_PASSWORD`
@@ -133,7 +133,7 @@ tests/
 ## 前端（`frontend/`，独立工程）
 Vue 3 + Vite + TypeScript。可视化图谱（cytoscape）、对话（SSE 经 `@microsoft/fetch-event-source` 连 Web API `/chat/stream`）、流程图（mermaid）、Markdown（marked）。`npm run dev` / `npm run build`。
 
-## 编码规范（详见 `.claude/rules/`，此处仅列高频项）
+## 编码规范（详见 `.codex/rules/`，此处仅列高频项）
 - Python：`from __future__ import annotations` 头部；类型注解必须（`X | None`、`list[X]`、`Path`）；f-string；行宽 120；`@dataclass` + `__post_init__` 校验；自定义异常继承 `OntoAgentError`；用 `logging` 不用 `print`。
 - 提交前：`ruff check` + `ruff format` + `pyright` 全部通过。
 
