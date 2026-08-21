@@ -92,10 +92,10 @@ def get_current_db_version(store: GraphStore) -> str | None:
         版本字符串，如果无版本节点则返回 None。
     """
     if _is_nebula(store):
-        # NebulaGraph: FETCH 或 MATCH 查 SchemaVersion Tag
+        # NebulaGraph MATCH properties must be qualified by their tag.
         ngql = (
-            "MATCH (sv:`SchemaVersion`) "
-            "RETURN sv.version AS version, sv.applied_at AS applied_at "
+            "MATCH (sv:SchemaVersion) "
+            "RETURN sv.SchemaVersion.version AS version, sv.SchemaVersion.applied_at AS applied_at "
             "ORDER BY applied_at DESC LIMIT 1;"
         )
     else:

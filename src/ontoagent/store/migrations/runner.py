@@ -127,8 +127,13 @@ class MigrationRunner:
             if to_version == "0.0.0":
                 # 删除版本节点（后端兼容）
                 if is_nebula(self._store):
-                    # NebulaGraph: remove every version vertex, including older applied migrations.
-                    self._store.query("MATCH (sv:`SchemaVersion`) DELETE VERTEX sv;")
+                    # NebulaGraph requires concrete VIDs for DELETE VERTEX.
+                    rows = self._store.query("MATCH (sv:SchemaVersion) RETURN id(sv) AS vid;")
+                    for row in rows:
+                        vid = row.get("vid")
+                        if not isinstance(vid, str) or not vid:
+                            raise RuntimeError("SchemaVersion VID must be a nonempty string")
+                        self._store.delete_node(vid)
                 else:
                     # Neo4j: DETACH DELETE
                     self._store.query("MATCH (sv:SchemaVersion) DETACH DELETE sv")

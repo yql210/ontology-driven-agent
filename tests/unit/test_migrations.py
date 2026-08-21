@@ -2,7 +2,7 @@
 
 import fcntl
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -13,7 +13,6 @@ from ontoagent.store.migrations.registry import MigrationRegistry
 from ontoagent.store.migrations.runner import MigrationRunner
 from ontoagent.store.schema_version import (
     CURRENT_SCHEMA_VERSION,
-    get_current_db_version,
 )
 
 
@@ -278,20 +277,19 @@ class TestMigrationRunnerRollback:
         assert m.downgrade_called
 
     def test_nebula_rollback_to_zero_deletes_all_schema_version_vertices(self):
-        """Nebula rollback removes every recorded SchemaVersion vertex."""
+        """Nebula rollback deletes every SchemaVersion vertex by concrete VID."""
         store = type("NebulaGraphStore", (), {})()
-        recorded_versions = [{"version": "2.3.0"}, {"version": "2.4.0"}]
-        cleanup_statement = "MATCH (sv:`SchemaVersion`) DELETE VERTEX sv;"
+        id_query = "MATCH (sv:SchemaVersion) RETURN id(sv) AS vid;"
 
         def query(statement: str, *args: object, **kwargs: object) -> list[dict[str, str]]:
-            if statement == cleanup_statement:
-                recorded_versions.clear()
-                return []
-            if "MATCH (sv:`SchemaVersion`)" in statement:
-                return recorded_versions[-1:]
+            if statement == id_query:
+                return [{"vid": "schema_version_2_3_0"}, {"vid": "schema_version_2_4_0"}]
+            if "RETURN" in statement:
+                return [{"version": "2.4.0"}]
             return []
 
         store.query = MagicMock(side_effect=query)
+        store.delete_node = MagicMock(return_value=True)
         reg = MigrationRegistry(load_builtins=False)
         migration = DummyMigration("0.0.0", "2.4.0")
         reg.register(migration)
@@ -302,8 +300,38 @@ class TestMigrationRunnerRollback:
 
         assert result == ["0.0.0"]
         assert migration.downgrade_called
-        assert cleanup_statement in [call.args[0] for call in store.query.call_args_list]
-        assert get_current_db_version(store) is None
+        assert store.delete_node.call_args_list == [
+            call("schema_version_2_3_0"),
+            call("schema_version_2_4_0"),
+        ]
+        statements = [call.args[0] for call in store.query.call_args_list]
+        assert id_query in statements
+        assert not any("DELETE VERTEX sv" in statement for statement in statements)
+
+    @pytest.mark.parametrize("vid", ["", None, 42])
+    def test_nebula_rollback_to_zero_rejects_malformed_schema_version_vid(self, vid: object):
+        """Nebula rollback must fail rather than report success for an invalid VID."""
+        store = type("NebulaGraphStore", (), {})()
+        store.query = MagicMock(
+            side_effect=[
+                [{"version": "2.4.0"}],
+                [{"vid": vid}],
+            ]
+        )
+        store.delete_node = MagicMock(return_value=True)
+        reg = MigrationRegistry(load_builtins=False)
+        migration = DummyMigration("0.0.0", "2.4.0")
+        reg.register(migration)
+        runner = MigrationRunner(store, reg)
+
+        with (
+            patch.object(runner, "_acquire_lock", return_value=MagicMock()),
+            patch.object(runner, "_release_lock"),
+            pytest.raises(RuntimeError, match="SchemaVersion VID"),
+        ):
+            runner.rollback("0.0.0")
+
+        store.delete_node.assert_not_called()
 
     def test_rollback_registers_target_version(self):
         """Rollback must persist its target instead of the code's latest version."""

@@ -81,6 +81,19 @@ class TestGetCurrentDbVersion:
         store.query.return_value = [{"version": "1.1.0"}]
         assert get_current_db_version(store) == "1.1.0"
 
+    def test_nebula_uses_tag_qualified_schema_version_properties(self):
+        """Nebula MATCH reads properties through the SchemaVersion tag."""
+        store = type("NebulaGraphStore", (), {})()
+        store.query = MagicMock(return_value=[{"version": "2.4.0", "applied_at": "2026-08-22T00:00:00+00:00"}])
+
+        assert get_current_db_version(store) == "2.4.0"
+
+        query = store.query.call_args.args[0]
+        assert "MATCH (sv:SchemaVersion)" in query
+        assert "sv.SchemaVersion.version AS version" in query
+        assert "sv.SchemaVersion.applied_at AS applied_at" in query
+        assert "ORDER BY applied_at DESC" in query
+
 
 class TestCheckSchemaVersion:
     def test_empty_db(self):
