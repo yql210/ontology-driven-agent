@@ -133,7 +133,7 @@ class MigrationRunner:
                     # Neo4j: DETACH DELETE
                     self._store.query("MATCH (sv:SchemaVersion) DETACH DELETE sv")
             else:
-                register_schema_version(self._store)
+                register_schema_version(self._store, to_version)
 
             return rolled_back
         finally:

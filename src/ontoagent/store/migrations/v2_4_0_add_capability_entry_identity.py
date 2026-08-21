@@ -7,7 +7,6 @@ dynamic, so it needs no DDL or data backfill.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 
 from ontoagent.store.graph_store import GraphStore
@@ -28,13 +27,11 @@ class CapabilityEntryIdentityMigration(MigrationBase):
         if not is_nebula(store):
             logger.info("v2.4.0 capability entry identity migration: no Neo4j DDL required")
             return
-        with contextlib.suppress(Exception):
-            store.query("ALTER TAG `CapabilityEntity` ADD (`entryCodeEntityId` string);")
+        store.query("ALTER TAG `CapabilityEntity` ADD (`entryCodeEntityId` string);")
 
     def downgrade(self, store: GraphStore) -> None:
         """Drop only the Nebula column; this cannot restore prior capability IDs or data."""
         if not is_nebula(store):
             logger.info("v2.4.0 capability entry identity migration: no Neo4j DDL required on downgrade")
             return
-        with contextlib.suppress(Exception):
-            store.query("ALTER TAG `CapabilityEntity` DROP (`entryCodeEntityId`);")
+        store.query("ALTER TAG `CapabilityEntity` DROP (`entryCodeEntityId`);")

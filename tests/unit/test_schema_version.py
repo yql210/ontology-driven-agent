@@ -45,6 +45,25 @@ class TestRegisterSchemaVersion:
         register_schema_version(store)
         assert store.query.call_count == 2  # MERGE is idempotent
 
+    def test_register_specified_version_for_neo4j(self):
+        store = MagicMock()
+        store.query.return_value = []
+
+        register_schema_version(store, "2.3.0")
+
+        assert store.query.call_args[0][1]["version"] == "2.3.0"
+        assert store.query.call_args[0][1]["version"] != CURRENT_SCHEMA_VERSION
+
+    def test_register_specified_version_for_nebula(self):
+        store = type("NebulaGraphStore", (), {})()
+        store.query = MagicMock(return_value=[])
+
+        register_schema_version(store, "2.3.0")
+
+        query = store.query.call_args.args[0]
+        assert '"schema_version_2_3_0"' in query
+        assert '`version` = "2.3.0"' in query
+
 
 class TestGetCurrentDbVersion:
     def test_returns_version_when_exists(self):

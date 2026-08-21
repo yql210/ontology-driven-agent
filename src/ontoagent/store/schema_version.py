@@ -40,14 +40,15 @@ def _is_nebula(store: GraphStore) -> bool:
     return type(store).__name__ == "NebulaGraphStore"
 
 
-def register_schema_version(store: GraphStore) -> None:
-    """在图数据库注册当前 schema 版本。幂等。
+def register_schema_version(store: GraphStore, version: str = CURRENT_SCHEMA_VERSION) -> None:
+    """在图数据库注册指定 schema 版本。幂等。
 
     - Neo4j: MERGE (sv:SchemaVersion {version: $version}) SET ...
     - NebulaGraph: UPSERT VERTEX ON SchemaVersion "schema_version" SET ...
 
     Args:
         store: 图数据库存储实例。
+        version: 要注册的 schema 版本。默认使用当前代码版本。
     """
     from datetime import UTC, datetime
 
@@ -55,10 +56,10 @@ def register_schema_version(store: GraphStore) -> None:
 
     if _is_nebula(store):
         # NebulaGraph: UPSERT VERTEX（SchemaVersion Tag 已由 nebula_schema.py 创建）
-        vid = f"schema_version_{CURRENT_SCHEMA_VERSION.replace('.', '_')}"
+        vid = f"schema_version_{version.replace('.', '_')}"
         ngql = (
             f'UPSERT VERTEX ON `SchemaVersion` "{vid}" '
-            f'SET `version` = "{CURRENT_SCHEMA_VERSION}", '
+            f'SET `version` = "{version}", '
             f'`description` = "初始本体：6实体11关系+语义约束+溯源", '
             f'`applied_at` = "{applied_at}";'
         )
@@ -73,12 +74,12 @@ def register_schema_version(store: GraphStore) -> None:
         store.query(
             cypher,
             {
-                "version": CURRENT_SCHEMA_VERSION,
+                "version": version,
                 "description": "初始本体：6实体11关系+语义约束+溯源",
                 "applied_at": applied_at,
             },
         )
-    logger.info("Registered schema version %s", CURRENT_SCHEMA_VERSION)
+    logger.info("Registered schema version %s", version)
 
 
 def get_current_db_version(store: GraphStore) -> str | None:

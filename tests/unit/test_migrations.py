@@ -234,6 +234,21 @@ class TestMigrationRunnerRollback:
         assert result == ["0.0.0"]
         assert m.downgrade_called
 
+    def test_rollback_registers_target_version(self):
+        """Rollback must persist its target instead of the code's latest version."""
+        store = _make_store("2.4.0")
+        reg = MigrationRegistry(load_builtins=False)
+        migration = DummyMigration("2.3.0", "2.4.0")
+        reg.register(migration)
+        runner = MigrationRunner(store, reg)
+
+        with patch.object(runner, "_acquire_lock", return_value=MagicMock()), patch.object(runner, "_release_lock"):
+            result = runner.rollback("2.3.0")
+
+        assert result == ["2.3.0"]
+        assert migration.downgrade_called
+        assert store.query.call_args[0][1]["version"] == "2.3.0"
+
 
 class TestMigrationRunnerLock:
     def test_lock_prevents_concurrent(self):
@@ -320,6 +335,36 @@ def test_capability_entry_identity_migration_updates_nebula_schema_only() -> Non
         (("ALTER TAG `CapabilityEntity` DROP (`entryCodeEntityId`);",), {}),
     ]
     neo4j_store.query.assert_not_called()
+
+
+@pytest.mark.unit
+def test_v2_4_0_nebula_upgrade_failure_does_not_register_schema_version() -> None:
+    """A failed Nebula DDL must abort before the runner records v2.4.0."""
+    from ontoagent.store.migrations.v2_4_0_add_capability_entry_identity import (
+        CapabilityEntryIdentityMigration,
+    )
+
+    nebula_store = type("NebulaGraphStore", (), {})()
+    nebula_store.query = MagicMock(
+        side_effect=[
+            [{"version": "2.3.0"}],
+            [{"version": "2.3.0"}],
+            RuntimeError("ALTER TAG failed"),
+        ]
+    )
+    registry = MigrationRegistry(load_builtins=False)
+    registry.register(CapabilityEntryIdentityMigration())
+    runner = MigrationRunner(nebula_store, registry)
+
+    with (
+        patch.object(runner, "_acquire_lock", return_value=MagicMock()),
+        patch.object(runner, "_release_lock"),
+        pytest.raises(SchemaMigrationError, match=r"2.3.0.*2.4.0"),
+    ):
+        runner.run_pending()
+
+    assert nebula_store.query.call_count == 3
+    assert "ALTER TAG" in nebula_store.query.call_args_list[-1].args[0]
 
 
 @pytest.mark.unit
