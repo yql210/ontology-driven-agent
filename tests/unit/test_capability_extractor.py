@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from ontoagent.domain.schema import CapabilityEntity, CodeEntity
+from ontoagent.domain.schema import CapabilityEntity, CodeEntity, stable_capability_id
 from ontoagent.parsing.extractor.capability_extractor import (
     CapabilityExtractor,
     _extract_http_path_prefix,
@@ -24,9 +24,11 @@ def _make_code_entity(
     file_path: str | None = None,
     source: str | None = None,
     decorators: list[str] | None = None,
+    repo_id: str = "",
+    entity_id: str = "",
 ) -> CodeEntity:
     """构造测试用 CodeEntity。"""
-    entity = CodeEntity(name=name, entity_type=entity_type)
+    entity = CodeEntity(name=name, entity_type=entity_type, repo_id=repo_id, id=entity_id)
     entity.entry_category = entry_category
     entity.docstring = docstring
     entity.parameters = parameters
@@ -90,6 +92,22 @@ class TestExtractHttpPathPrefix:
 
 @pytest.mark.unit
 class TestCapabilityExtractor:
+    def test_http_api_function_preserves_repo_scoped_entry_identity(self) -> None:
+        """Capability identity comes from its source HTTP API entry."""
+        entity = _make_code_entity(
+            name=" Process_Payment ",
+            entry_category="http_api",
+            repo_id="repo-a",
+            entity_id="entry-1",
+        )
+
+        result = CapabilityExtractor().extract(entity)
+
+        assert result is not None
+        assert result.repo_id == entity.repo_id
+        assert result.entry_code_entity_id == entity.id
+        assert result.id == stable_capability_id("repo-a", "entry-1", "process_payment")
+
     def test_http_api_function_produces_capability(self) -> None:
         """HTTP API 入口函数 → CapabilityEntity。"""
         entity = _make_code_entity(

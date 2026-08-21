@@ -225,6 +225,8 @@ class CapabilityExtractor:
             name=name,
             business_domain=domain,
             description=description,
+            repo_id=entity.repo_id,
+            entry_code_entity_id=entity.id,
             input_contract=input_contract,
             output_contract=output_contract,
             keywords=keywords,

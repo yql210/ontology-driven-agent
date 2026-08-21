@@ -17,6 +17,7 @@ _BUILTIN_MIGRATIONS: list[str] = [
     "2.1.0",
     "2.2.0",
     "2.3.0",
+    "2.4.0",
 ]
 
 
@@ -66,6 +67,12 @@ def _load_migration(version: str) -> MigrationBase:
         )
 
         return MultiRepoMigration()
+    if version == "2.4.0":
+        from ontoagent.store.migrations.v2_4_0_add_capability_entry_identity import (
+            CapabilityEntryIdentityMigration,
+        )
+
+        return CapabilityEntryIdentityMigration()
     raise ValueError(f"Unknown migration version: {version}")
 
 

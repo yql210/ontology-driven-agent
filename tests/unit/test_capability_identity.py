@@ -54,6 +54,27 @@ def test_capability_entity_derives_id_from_repo_scoped_entry_identity() -> None:
 
 
 @pytest.mark.unit
+def test_capability_entity_normalizes_name_before_deriving_scoped_id() -> None:
+    """Case and surrounding whitespace do not split an entry-scoped capability."""
+    first = CapabilityEntity(
+        name="Process_Payment",
+        business_domain="payment",
+        description="Process a payment.",
+        repo_id="repo-a",
+        entry_code_entity_id="entry-1",
+    )
+    second = CapabilityEntity(
+        name=" process_payment ",
+        business_domain="payment",
+        description="Process a payment.",
+        repo_id="repo-a",
+        entry_code_entity_id="entry-1",
+    )
+
+    assert first.id == second.id
+
+
+@pytest.mark.unit
 def test_capability_entity_allows_legacy_id_without_identity_fields() -> None:
     """Legacy records can still be read without repo or entry identity fields."""
     entity = CapabilityEntity(

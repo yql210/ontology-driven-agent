@@ -312,7 +312,7 @@ class TestNebulaSchemaTags:
         initializer = NebulaSchemaInitializer(mock_session)
         ddl_list = initializer.create_tags()
         # CodeEntity 应包含 filePath（不是 file_path）
-        code_entity_ddl = next(ddl for ddl in ddl_list if "CodeEntity" in ddl)
+        code_entity_ddl = next(ddl for ddl in ddl_list if "CREATE TAG IF NOT EXISTS `CodeEntity`" in ddl)
         assert "filePath" in code_entity_ddl
         assert "file_path" not in code_entity_ddl
 

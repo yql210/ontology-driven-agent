@@ -115,16 +115,14 @@ class TestMigrationRegistry:
         reg.register(m1)
         reg.register(m3)
         path = reg.get_migration_path("0.0.0", "3.0.0")
-        # builtin 1.0.0→1.1.0→1.2.0→2.0.0→2.1.0→2.2.0→2.3.0 + m1(0→1) + m3(2→3) = 8? No:
-        # m1 covers 0→1, builtin fills 1→1.1→1.2→2→2.1→2.2→2.3 = 7, m3 covers 2→3 but overlaps
-        # actual: m1 + 5 builtins (1.1, 1.2, 2.0, 2.1, 2.2) + 2.3 + m3 = check dynamically
-        assert len(path) == 7
+        # m1 + builtins through 2.4.0 + m3 = 8 migrations.
+        assert len(path) == 8
 
     def test_get_latest_version(self):
         reg = MigrationRegistry()
-        # builtin migrations now include v2.3.0
-        assert reg.get_latest_version() == "2.3.0"
-        reg.register(DummyMigration("2.3.0", "3.0.0"))
+        # builtin migrations now include v2.4.0
+        assert reg.get_latest_version() == "2.4.0"
+        reg.register(DummyMigration("2.4.0", "3.0.0"))
         assert reg.get_latest_version() == "3.0.0"
 
 
@@ -268,9 +266,9 @@ def test_migration_registry_includes_v5_capability() -> None:
 
 
 @pytest.mark.unit
-def test_current_schema_version_is_2_3_0() -> None:
-    """P1-Task 1-3: CURRENT_SCHEMA_VERSION must be '2.3.0' (multi-repo)."""
-    assert CURRENT_SCHEMA_VERSION == "2.3.0", f"Expected 2.3.0, got {CURRENT_SCHEMA_VERSION}"
+def test_current_schema_version_is_2_4_0() -> None:
+    """Capability entry identity migration advances the schema to v2.4.0."""
+    assert CURRENT_SCHEMA_VERSION == "2.4.0", f"Expected 2.4.0, got {CURRENT_SCHEMA_VERSION}"
 
 
 @pytest.mark.unit
@@ -298,3 +296,38 @@ def test_module_entity_field_names_include_size() -> None:
 
     fields = entity_field_names("ModuleEntity")
     assert "size" in fields, f"'size' not in ModuleEntity fields: {fields}"
+
+
+@pytest.mark.unit
+def test_capability_entry_identity_migration_updates_nebula_schema_only() -> None:
+    """v2.4.0 adds and removes the CapabilityEntity entry identity column in Nebula."""
+    from ontoagent.store.migrations.v2_4_0_add_capability_entry_identity import (
+        CapabilityEntryIdentityMigration,
+    )
+
+    nebula_store = type("NebulaGraphStore", (), {})()
+    nebula_store.query = MagicMock()
+    neo4j_store = MagicMock()
+    migration = CapabilityEntryIdentityMigration()
+
+    migration.upgrade(nebula_store)
+    migration.downgrade(nebula_store)
+    migration.upgrade(neo4j_store)
+    migration.downgrade(neo4j_store)
+
+    assert nebula_store.query.call_args_list == [
+        (("ALTER TAG `CapabilityEntity` ADD (`entryCodeEntityId` string);",), {}),
+        (("ALTER TAG `CapabilityEntity` DROP (`entryCodeEntityId`);",), {}),
+    ]
+    neo4j_store.query.assert_not_called()
+
+
+@pytest.mark.unit
+def test_migration_registry_includes_capability_entry_identity_version() -> None:
+    """v2.4.0 follows multi-repo migration in the built-in upgrade path."""
+    registry = MigrationRegistry()
+
+    path = registry.get_migration_path("2.3.0", "2.4.0")
+
+    assert [migration.version_to for migration in path] == ["2.4.0"]
+    assert registry.get_latest_version() == "2.4.0"
