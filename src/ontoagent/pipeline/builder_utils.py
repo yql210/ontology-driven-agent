@@ -264,7 +264,7 @@ def capability_entity_to_dict(entity: CapabilityEntity) -> dict[str, object]:
     Returns:
         属性字典。
     """
-    return {
+    d: dict[str, object] = {
         "id": entity.id,
         "name": entity.name,
         "business_domain": entity.business_domain,
@@ -276,6 +276,11 @@ def capability_entity_to_dict(entity: CapabilityEntity) -> dict[str, object]:
         "enabled": entity.enabled,
         "created_at": entity.created_at,
     }
+    if entity.repo_id:
+        d["repo_id"] = entity.repo_id
+    if entity.entry_code_entity_id:
+        d["entry_code_entity_id"] = entity.entry_code_entity_id
+    return d
 
 
 def capability_to_searchable_text(

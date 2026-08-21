@@ -26,6 +26,20 @@ def _stable_id(*parts: str) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
+def stable_capability_id(repo_id: str, entry_code_entity_id: str, normalized_capability_name: str) -> str:
+    """Generate a stable ID for an entry-scoped capability.
+
+    Args:
+        repo_id: Repository identity containing the entry code entity.
+        entry_code_entity_id: Stable ID of the entry code entity.
+        normalized_capability_name: Normalized name of the derived capability.
+
+    Returns:
+        A 32-character stable capability ID.
+    """
+    return _stable_id(repo_id, entry_code_entity_id, normalized_capability_name)
+
+
 @dataclass
 class CodeEntity:
     """代码实体：函数、类、接口、模块或文件。
@@ -534,8 +548,10 @@ class CapabilityEntity:
         realized_by: 实现此能力的代码实体 ID 列表。
         version: 版本号。
         enabled: 是否启用。
-        id: 内容派生稳定哈希（name），可显式传入。
+        id: 内容派生稳定哈希；具有 repo_id 和 entry_code_entity_id 时由三元组派生，否则保留 legacy name-only 派生，可显式传入。
         created_at: ISO 8601 时间戳，自动生成。
+        repo_id: 所属仓库 ID（可选，legacy 记录可为空）。
+        entry_code_entity_id: 派生此能力的入口代码实体 ID（可选，legacy 记录可为空）。
     """
 
     name: str
@@ -553,10 +569,16 @@ class CapabilityEntity:
     enabled: bool = True
     id: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    repo_id: str = ""
+    entry_code_entity_id: str = ""
 
     def __post_init__(self) -> None:
         if not self.id:
-            self.id = _stable_id(self.name)
+            if self.repo_id and self.entry_code_entity_id:
+                normalized_name = self.name.strip().lower()
+                self.id = stable_capability_id(self.repo_id, self.entry_code_entity_id, normalized_name)
+            else:
+                self.id = _stable_id(self.name)
         if not self.name or not self.name.strip():
             raise SchemaValidationError("CapabilityEntity.name cannot be empty")
 
