@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
 from ontoagent.domain.exceptions import SchemaValidationError
@@ -15,6 +17,8 @@ from ontoagent.domain.schema import (
     ProcessEntity,
     ResourceEntity,
     ServiceEntity,
+    stable_code_entity_id,
+    stable_doc_entity_id,
 )
 
 
@@ -36,6 +40,56 @@ def test_code_entity_id_is_stable_hash():
     assert len(entity_a.id) == 32
     assert entity_a.id == entity_b.id
     assert entity_a.id != entity_c.id
+
+
+@pytest.mark.unit
+def test_repo_scoped_code_and_doc_identity_helpers_preserve_legacy_and_explicit_ids():
+    """Repository identity isolates derived IDs without changing legacy construction."""
+    code_a = CodeEntity(
+        name="Service.entry",
+        entity_type="function",
+        repo_id="repo-a",
+        file_path="service.py",
+        start_line=4,
+        end_line=5,
+    )
+    code_b = CodeEntity(
+        name="Service.entry",
+        entity_type="function",
+        repo_id="repo-b",
+        file_path="service.py",
+        start_line=4,
+        end_line=5,
+    )
+    doc_a = DocEntity(name="Service", entity_type="readme", repo_id="repo-a", file_path="README.md")
+    doc_b = DocEntity(name="Service", entity_type="readme", repo_id="repo-b", file_path="README.md")
+
+    assert code_a.id == stable_code_entity_id("repo-a", "Service.entry", "function", "service.py", 4, 5)
+    assert code_a.id != code_b.id
+    assert (
+        CodeEntity(
+            name="Service.entry",
+            entity_type="function",
+            repo_id="repo-a",
+            file_path="service.py",
+            start_line=4,
+            end_line=5,
+        ).id
+        == code_a.id
+    )
+    assert doc_a.id == stable_doc_entity_id("repo-a", "Service", "readme", "README.md")
+    assert doc_a.id != doc_b.id
+    assert DocEntity(name="Service", entity_type="readme", repo_id="repo-a", file_path="README.md").id == doc_a.id
+    assert (
+        stable_code_entity_id("", "Service.entry", "function", "service.py", None, None)
+        == hashlib.sha256(b"|Service.entry|function|service.py|None|None").hexdigest()[:32]
+    )
+    assert (
+        stable_doc_entity_id("", "Service", "readme", "README.md")
+        == hashlib.sha256(b"|Service|readme|README.md").hexdigest()[:32]
+    )
+    assert CodeEntity(name="kept", entity_type="function", id="explicit-code").id == "explicit-code"
+    assert DocEntity(name="kept", entity_type="readme", id="explicit-doc").id == "explicit-doc"
 
 
 @pytest.mark.unit

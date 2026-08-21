@@ -12,6 +12,44 @@ from ontoagent.pipeline.builder import BuildResult, OntoAgentBuilder
 from ontoagent.store.schema_version import SchemaStatus
 
 
+class _RecordingGraphStore:
+    """Minimal graph-store recorder for real builder parser handoff tests."""
+
+    def __init__(self) -> None:
+        self.node_batches: list[tuple[str, list[dict]]] = []
+        self.relation_batches: list[list[dict]] = []
+        self.nodes: list[tuple[str, dict]] = []
+
+    def ensure_constraints(self) -> None:
+        pass
+
+    def get_nodes_by_label(self, _label: str, _properties: list[str]) -> list[dict]:
+        return []
+
+    def merge_node(self, label: str, properties: dict) -> None:
+        self.nodes.append((label, dict(properties)))
+
+    def merge_nodes_batch(self, label: str, properties_list: list[dict], batch_size: int = 200) -> int:
+        del batch_size
+        self.node_batches.append((label, [dict(properties) for properties in properties_list]))
+        return len(properties_list)
+
+    def merge_relations_batch(self, relations: list[dict], batch_size: int = 200) -> int:
+        del batch_size
+        self.relation_batches.append([dict(relation) for relation in relations])
+        return len(relations)
+
+
+class _RecordingChromaStore:
+    """Minimal vector-store recorder for builder vector handoff tests."""
+
+    def __init__(self) -> None:
+        self.batches: list[list[tuple[str, str, dict]]] = []
+
+    def put_entities_batch(self, items: list[tuple[str, str, dict]]) -> None:
+        self.batches.append(list(items))
+
+
 @pytest.fixture
 def temp_repo(tmp_path: Path) -> Path:
     """创建临时测试仓库。"""
@@ -940,3 +978,171 @@ public class Hello {
 
         source = inspect.getsource(builder._stage_write_structural)
         assert 'language="unknown"' in source or "language='unknown'" in source
+
+
+@pytest.mark.unit
+class TestBuilderRepositoryIdentity:
+    """Full-build repository identity handoff coverage using real parsers."""
+
+    @staticmethod
+    def _code_batches(graph: _RecordingGraphStore) -> list[list[dict]]:
+        return [
+            batch
+            for label, batch in graph.node_batches
+            if label == "CodeEntity" and any(node.get("file_path") != "__external__" for node in batch)
+        ]
+
+    def test_full_build_isolates_python_docs_external_imports_and_capabilities(self, tmp_path: Path) -> None:
+        """Sequential real builds keep every parser-derived handoff within its repository."""
+        source = """from external_sdk import client
+
+
+class Router:
+    def get(self, path):
+        return path
+
+
+router = Router()
+
+
+class Service:
+    @router.get("/orders")
+    def entry(self):
+        pass
+"""
+        for repo_name in ("repo-a", "repo-b"):
+            repo = tmp_path / repo_name
+            repo.mkdir()
+            (repo / "service.py").write_text(source)
+            (repo / "README.md").write_text("# Service\n\nservice.py documents Service.entry\n")
+
+        builder = OntoAgentBuilder(OntoAgentConfig())
+        graph = _RecordingGraphStore()
+        chroma = _RecordingChromaStore()
+        with (
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch.object(builder, "_get_graph_store", return_value=graph),
+            patch.object(builder, "_get_chroma_store", return_value=chroma),
+        ):
+            builder.build(tmp_path / "repo-a", repo_id="repo-a", skip_semantic=True, skip_clustering=True)
+            builder.build(tmp_path / "repo-b", repo_id="repo-b", skip_semantic=True, skip_clustering=True)
+
+        code_a, code_b = self._code_batches(graph)
+        code_a_ids = {node["id"] for node in code_a}
+        code_b_ids = {node["id"] for node in code_b}
+        assert {node["repo_id"] for node in code_a} == {"repo-a"}
+        assert {node["repo_id"] for node in code_b} == {"repo-b"}
+        assert code_a_ids.isdisjoint(code_b_ids)
+
+        structural_batches = [
+            batch for batch in graph.relation_batches if any(relation["rel_type"] == "contains" for relation in batch)
+        ]
+        for batch, ids in zip(structural_batches, (code_a_ids, code_b_ids), strict=True):
+            assert all(
+                relation["source_id"] in ids and relation["target_id"] in ids
+                for relation in batch
+                if relation["rel_type"] == "contains"
+            )
+
+        external_batches = [
+            batch
+            for label, batch in graph.node_batches
+            if label == "CodeEntity" and batch and all(node.get("file_path") == "__external__" for node in batch)
+        ]
+        external_a, external_b = external_batches
+        assert external_a[0]["repo_id"] == "repo-a"
+        assert external_b[0]["repo_id"] == "repo-b"
+        assert external_a[0]["id"] != external_b[0]["id"]
+
+        doc_batches = [batch for label, batch in graph.node_batches if label == "DocEntity"]
+        assert doc_batches[0][0]["repo_id"] == "repo-a"
+        assert doc_batches[1][0]["repo_id"] == "repo-b"
+        assert doc_batches[0][0]["id"] != doc_batches[1][0]["id"]
+        describes_batches = [
+            batch for batch in graph.relation_batches if any(relation["rel_type"] == "describes" for relation in batch)
+        ]
+        assert describes_batches[0][0]["source_id"] == doc_batches[0][0]["id"]
+        assert describes_batches[0][0]["target_id"] in code_a_ids
+        assert describes_batches[1][0]["source_id"] == doc_batches[1][0]["id"]
+        assert describes_batches[1][0]["target_id"] in code_b_ids
+
+        capability_batches = [batch for label, batch in graph.node_batches if label == "CapabilityEntity"]
+        capability_a, capability_b = (batch[0] for batch in capability_batches)
+        assert capability_a["entry_code_entity_id"] in code_a_ids
+        assert capability_b["entry_code_entity_id"] in code_b_ids
+        assert capability_a["id"] != capability_b["id"]
+        realized_by_batches = [
+            batch
+            for batch in graph.relation_batches
+            if any(relation["rel_type"] == "realized_by" for relation in batch)
+        ]
+        assert realized_by_batches[0][0]["target_id"] == capability_a["entry_code_entity_id"]
+        assert realized_by_batches[1][0]["target_id"] == capability_b["entry_code_entity_id"]
+        capability_vectors = [
+            item for batch in chroma.batches for item in batch if item[2]["entity_type"] == "CapabilityEntity"
+        ]
+        assert capability_vectors[0][0] == capability_a["id"]
+        assert capability_vectors[0][2]["repo_id"] == "repo-a"
+        assert capability_vectors[0][2]["entry_code_entity_id"] == capability_a["entry_code_entity_id"]
+        assert capability_vectors[1][0] == capability_b["id"]
+        assert capability_vectors[1][2]["repo_id"] == "repo-b"
+        assert capability_vectors[1][2]["entry_code_entity_id"] == capability_b["entry_code_entity_id"]
+        assert capability_vectors[0][0] != capability_vectors[1][0]
+
+    def test_full_build_isolates_java_cross_file_relations(self, tmp_path: Path) -> None:
+        """Cross-file Java extends relations resolve only against current repository IDs."""
+        for repo_name in ("repo-a", "repo-b"):
+            repo = tmp_path / repo_name
+            repo.mkdir()
+            (repo / "Base.java").write_text("package demo; public class Base {}\n")
+            (repo / "Child.java").write_text("package demo; public class Child extends Base {}\n")
+
+        builder = OntoAgentBuilder(OntoAgentConfig())
+        graph = _RecordingGraphStore()
+        with (
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch.object(builder, "_get_graph_store", return_value=graph),
+            patch.object(builder, "_get_chroma_store", return_value=_RecordingChromaStore()),
+        ):
+            builder.build(tmp_path / "repo-a", repo_id="repo-a", skip_semantic=True, skip_clustering=True)
+            builder.build(tmp_path / "repo-b", repo_id="repo-b", skip_semantic=True, skip_clustering=True)
+
+        code_a, code_b = self._code_batches(graph)
+        ids_a = {node["id"] for node in code_a}
+        ids_b = {node["id"] for node in code_b}
+        extends_batches = [
+            batch for batch in graph.relation_batches if any(relation["rel_type"] == "extends" for relation in batch)
+        ]
+        assert all(relation["source_id"] in ids_a and relation["target_id"] in ids_a for relation in extends_batches[0])
+        assert all(relation["source_id"] in ids_b and relation["target_id"] in ids_b for relation in extends_batches[1])
+        assert ids_a.isdisjoint(ids_b)
+
+    def test_reused_builder_keeps_same_repo_ids_stable_and_resets_relations(self, tmp_path: Path) -> None:
+        """Repeated builds are stable and a new repository cannot inherit prior relations."""
+        repo_a = tmp_path / "repo-a"
+        repo_b = tmp_path / "repo-b"
+        repo_a.mkdir()
+        repo_b.mkdir()
+        (repo_a / "service.py").write_text("class Service:\n    def entry(self):\n        pass\n")
+        (repo_b / "service.py").write_text("class Service:\n    def entry(self):\n        pass\n")
+        builder = OntoAgentBuilder(OntoAgentConfig())
+        graph = _RecordingGraphStore()
+        with (
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch.object(builder, "_get_graph_store", return_value=graph),
+            patch.object(builder, "_get_chroma_store", return_value=_RecordingChromaStore()),
+        ):
+            builder.build(repo_a, repo_id="repo-a", skip_semantic=True, skip_clustering=True)
+            builder.build(repo_a, repo_id="repo-a", skip_semantic=True, skip_clustering=True)
+            builder.build(repo_b, repo_id="repo-b", skip_semantic=True, skip_clustering=True)
+
+        code_a_first, code_a_second, code_b = self._code_batches(graph)
+        assert {node["id"] for node in code_a_first} == {node["id"] for node in code_a_second}
+        second_repo_relations = [
+            batch for batch in graph.relation_batches if any(relation["rel_type"] == "contains" for relation in batch)
+        ][-1]
+        second_repo_ids = {node["id"] for node in code_b}
+        assert all(
+            relation["source_id"] in second_repo_ids and relation["target_id"] in second_repo_ids
+            for relation in second_repo_relations
+        )

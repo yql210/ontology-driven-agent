@@ -40,6 +40,27 @@ def stable_capability_id(repo_id: str, entry_code_entity_id: str, normalized_cap
     return _stable_id(repo_id, entry_code_entity_id, normalized_capability_name)
 
 
+def stable_code_entity_id(
+    repo_id: str,
+    name: str,
+    entity_type: str,
+    file_path: str | None,
+    start_line: int | None,
+    end_line: int | None,
+) -> str:
+    """Generate the stable identity for a code entity.
+
+    Empty ``repo_id`` retains the legacy hash input exactly, including the
+    string representation of absent line numbers.
+    """
+    return _stable_id(repo_id, name, entity_type, file_path, str(start_line), str(end_line))
+
+
+def stable_doc_entity_id(repo_id: str, name: str, entity_type: str, file_path: str | None) -> str:
+    """Generate the stable identity for a document entity."""
+    return _stable_id(repo_id, name, entity_type, file_path)
+
+
 @dataclass
 class CodeEntity:
     """代码实体：函数、类、接口、模块或文件。
@@ -83,13 +104,13 @@ class CodeEntity:
     def __post_init__(self) -> None:
         """校验字段。"""
         if not self.id:
-            self.id = _stable_id(
+            self.id = stable_code_entity_id(
                 self.repo_id,
                 self.name,
                 self.entity_type,
                 self.file_path,
-                str(self.start_line),
-                str(self.end_line),
+                self.start_line,
+                self.end_line,
             )
         if not self.name or not self.name.strip():
             raise SchemaValidationError("CodeEntity.name cannot be empty")
@@ -221,7 +242,7 @@ class DocEntity:
     def __post_init__(self) -> None:
         """校验字段。"""
         if not self.id:
-            self.id = _stable_id(self.repo_id, self.name, self.entity_type, self.file_path)
+            self.id = stable_doc_entity_id(self.repo_id, self.name, self.entity_type, self.file_path)
         if not self.name or not self.name.strip():
             raise SchemaValidationError("DocEntity.name cannot be empty")
         if self.entity_type not in self.VALID_ENTITY_TYPES:

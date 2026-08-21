@@ -11,7 +11,15 @@ from typing import TYPE_CHECKING, Any
 
 from ontoagent.config import OntoAgentConfig
 from ontoagent.domain.provenance import add_provenance, clamp_confidence
-from ontoagent.domain.schema import CodeEntity, ConceptEntity, DocEntity, Relation, RepositoryEntity
+from ontoagent.domain.schema import (
+    CodeEntity,
+    ConceptEntity,
+    DocEntity,
+    Relation,
+    RepositoryEntity,
+    stable_code_entity_id,
+    stable_doc_entity_id,
+)
 from ontoagent.parsing.extractor.relation import RelationExtractor
 from ontoagent.parsing.extractor.semantic import SemanticExtractor
 from ontoagent.parsing.parser.base import BaseParser
@@ -225,6 +233,7 @@ class OntoAgentBuilder:
             (all_entities, doc_entities, relations, files_scanned, unresolved_imports) 五元组。
         """
         self._repo_root = repo_path
+        self._extractor = RelationExtractor()
         code_files, doc_files = self._scan_files(repo_path)
         # 统计各语言文件数
         lang_counts: dict[str, int] = {}
@@ -246,6 +255,16 @@ class OntoAgentBuilder:
                 self._logger.warning("Skip %s: %s", file_path, result.error)
                 skipped_files += 1
                 continue
+            for entity in result.entities:
+                entity.repo_id = self._repo_id
+                entity.id = stable_code_entity_id(
+                    entity.repo_id,
+                    entity.name,
+                    entity.entity_type,
+                    entity.file_path,
+                    entity.start_line,
+                    entity.end_line,
+                )
             all_entities.extend(result.entities)
             self._extractor.add_parse_result(result.entities, result.relations)
 
@@ -260,6 +279,9 @@ class OntoAgentBuilder:
                 self._logger.warning("Skip doc %s: %s", file_path, result.error)
                 skipped_files += 1
                 continue
+            for entity in result.entities:
+                entity.repo_id = self._repo_id
+                entity.id = stable_doc_entity_id(entity.repo_id, entity.name, entity.entity_type, entity.file_path)
             doc_entities.extend(result.entities)
 
         self._logger.info("Parsed %d doc entities", len(doc_entities))
@@ -339,6 +361,7 @@ class OntoAgentBuilder:
                 ext_entity = CodeEntity(
                     name=ext_name,
                     entity_type="module",
+                    repo_id=self._repo_id,
                     file_path="__external__",
                     language="unknown",
                 )
@@ -597,12 +620,6 @@ class OntoAgentBuilder:
             "parse",
             f"Parsed {len(all_entities)} entities, Resolved {len(relations)} relations",
         )
-
-        # 标记每个实体的 repoId（多仓库隔离）
-        for entity in all_entities:
-            entity.repo_id = self._repo_id
-        for entity in doc_entities:
-            entity.repo_id = self._repo_id
 
         # Service & Topic 聚合（在 Stage 1 解析之后，注入主流程）
         service_entities, svc_relations = build_service_relations(unresolved_imports)
