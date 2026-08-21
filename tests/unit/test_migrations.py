@@ -13,6 +13,7 @@ from ontoagent.store.migrations.registry import MigrationRegistry
 from ontoagent.store.migrations.runner import MigrationRunner
 from ontoagent.store.schema_version import (
     CURRENT_SCHEMA_VERSION,
+    get_current_db_version,
 )
 
 
@@ -276,10 +277,21 @@ class TestMigrationRunnerRollback:
         assert result == ["0.0.0"]
         assert m.downgrade_called
 
-    def test_nebula_rollback_to_zero_deletes_current_version_vertex(self):
-        """Nebula rollback removes the SchemaVersion vertex for the current DB version."""
+    def test_nebula_rollback_to_zero_deletes_all_schema_version_vertices(self):
+        """Nebula rollback removes every recorded SchemaVersion vertex."""
         store = type("NebulaGraphStore", (), {})()
-        store.query = MagicMock(return_value=[{"version": "2.4.0"}])
+        recorded_versions = [{"version": "2.3.0"}, {"version": "2.4.0"}]
+        cleanup_statement = "MATCH (sv:`SchemaVersion`) DELETE VERTEX sv;"
+
+        def query(statement: str, *args: object, **kwargs: object) -> list[dict[str, str]]:
+            if statement == cleanup_statement:
+                recorded_versions.clear()
+                return []
+            if "MATCH (sv:`SchemaVersion`)" in statement:
+                return recorded_versions[-1:]
+            return []
+
+        store.query = MagicMock(side_effect=query)
         reg = MigrationRegistry(load_builtins=False)
         migration = DummyMigration("0.0.0", "2.4.0")
         reg.register(migration)
@@ -290,7 +302,8 @@ class TestMigrationRunnerRollback:
 
         assert result == ["0.0.0"]
         assert migration.downgrade_called
-        assert store.query.call_args_list[-1].args == ('DELETE VERTEX "schema_version_2_4_0";',)
+        assert cleanup_statement in [call.args[0] for call in store.query.call_args_list]
+        assert get_current_db_version(store) is None
 
     def test_rollback_registers_target_version(self):
         """Rollback must persist its target instead of the code's latest version."""
