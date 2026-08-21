@@ -92,6 +92,99 @@ class TestDetectAndWriteModules:
 
 
 class TestWriteAllVectors:
+    def test_write_all_vectors_capability_preserves_repository_identity(self, builder: OntoAgentBuilder) -> None:
+        """Capability vectors retain the graph identity metadata used for repo isolation."""
+        capability = {
+            "id": "cap-repo-a-entry-1",
+            "name": "process_payment",
+            "business_domain": "payment",
+            "description": "Process a payment.",
+            "keywords": '["payment", "charge"]',
+            "repo_id": "repo-a",
+            "entry_code_entity_id": "entry-1",
+        }
+        mock_chroma = MagicMock()
+
+        with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
+            builder._write_all_vectors([], [], [], [], capability_dicts=[capability])
+
+        item = mock_chroma.put_entities_batch.call_args.args[0][0]
+        assert item[0] == "cap-repo-a-entry-1"
+        assert "process_payment" in item[1]
+        assert "Process a payment." in item[1]
+        assert "charge" in item[1]
+        assert item[2] == {
+            "entity_type": "CapabilityEntity",
+            "name": "process_payment",
+            "business_domain": "payment",
+            "repo_id": "repo-a",
+            "entry_code_entity_id": "entry-1",
+        }
+
+    def test_write_all_vectors_capability_omits_blank_legacy_identity(self, builder: OntoAgentBuilder) -> None:
+        """Legacy capability inputs remain writable without fabricated identity metadata."""
+        capability = {
+            "id": "legacy-capability",
+            "name": "process_payment",
+            "business_domain": "payment",
+            "description": "Process a payment.",
+            "repo_id": " ",
+            "entry_code_entity_id": "",
+        }
+        mock_chroma = MagicMock()
+
+        with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
+            builder._write_all_vectors([], [], [], [], capability_dicts=[capability])
+
+        metadata = mock_chroma.put_entities_batch.call_args.args[0][0][2]
+        assert metadata == {
+            "entity_type": "CapabilityEntity",
+            "name": "process_payment",
+            "business_domain": "payment",
+        }
+
+    def test_capability_identity_matches_graph_and_vectors_across_repositories(self, builder: OntoAgentBuilder) -> None:
+        """Extractor-derived capability identity stays aligned at both builder handoffs."""
+        graph_store = MagicMock()
+        repo_a_entry = CodeEntity(
+            id="entry-a",
+            name="process_payment",
+            entity_type="function",
+            repo_id="repo-a",
+            file_path="api/payment.py",
+        )
+        repo_a_entry.entry_category = "http_api"
+        repo_b_entry = CodeEntity(
+            id="entry-b",
+            name="process_payment",
+            entity_type="function",
+            repo_id="repo-b",
+            file_path="api/payment.py",
+        )
+        repo_b_entry.entry_category = "http_api"
+
+        builder._extract_capabilities([repo_a_entry], graph_store, "2026-01-01T00:00:00+00:00")
+        repo_a_capability = builder._capability_dicts[0]
+        builder._extract_capabilities([repo_b_entry], graph_store, "2026-01-01T00:00:00+00:00")
+        repo_b_capability = builder._capability_dicts[0]
+
+        assert repo_a_capability["repo_id"] == "repo-a"
+        assert repo_a_capability["entry_code_entity_id"] == "entry-a"
+        assert repo_a_capability["id"] != repo_b_capability["id"]
+        relation_batches = [call.args[0] for call in graph_store.merge_relations_batch.call_args_list]
+        assert relation_batches[0][0]["source_id"] == repo_a_capability["id"]
+
+        mock_chroma = MagicMock()
+        with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
+            builder._write_all_vectors([], [], [], [], capability_dicts=[repo_a_capability, repo_b_capability])
+
+        vector_items = mock_chroma.put_entities_batch.call_args.args[0]
+        assert [item[0] for item in vector_items] == [repo_a_capability["id"], repo_b_capability["id"]]
+        assert vector_items[0][2]["repo_id"] == repo_a_capability["repo_id"]
+        assert vector_items[0][2]["entry_code_entity_id"] == repo_a_capability["entry_code_entity_id"]
+        assert vector_items[1][2]["repo_id"] == repo_b_capability["repo_id"]
+        assert vector_items[1][2]["entry_code_entity_id"] == repo_b_capability["entry_code_entity_id"]
+
     def test_write_all_vectors_code_entities_only(self, builder: OntoAgentBuilder) -> None:
         """CodeEntity 向量写入。"""
         from ontoagent.domain.schema import CodeEntity
@@ -168,6 +261,35 @@ class TestWriteAllVectors:
 
 
 class TestBuildIntegration:
+    def test_build_resets_capabilities_before_failed_extraction(
+        self, builder: OntoAgentBuilder, tmp_path: Path
+    ) -> None:
+        """A reused builder cannot write a prior build's capabilities after Stage 2.7 fails."""
+        (tmp_path / "test.py").write_text("def hello(): pass\n")
+        mock_graph = MagicMock()
+        repo_a_entry = CodeEntity(
+            id="entry-a",
+            name="process_payment",
+            entity_type="function",
+            repo_id="repo-a",
+            file_path="api/payment.py",
+        )
+        repo_a_entry.entry_category = "http_api"
+        builder._extract_capabilities([repo_a_entry], mock_graph, "2026-01-01T00:00:00+00:00")
+        assert builder._capability_dicts[0]["repo_id"] == "repo-a"
+
+        with (
+            patch("ontoagent.store.schema_version.check_schema_version", return_value=SchemaStatus.MATCH),
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_check_llm_available", return_value=False),
+            patch.object(builder, "_detect_and_write_modules", return_value=(0, [])),
+            patch.object(builder, "_extract_capabilities", side_effect=RuntimeError("extract failed")),
+            patch.object(builder, "_write_all_vectors") as write_vectors,
+        ):
+            builder.build(tmp_path, skip_semantic=True, skip_clustering=True, repo_id="repo-b")
+
+        assert write_vectors.call_args.kwargs["capability_dicts"] == []
+
     def test_build_full_pipeline_with_modules(self, builder: OntoAgentBuilder, tmp_path: Path) -> None:
         """完整流水线包含 Stage 4+5。"""
         test_file = tmp_path / "test.py"

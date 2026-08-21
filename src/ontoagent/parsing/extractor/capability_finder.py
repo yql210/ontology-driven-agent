@@ -27,6 +27,8 @@ class CapabilityMatch:
     description: str
     distance: float
     metadata: dict = field(default_factory=dict)
+    repo_id: str | None = None
+    entry_code_entity_id: str | None = None
 
 
 class CapabilityFinder:
@@ -46,20 +48,33 @@ class CapabilityFinder:
         """
         self._store = chroma_store
 
-    def find(self, sub_goal: str, top_k: int = 5, domain: str | None = None) -> list[CapabilityMatch]:
+    def find(
+        self,
+        sub_goal: str,
+        top_k: int = 5,
+        domain: str | None = None,
+        repo_id: str | None = None,
+    ) -> list[CapabilityMatch]:
         """Search for capabilities matching a sub-goal.
 
         Args:
             sub_goal: Natural language description of the desired capability.
             top_k: Maximum number of results.
             domain: Optional business domain filter.
+            repo_id: Optional repository filter. None retains cross-repository retrieval.
 
         Returns:
             Ordered list of CapabilityMatch (best match first).
         """
-        where: dict | None = None
+        if repo_id is not None and not repo_id.strip():
+            raise ValueError("repo_id cannot be empty or whitespace-only")
+
+        predicates = [{"entity_type": "CapabilityEntity"}]
         if domain:
-            where = {"business_domain": domain}
+            predicates.append({"business_domain": domain})
+        if repo_id is not None:
+            predicates.append({"repo_id": repo_id})
+        where = predicates[0] if len(predicates) == 1 else {"$and": predicates}
 
         raw = self._store.search(sub_goal, n_results=top_k, where=where)
 
@@ -74,6 +89,8 @@ class CapabilityFinder:
                     description=item.get("text", ""),
                     distance=item.get("distance", 0.0),
                     metadata=meta,
+                    repo_id=meta.get("repo_id"),
+                    entry_code_entity_id=meta.get("entry_code_entity_id"),
                 )
             )
         return results

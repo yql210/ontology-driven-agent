@@ -151,6 +151,7 @@ class OntoAgentBuilder:
         self._logger = logging.getLogger(__name__)
         self._repo_root: Path | None = None
         self._repo_id: str = "default"
+        self._capability_dicts: list[dict] = []
 
     def _register_parser(self, parser: BaseParser) -> None:
         """注册解析器。
@@ -530,6 +531,8 @@ class OntoAgentBuilder:
         import time
 
         self._repo_id = repo_id
+        # Stage 2.7 is non-critical; never carry capabilities into the next build.
+        self._capability_dicts = []
 
         # Schema 版本检查（lazy import 避免循环引用）
         try:
@@ -1304,11 +1307,20 @@ class OntoAgentBuilder:
                 search_text = capability_to_searchable_text(cap_name, cap_desc, cap_keywords)
                 cap_id = str(cap.get("id", ""))
                 if search_text.strip() and cap_id:
+                    metadata = {
+                        "entity_type": "CapabilityEntity",
+                        "name": cap_name,
+                        "business_domain": cap_domain,
+                    }
+                    for identity_key in ("repo_id", "entry_code_entity_id"):
+                        identity_value = cap.get(identity_key)
+                        if identity_value is not None and str(identity_value).strip():
+                            metadata[identity_key] = str(identity_value)
                     items.append(
                         (
                             cap_id,
                             search_text,
-                            {"entity_type": "CapabilityEntity", "name": cap_name, "business_domain": cap_domain},
+                            metadata,
                         )
                     )
 

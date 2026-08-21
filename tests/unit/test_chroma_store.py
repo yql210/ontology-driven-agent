@@ -338,6 +338,35 @@ class TestChromaStoreWrite:
         # Assert
         assert chroma_store.count() == 120
 
+    def test_put_entities_batch_upserts_capability_identity(self, chroma_store):
+        """A rebuild replaces one capability vector instead of creating a duplicate."""
+        chroma_store.put_entities_batch(
+            [
+                (
+                    "cap-1",
+                    "original payment capability",
+                    {"entity_type": "CapabilityEntity", "repo_id": "repo-a", "entry_code_entity_id": "entry-1"},
+                )
+            ]
+        )
+
+        chroma_store.put_entities_batch(
+            [
+                (
+                    "cap-1",
+                    "updated payment capability",
+                    {"entity_type": "CapabilityEntity", "repo_id": "repo-b", "entry_code_entity_id": "entry-2"},
+                )
+            ]
+        )
+
+        assert chroma_store.count(where={"entity_type": "CapabilityEntity"}) == 1
+        assert chroma_store.get_entity("cap-1") == {
+            "id": "cap-1",
+            "text": "updated payment capability",
+            "metadata": {"entity_type": "CapabilityEntity", "repo_id": "repo-b", "entry_code_entity_id": "entry-2"},
+        }
+
     def test_put_entities_batch_size_1(self, chroma_store):
         # Arrange
         items = [(f"entity-{i}", f"text {i}", {"idx": i}) for i in range(10)]

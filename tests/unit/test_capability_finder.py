@@ -7,7 +7,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from ontoagent.parsing.extractor.capability_finder import CapabilityFinder, CapabilityMatch
+from ontoagent.store.chroma_store import ChromaStore
 
 
 def _make_search_result(item_id: str, name: str, domain: str, text: str, distance: float = 0.3):
@@ -18,6 +21,28 @@ def _make_search_result(item_id: str, name: str, domain: str, text: str, distanc
         "metadata": {"entity_type": "CapabilityEntity", "name": name, "business_domain": domain},
         "distance": distance,
     }
+
+
+@pytest.fixture
+def chroma_store():
+    """Create an in-memory Chroma collection with mocked HTTP embeddings."""
+    from unittest.mock import Mock, patch
+    from uuid import uuid4
+
+    with patch("httpx.Client") as mock_client_class:
+        mock_client = MagicMock()
+        mock_client.is_closed = False
+        mock_client.close = Mock(side_effect=lambda: setattr(mock_client, "is_closed", True))
+        mock_client.post = Mock(
+            side_effect=lambda url, json, **kwargs: Mock(
+                json=lambda: {"embeddings": [[0.1, 0.2, 0.3] for _ in json.get("input", [])]},
+                raise_for_status=Mock(),
+            )
+        )
+        mock_client_class.return_value = mock_client
+        store = ChromaStore(persist_dir=None, collection_name=f"capability_finder_{uuid4().hex}")
+        yield store
+        store.close()
 
 
 class TestCapabilityFinder:
@@ -91,7 +116,11 @@ class TestCapabilityFinder:
         assert len(results) == 1
         assert results[0].domain == "inventory"
         # Verify domain filter was passed correctly
-        mock_store.search.assert_called_once_with("查询", n_results=5, where={"business_domain": "inventory"})
+        mock_store.search.assert_called_once_with(
+            "查询",
+            n_results=5,
+            where={"$and": [{"entity_type": "CapabilityEntity"}, {"business_domain": "inventory"}]},
+        )
 
     def test_find_passes_n_results_to_store(self):
         """find() passes top_k as n_results to ChromaDB."""
@@ -101,4 +130,72 @@ class TestCapabilityFinder:
         finder = CapabilityFinder(mock_store)
         finder.find("query", top_k=7)
 
-        mock_store.search.assert_called_once_with("query", n_results=7, where=None)
+        mock_store.search.assert_called_once_with("query", n_results=7, where={"entity_type": "CapabilityEntity"})
+
+    def test_find_with_domain_and_repo_uses_one_chroma_filter_and_maps_identity(self):
+        """Repo-scoped searches send a Chroma-compatible compound filter."""
+        mock_store = MagicMock()
+        mock_store.search.return_value = [
+            {
+                **_make_search_result("cap-a", "process_payment", "payment", "Payment API"),
+                "metadata": {
+                    "entity_type": "CapabilityEntity",
+                    "name": "process_payment",
+                    "business_domain": "payment",
+                    "repo_id": "repo-a",
+                    "entry_code_entity_id": "entry-1",
+                },
+            }
+        ]
+
+        result = CapabilityFinder(mock_store).find("payment", domain="payment", repo_id="repo-a")
+
+        mock_store.search.assert_called_once_with(
+            "payment",
+            n_results=5,
+            where={
+                "$and": [
+                    {"entity_type": "CapabilityEntity"},
+                    {"business_domain": "payment"},
+                    {"repo_id": "repo-a"},
+                ]
+            },
+        )
+        assert result[0].repo_id == "repo-a"
+        assert result[0].entry_code_entity_id == "entry-1"
+
+    def test_find_rejects_blank_repo_id(self):
+        """Whitespace repo IDs cannot accidentally broaden a scoped query."""
+        with pytest.raises(ValueError, match="repo_id"):
+            CapabilityFinder(MagicMock()).find("payment", repo_id="  ")
+
+    def test_chroma_and_filter_isolates_capabilities_by_repository(self, chroma_store):
+        """Chroma itself honors the compound entity/domain/repository filter."""
+        chroma_store.put_entities_batch(
+            [
+                (
+                    "cap-a",
+                    "payment",
+                    {"entity_type": "CapabilityEntity", "business_domain": "payment", "repo_id": "repo-a"},
+                ),
+                (
+                    "cap-b",
+                    "payment",
+                    {"entity_type": "CapabilityEntity", "business_domain": "payment", "repo_id": "repo-b"},
+                ),
+                ("cap-legacy", "payment", {"entity_type": "CapabilityEntity", "business_domain": "payment"}),
+            ]
+        )
+
+        results = chroma_store.search_by_embedding(
+            [0.1, 0.2, 0.3],
+            where={
+                "$and": [
+                    {"entity_type": "CapabilityEntity"},
+                    {"business_domain": "payment"},
+                    {"repo_id": "repo-a"},
+                ]
+            },
+        )
+
+        assert [result["id"] for result in results] == ["cap-a"]
