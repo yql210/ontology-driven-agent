@@ -1,3 +1,5 @@
+
+
 # OntoAgent — Ontology-Driven AI Agent Constraint Framework
 
 <p align="center">
@@ -302,9 +304,15 @@ All config via `.env` or environment variables (see `.env.example`):
 |--------|-------------|
 | `ONTOAGENT_NEO4J_URI` | Neo4j connection URI |
 | `ONTOAGENT_NEBULA_HOST` | NebulaGraph host (when using nebula backend) |
+| `ONTOAGENT_NEBULA_PORT` | NebulaGraph port (default: 9669) |
+| `ONTOAGENT_NEBULA_USER` | NebulaGraph username (default: root) |
+| `ONTOAGENT_NEBULA_PASSWORD` | NebulaGraph password |
+| `ONTOAGENT_NEBULA_SPACE` | NebulaGraph space name |
 | `ONTOAGENT_GRAPH_BACKEND` | `neo4j` or `nebula` |
 | `ONTOAGENT_OLLAMA_URL` | Ollama endpoint for embeddings |
 | `ONTOAGENT_SEMANTIC_LLM_PROVIDER` | `ollama` or `openai` for semantic extraction |
+| `ONTOAGENT_SEMANTIC_API_KEY` | API key for semantic LLM extraction |
+| `ONTOAGENT_SEMANTIC_BASE_URL` | Base URL for semantic LLM extraction |
 | `ONTOAGENT_AGENT_LLM_PROVIDER` | LLM provider for Agent (default: zhipu) |
 | `ONTOAGENT_CHROMA_DIR` | ChromaDB storage path |
 
