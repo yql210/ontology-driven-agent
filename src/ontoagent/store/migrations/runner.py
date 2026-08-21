@@ -84,7 +84,7 @@ class MigrationRunner:
             for migration in path:
                 try:
                     migration.upgrade(self._store)
-                    register_schema_version(self._store)
+                    register_schema_version(self._store, migration.version_to)
                     applied.append(migration.version_to)
                     logger.info("Applied migration %s → %s", migration.version_from, migration.version_to)
                 except Exception as e:
@@ -128,7 +128,8 @@ class MigrationRunner:
                 # 删除版本节点（后端兼容）
                 if is_nebula(self._store):
                     # NebulaGraph: DELETE VERTEX（自动清理边，无需 DETACH）
-                    self._store.query('DELETE VERTEX "schema_version_2_0_0";')
+                    vid = f"schema_version_{current.replace('.', '_')}"
+                    self._store.query(f'DELETE VERTEX "{vid}";')
                 else:
                     # Neo4j: DETACH DELETE
                     self._store.query("MATCH (sv:SchemaVersion) DETACH DELETE sv")

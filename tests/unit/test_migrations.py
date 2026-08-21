@@ -180,6 +180,48 @@ class TestMigrationRunnerRunPending:
         assert "1.0.0" in applied
         assert m.upgrade_called
 
+    def test_registers_each_successful_migration_version(self):
+        """Each successful step persists its own target version."""
+        store = _make_store("0.9.0")
+        reg = MigrationRegistry(load_builtins=False)
+        first = DummyMigration("0.9.0", "1.0.0")
+        second = DummyMigration("1.0.0", "1.1.0")
+        reg.register(first)
+        reg.register(second)
+        runner = MigrationRunner(store, reg)
+
+        with (
+            patch.object(runner, "_acquire_lock", return_value=MagicMock()),
+            patch.object(runner, "_release_lock"),
+            patch("ontoagent.store.migrations.runner.CURRENT_SCHEMA_VERSION", "1.1.0"),
+            patch("ontoagent.store.migrations.runner.register_schema_version") as register_version,
+        ):
+            applied = runner.run_pending()
+
+        assert applied == ["1.0.0", "1.1.0"]
+        assert [call.args[1] for call in register_version.call_args_list] == ["1.0.0", "1.1.0"]
+
+    def test_failed_following_migration_preserves_last_successful_version(self):
+        """A failed step leaves the DB registered at the prior successful step."""
+        store = _make_store("0.9.0")
+        reg = MigrationRegistry(load_builtins=False)
+        first = DummyMigration("0.9.0", "1.0.0")
+        second = FailingMigration("1.0.0", "1.1.0")
+        reg.register(first)
+        reg.register(second)
+        runner = MigrationRunner(store, reg)
+
+        with (
+            patch.object(runner, "_acquire_lock", return_value=MagicMock()),
+            patch.object(runner, "_release_lock"),
+            patch("ontoagent.store.migrations.runner.CURRENT_SCHEMA_VERSION", "1.1.0"),
+            patch("ontoagent.store.migrations.runner.register_schema_version") as register_version,
+            pytest.raises(SchemaMigrationError, match=r"Previously applied: \['1.0.0'\]"),
+        ):
+            runner.run_pending()
+
+        assert [call.args[1] for call in register_version.call_args_list] == ["1.0.0"]
+
     def test_fails_on_ahead_version(self):
         """DB 版本领先时抛出异常。"""
         store = _make_store("3.0.0")
@@ -233,6 +275,22 @@ class TestMigrationRunnerRollback:
             result = runner.rollback("0.0.0")
         assert result == ["0.0.0"]
         assert m.downgrade_called
+
+    def test_nebula_rollback_to_zero_deletes_current_version_vertex(self):
+        """Nebula rollback removes the SchemaVersion vertex for the current DB version."""
+        store = type("NebulaGraphStore", (), {})()
+        store.query = MagicMock(return_value=[{"version": "2.4.0"}])
+        reg = MigrationRegistry(load_builtins=False)
+        migration = DummyMigration("0.0.0", "2.4.0")
+        reg.register(migration)
+        runner = MigrationRunner(store, reg)
+
+        with patch.object(runner, "_acquire_lock", return_value=MagicMock()), patch.object(runner, "_release_lock"):
+            result = runner.rollback("0.0.0")
+
+        assert result == ["0.0.0"]
+        assert migration.downgrade_called
+        assert store.query.call_args_list[-1].args == ('DELETE VERTEX "schema_version_2_4_0";',)
 
     def test_rollback_registers_target_version(self):
         """Rollback must persist its target instead of the code's latest version."""
