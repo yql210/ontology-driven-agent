@@ -24,6 +24,13 @@ def _make_successful_result(*, rows: list[dict] | None = None) -> MagicMock:
     return result
 
 
+def _value_wrapper(value: object) -> MagicMock:
+    """构造一个只需通过 as_string() 解码的 Nebula ValueWrapper mock。"""
+    wrapper = MagicMock()
+    wrapper.as_string = MagicMock(return_value=value)
+    return wrapper
+
+
 @pytest.fixture
 def mock_pool() -> MagicMock:
     """mock ConnectionPool — init 与 get_session 都成功。"""
@@ -162,6 +169,70 @@ class TestNebulaStoreGetNode:
         success.is_empty = MagicMock(return_value=False)
         success.keys = MagicMock(return_value=["id"])
         success.column_values = MagicMock(return_value=[])
+        mock_session.execute = MagicMock(return_value=success)
+
+        with pytest.raises(StoreError, match=r"^NebulaGraph get_node failed$") as exc_info:
+            store_with_mock_pool.get_node("uuid-1")
+
+        assert exc_info.value.__cause__ is not None
+
+    def test_get_node_nonempty_result_without_id_key_raises_store_error(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        success = _make_successful_result(rows=[{"name": "foo"}])
+        success.is_empty = MagicMock(return_value=False)
+        success.keys = MagicMock(return_value=["name"])
+        mock_session.execute = MagicMock(return_value=success)
+
+        with pytest.raises(StoreError, match=r"^NebulaGraph get_node failed$") as exc_info:
+            store_with_mock_pool.get_node("uuid-1")
+
+        assert exc_info.value.__cause__ is not None
+
+    @pytest.mark.parametrize(
+        ("decoded_id", "requested_id"),
+        [
+            (None, "uuid-1"),
+            ('"   "', "uuid-1"),
+            (42, "uuid-1"),
+            ("different-vid", "uuid-1"),
+        ],
+        ids=["none", "blank", "integer", "backend-mismatch"],
+    )
+    def test_get_node_rejects_invalid_or_mismatched_backend_id(
+        self,
+        store_with_mock_pool: NebulaGraphStore,
+        mock_session: MagicMock,
+        decoded_id: object,
+        requested_id: str,
+    ) -> None:
+        success = _make_successful_result(rows=[{"id": "uuid-1"}])
+        success.is_empty = MagicMock(return_value=False)
+        success.column_values = MagicMock(return_value=[_value_wrapper(decoded_id)])
+        mock_session.execute = MagicMock(return_value=success)
+
+        with pytest.raises(StoreError, match=r"^NebulaGraph get_node failed$") as exc_info:
+            store_with_mock_pool.get_node(requested_id)
+
+        assert exc_info.value.__cause__ is not None
+
+    @pytest.mark.parametrize(
+        ("row_size", "id_values"),
+        [(0, ["uuid-1"]), (2, ["uuid-1", "uuid-1"]), (1, [])],
+        ids=["zero-rows", "multiple-rows", "id-cardinality"],
+    )
+    def test_get_node_rejects_invalid_nonempty_result_shape(
+        self,
+        store_with_mock_pool: NebulaGraphStore,
+        mock_session: MagicMock,
+        row_size: int,
+        id_values: list[str],
+    ) -> None:
+        success = _make_successful_result(rows=[{"id": "uuid-1"}])
+        success.is_empty = MagicMock(return_value=False)
+        success.row_size = MagicMock(return_value=row_size)
+        success.keys = MagicMock(return_value=["id"])
+        success.column_values = MagicMock(return_value=id_values)
         mock_session.execute = MagicMock(return_value=success)
 
         with pytest.raises(StoreError, match=r"^NebulaGraph get_node failed$") as exc_info:
@@ -430,6 +501,113 @@ class TestNebulaStoreGetRelations:
             store_with_mock_pool.get_relations()
 
         assert exc_info.value.__cause__ is not None
+
+    def test_get_relations_rejects_unknown_relation_type(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        success = _make_successful_result(rows=[{"source_id": "src-1", "target_id": "tgt-1", "rel_type": "bad type"}])
+        success.is_empty = MagicMock(return_value=False)
+        success.column_values = MagicMock(
+            side_effect=lambda key: {
+                "source_id": [_value_wrapper("src-1")],
+                "target_id": [_value_wrapper("tgt-1")],
+                "rel_type": [_value_wrapper("bad type")],
+            }[key]
+        )
+        mock_session.execute = MagicMock(return_value=success)
+
+        with pytest.raises(StoreError, match=r"^NebulaGraph get_relations failed$") as exc_info:
+            store_with_mock_pool.get_relations()
+
+        assert exc_info.value.__cause__ is not None
+
+    def test_get_relations_rejects_oversized_required_column(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        success = _make_successful_result(rows=[{"source_id": "src-1", "target_id": "tgt-1", "rel_type": "CALLS"}])
+        success.is_empty = MagicMock(return_value=False)
+        success.column_values = MagicMock(
+            side_effect=lambda key: {
+                "source_id": [_value_wrapper("src-1"), _value_wrapper("src-2")],
+                "target_id": [_value_wrapper("tgt-1")],
+                "rel_type": [_value_wrapper("CALLS")],
+            }[key]
+        )
+        mock_session.execute = MagicMock(return_value=success)
+
+        with pytest.raises(StoreError, match=r"^NebulaGraph get_relations failed$") as exc_info:
+            store_with_mock_pool.get_relations()
+
+        assert exc_info.value.__cause__ is not None
+
+    @pytest.mark.parametrize(
+        "keys,row_size,columns",
+        [
+            (["source_id", "target_id"], 1, {"source_id": ["src-1"], "target_id": ["tgt-1"]}),
+            (["source_id", "target_id", "rel_type"], 0, {}),
+            (["source_id", "target_id", "rel_type"], -1, {}),
+            (["source_id", "target_id", "rel_type"], "1", {}),
+            (
+                ["source_id", "target_id", "rel_type", "extra"],
+                1,
+                {
+                    "source_id": [_value_wrapper("src-1")],
+                    "target_id": [_value_wrapper("tgt-1")],
+                    "rel_type": [_value_wrapper("CALLS")],
+                    "extra": [],
+                },
+            ),
+        ],
+        ids=[
+            "missing-required-key",
+            "zero-row-size",
+            "negative-row-size",
+            "non-integer-row-size",
+            "extra-column-cardinality",
+        ],
+    )
+    def test_get_relations_rejects_invalid_nonempty_result_shape(
+        self,
+        store_with_mock_pool: NebulaGraphStore,
+        mock_session: MagicMock,
+        keys: list[str],
+        row_size: object,
+        columns: dict[str, list[str]],
+    ) -> None:
+        success = _make_successful_result(rows=[{"source_id": "src-1", "target_id": "tgt-1", "rel_type": "CALLS"}])
+        success.is_empty = MagicMock(return_value=False)
+        success.keys = MagicMock(return_value=keys)
+        success.row_size = MagicMock(return_value=row_size)
+        if columns:
+            success.column_values = MagicMock(side_effect=lambda key: columns[key])
+        mock_session.execute = MagicMock(return_value=success)
+
+        with pytest.raises(StoreError, match=r"^NebulaGraph get_relations failed$") as exc_info:
+            store_with_mock_pool.get_relations()
+
+        assert exc_info.value.__cause__ is not None
+
+    def test_get_relations_preserves_all_valid_rows_and_extra_columns(
+        self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock
+    ) -> None:
+        success = _make_successful_result(rows=[{"source_id": "src-1", "target_id": "tgt-1", "rel_type": "CALLS"}])
+        success.is_empty = MagicMock(return_value=False)
+        success.keys = MagicMock(return_value=["source_id", "target_id", "rel_type", "weight"])
+        success.row_size = MagicMock(return_value=2)
+        success.column_values = MagicMock(
+            side_effect=lambda key: {
+                "source_id": [_value_wrapper("src-1"), _value_wrapper("src-2")],
+                "target_id": [_value_wrapper("tgt-1"), _value_wrapper("tgt-2")],
+                "rel_type": [_value_wrapper("CALLS"), _value_wrapper("REALIZED_BY")],
+                "weight": [_value_wrapper(1), _value_wrapper(2)],
+            }[key]
+        )
+        mock_session.execute = MagicMock(return_value=success)
+
+        assert store_with_mock_pool.get_relations() == [
+            {"source_id": "src-1", "target_id": "tgt-1", "rel_type": "CALLS", "weight": 1},
+            {"source_id": "src-2", "target_id": "tgt-2", "rel_type": "REALIZED_BY", "weight": 2},
+        ]
 
     def test_get_relations_execute_error_raises_store_error(
         self, store_with_mock_pool: NebulaGraphStore, mock_session: MagicMock

@@ -403,18 +403,16 @@ class NebulaGraphStore(GraphStore):
                 if result.is_empty():
                     return None
 
-                keys = result.keys()
-                if not keys:
-                    msg = "nonempty result has no columns"
+                row = _strict_resultset_rows(result, ("id",), expected_row_size=1)[0]
+                vid_value = row["id"]
+                if isinstance(vid_value, str):
+                    vid_value = _strip_nebula_quotes(vid_value)
+                if not isinstance(vid_value, str) or not vid_value.strip():
+                    msg = "malformed node result: invalid id"
                     raise ValueError(msg)
-                row: dict = {}
-                for key in keys:
-                    col_values = result.column_values(key)
-                    if key == "id" and not col_values:
-                        msg = "nonempty result has no id value"
-                        raise ValueError(msg)
-                    value_wrapper = col_values[0] if col_values else None
-                    row[key] = _unwrap_value(value_wrapper) if value_wrapper is not None else None
+                if vid_value != node_id:
+                    msg = "malformed node result: backend id does not match requested id"
+                    raise ValueError(msg)
 
                 # 提取 label（第一个 Tag 名，与 Neo4j labels()[0] 对齐）
                 # tags(vertex) 返回 [["CodeEntity"]]，as_string 返回 '"CodeEntity"'（带引号）
@@ -433,11 +431,6 @@ class NebulaGraphStore(GraphStore):
 
                 # 合并 props map
                 props_raw = row.pop("props", None)
-                # 先保存 id(vertex) 的值（VID），防止被 props 中的 null id 覆盖
-                vid_value = row.get("id")
-                if isinstance(vid_value, str) and vid_value:
-                    vid_value = _strip_nebula_quotes(vid_value)
-
                 if isinstance(props_raw, dict):
                     for k, v in props_raw.items():
                         unwrapped = _unwrap_value(v) if hasattr(v, "as_string") else v
@@ -446,8 +439,8 @@ class NebulaGraphStore(GraphStore):
                             unwrapped = _strip_nebula_quotes(unwrapped)
                         row[k] = unwrapped
 
-                # 恢复 VID（props map 中的 id 字段是 __NULL__，因为 id 不是 Tag 属性）
-                row["id"] = vid_value or node_id
+                # 恢复 backend VID（props map 中的 id 字段是 __NULL__，因为 id 不是 Tag 属性）
+                row["id"] = vid_value
                 return row
         except StoreError:
             raise
@@ -581,16 +574,23 @@ class NebulaGraphStore(GraphStore):
                     raise StoreError("NebulaGraph get_relations failed") from backend_error
                 if result.is_empty():
                     return []
-                if result.row_size() == 0:
-                    msg = "nonempty result has zero rows"
-                    raise ValueError(msg)
-                rows = _resultset_to_dicts(result, strict=True)
+                rows = _strict_resultset_rows(result, ("source_id", "target_id", "rel_type"))
                 for row in rows:
-                    for field in ("source_id", "target_id", "rel_type"):
-                        value = row.get(field)
+                    for field in ("source_id", "target_id"):
+                        value = row[field]
+                        if isinstance(value, str):
+                            value = _strip_nebula_quotes(value)
                         if not isinstance(value, str) or not value.strip():
                             msg = f"malformed relation result: missing {field}"
                             raise ValueError(msg)
+                        row[field] = value
+                    relation_type = row["rel_type"]
+                    if isinstance(relation_type, str):
+                        relation_type = _strip_nebula_quotes(relation_type).upper()
+                    if relation_type not in RELATION_TYPE_TO_NEO4J.values():
+                        msg = "malformed relation result: invalid rel_type"
+                        raise ValueError(msg)
+                    row["rel_type"] = relation_type
                 return rows
         except StoreError:
             raise
@@ -1138,6 +1138,45 @@ def _unwrap_int(value_wrapper: Any) -> int:
         return int(value_wrapper.as_string())
     except Exception:
         return 0
+
+
+def _strict_resultset_rows(
+    result: Any,
+    required_columns: tuple[str, ...],
+    *,
+    expected_row_size: int | None = None,
+) -> list[dict]:
+    """Decode a successful nonempty ResultSet only when its tabular shape is coherent."""
+    row_size = result.row_size()
+    if type(row_size) is not int or row_size <= 0:
+        msg = "nonempty result has an invalid row count"
+        raise ValueError(msg)
+    if expected_row_size is not None and row_size != expected_row_size:
+        msg = f"nonempty result has {row_size} rows; expected {expected_row_size}"
+        raise ValueError(msg)
+
+    raw_keys = result.keys()
+    if isinstance(raw_keys, (str, bytes)):
+        msg = "nonempty result has invalid columns"
+        raise ValueError(msg)
+    keys = list(raw_keys)
+    if not keys or any(not isinstance(key, str) for key in keys) or len(set(keys)) != len(keys):
+        msg = "nonempty result has invalid columns"
+        raise ValueError(msg)
+    missing_columns = set(required_columns).difference(keys)
+    if missing_columns:
+        msg = "nonempty result is missing required columns"
+        raise ValueError(msg)
+
+    columns: dict[str, list[Any]] = {}
+    for key in keys:
+        values = result.column_values(key)
+        if len(values) != row_size:
+            msg = f"column {key!r} has an invalid value count"
+            raise ValueError(msg)
+        columns[key] = list(values)
+
+    return [{key: _unwrap_value(columns[key][row_index]) for key in keys} for row_index in range(row_size)]
 
 
 def _resultset_to_dicts(result: Any, *, strict: bool = False) -> list[dict]:
