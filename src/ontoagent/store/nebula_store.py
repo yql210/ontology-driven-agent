@@ -410,6 +410,9 @@ class NebulaGraphStore(GraphStore):
                 row: dict = {}
                 for key in keys:
                     col_values = result.column_values(key)
+                    if key == "id" and not col_values:
+                        msg = "nonempty result has no id value"
+                        raise ValueError(msg)
                     value_wrapper = col_values[0] if col_values else None
                     row[key] = _unwrap_value(value_wrapper) if value_wrapper is not None else None
 
@@ -578,6 +581,9 @@ class NebulaGraphStore(GraphStore):
                     raise StoreError("NebulaGraph get_relations failed") from backend_error
                 if result.is_empty():
                     return []
+                if result.row_size() == 0:
+                    msg = "nonempty result has zero rows"
+                    raise ValueError(msg)
                 rows = _resultset_to_dicts(result, strict=True)
                 for row in rows:
                     for field in ("source_id", "target_id", "rel_type"):
