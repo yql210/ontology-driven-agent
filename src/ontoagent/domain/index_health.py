@@ -29,6 +29,36 @@ def _validate_count(name: str, value: int) -> None:
         raise ValueError(f"{name} must be a non-bool nonnegative int")
 
 
+def _health_policy(
+    *,
+    aborted: bool,
+    capability_extraction_failed: bool,
+    eligible_entries_seen: int,
+    realized_by_submitted: int,
+    capability_vectors_failed: int,
+) -> tuple[BusinessEntryIndexStatus, tuple[IndexHealthReason, ...]]:
+    """Return the canonical health status and reasons for observable build facts."""
+    if aborted:
+        return BusinessEntryIndexStatus.UNAVAILABLE, (IndexHealthReason.BUILD_ABORTED,)
+
+    reasons: list[IndexHealthReason] = []
+    if capability_extraction_failed:
+        reasons.append(IndexHealthReason.CAPABILITY_EXTRACTION_FAILED)
+    if not capability_extraction_failed and eligible_entries_seen == 0:
+        reasons.append(IndexHealthReason.NO_ELIGIBLE_ENTRIES)
+    if not capability_extraction_failed and eligible_entries_seen > 0 and realized_by_submitted == 0:
+        reasons.append(IndexHealthReason.NO_REALIZATIONS_SUBMITTED)
+    if capability_vectors_failed > 0:
+        reasons.append(IndexHealthReason.CAPABILITY_VECTOR_WRITE_FAILED)
+
+    canonical_reasons = tuple(reasons)
+    if not canonical_reasons:
+        return BusinessEntryIndexStatus.HEALTHY, canonical_reasons
+    if canonical_reasons == (IndexHealthReason.NO_ELIGIBLE_ENTRIES,):
+        return BusinessEntryIndexStatus.UNAVAILABLE, canonical_reasons
+    return BusinessEntryIndexStatus.DEGRADED, canonical_reasons
+
+
 @dataclass(frozen=True)
 class VectorWriteOutcome:
     """The submitted and observed outcome of one vector write operation."""
@@ -73,6 +103,27 @@ class BusinessEntryIndexHealth:
             self.capability_vectors_confirmed,
             self.capability_vectors_failed,
         )
+        if not isinstance(self.status, BusinessEntryIndexStatus):
+            raise ValueError("status must be a BusinessEntryIndexStatus")
+        if not isinstance(self.reasons, tuple) or any(
+            not isinstance(reason, IndexHealthReason) for reason in self.reasons
+        ):
+            raise ValueError("reasons must be a tuple of IndexHealthReason")
+        if len(set(self.reasons)) != len(self.reasons):
+            raise ValueError("reasons must not contain duplicates")
+        ordered_reasons = tuple(reason for reason in IndexHealthReason if reason in self.reasons)
+        if self.reasons != ordered_reasons:
+            raise ValueError("reasons must use IndexHealthReason declaration order")
+
+        expected_status, expected_reasons = _health_policy(
+            aborted=IndexHealthReason.BUILD_ABORTED in self.reasons,
+            capability_extraction_failed=IndexHealthReason.CAPABILITY_EXTRACTION_FAILED in self.reasons,
+            eligible_entries_seen=self.eligible_entries_seen,
+            realized_by_submitted=self.realized_by_submitted,
+            capability_vectors_failed=self.capability_vectors_failed,
+        )
+        if (self.status, self.reasons) != (expected_status, expected_reasons):
+            raise ValueError("status and reasons must match index health policy")
 
     @classmethod
     def from_build_facts(
@@ -95,27 +146,13 @@ class BusinessEntryIndexHealth:
         if not isinstance(capability_vector_outcome, VectorWriteOutcome):
             raise ValueError("capability_vector_outcome must be a VectorWriteOutcome")
 
-        if aborted:
-            reasons = (IndexHealthReason.BUILD_ABORTED,)
-            status = BusinessEntryIndexStatus.UNAVAILABLE
-        else:
-            reasons_list: list[IndexHealthReason] = []
-            if capability_extraction_failed:
-                reasons_list.append(IndexHealthReason.CAPABILITY_EXTRACTION_FAILED)
-            if not capability_extraction_failed and eligible_entries_seen == 0:
-                reasons_list.append(IndexHealthReason.NO_ELIGIBLE_ENTRIES)
-            if not capability_extraction_failed and eligible_entries_seen > 0 and realized_by_submitted == 0:
-                reasons_list.append(IndexHealthReason.NO_REALIZATIONS_SUBMITTED)
-            if capability_vector_outcome.failed > 0:
-                reasons_list.append(IndexHealthReason.CAPABILITY_VECTOR_WRITE_FAILED)
-            reasons = tuple(reasons_list)
-            status = (
-                BusinessEntryIndexStatus.HEALTHY
-                if not reasons
-                else BusinessEntryIndexStatus.UNAVAILABLE
-                if reasons == (IndexHealthReason.NO_ELIGIBLE_ENTRIES,)
-                else BusinessEntryIndexStatus.DEGRADED
-            )
+        status, reasons = _health_policy(
+            aborted=aborted,
+            capability_extraction_failed=capability_extraction_failed,
+            eligible_entries_seen=eligible_entries_seen,
+            realized_by_submitted=realized_by_submitted,
+            capability_vectors_failed=capability_vector_outcome.failed,
+        )
 
         return cls(
             eligible_entries_seen=eligible_entries_seen,

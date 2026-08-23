@@ -105,3 +105,72 @@ def test_index_health_aborted_overrides_all_other_reasons() -> None:
 
     assert health.status is BusinessEntryIndexStatus.UNAVAILABLE
     assert health.reasons == (IndexHealthReason.BUILD_ABORTED,)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("status", "reasons"),
+    [
+        (BusinessEntryIndexStatus.HEALTHY, (IndexHealthReason.BUILD_ABORTED,)),
+        (BusinessEntryIndexStatus.UNAVAILABLE, ()),
+        (BusinessEntryIndexStatus.DEGRADED, (IndexHealthReason.NO_ELIGIBLE_ENTRIES,)),
+    ],
+)
+def test_index_health_direct_constructor_rejects_invalid_status_reason_pairs(
+    status: BusinessEntryIndexStatus, reasons: tuple[IndexHealthReason, ...]
+) -> None:
+    with pytest.raises(ValueError, match="status and reasons"):
+        BusinessEntryIndexHealth(1, 1, 1, 0, 0, 0, status, reasons)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("eligible_entries_seen", "realized_by_submitted", "vectors_failed", "reasons"),
+    [
+        (1, 1, 0, (IndexHealthReason.NO_ELIGIBLE_ENTRIES,)),
+        (0, 0, 0, (IndexHealthReason.NO_REALIZATIONS_SUBMITTED,)),
+        (1, 1, 0, (IndexHealthReason.CAPABILITY_VECTOR_WRITE_FAILED,)),
+        (1, 0, 0, ()),
+    ],
+)
+def test_index_health_direct_constructor_rejects_reason_field_incompatibility(
+    eligible_entries_seen: int,
+    realized_by_submitted: int,
+    vectors_failed: int,
+    reasons: tuple[IndexHealthReason, ...],
+) -> None:
+    with pytest.raises(ValueError, match="status and reasons"):
+        BusinessEntryIndexHealth(
+            eligible_entries_seen,
+            0,
+            realized_by_submitted,
+            vectors_failed,
+            0,
+            vectors_failed,
+            BusinessEntryIndexStatus.DEGRADED,
+            reasons,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "reasons",
+    [
+        (IndexHealthReason.NO_REALIZATIONS_SUBMITTED, IndexHealthReason.NO_REALIZATIONS_SUBMITTED),
+        (IndexHealthReason.CAPABILITY_VECTOR_WRITE_FAILED, IndexHealthReason.NO_REALIZATIONS_SUBMITTED),
+        ("unknown",),
+        [IndexHealthReason.NO_REALIZATIONS_SUBMITTED],
+    ],
+)
+def test_index_health_direct_constructor_rejects_noncanonical_reasons(reasons: object) -> None:
+    with pytest.raises(ValueError):
+        BusinessEntryIndexHealth(
+            1,
+            1,
+            0,
+            0,
+            0,
+            0,
+            BusinessEntryIndexStatus.DEGRADED,
+            reasons,  # type: ignore[arg-type]
+        )
