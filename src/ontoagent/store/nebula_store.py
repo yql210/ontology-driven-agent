@@ -14,6 +14,7 @@ from tenacity import (
     wait_fixed,
 )
 
+from ontoagent.domain.exceptions import StoreError
 from ontoagent.domain.schema import RELATION_TYPE_TO_NEO4J
 from ontoagent.store.cypher_adapter import CypherToNgqlAdapter
 from ontoagent.store.graph_store import GraphStore
@@ -386,21 +387,22 @@ class NebulaGraphStore(GraphStore):
         注意：NebulaGraph 的 ``as_string()`` 对 string 类型返回带引号的值（如 ``"CodeEntity"``），
         本方法自动去除 Tag 名和属性值的包裹引号。
         """
-        with self._session_scope() as session:
-            # tags(vertex) 返回该 vertex 的所有 Tag 名列表
-            stmt = (
-                f'FETCH PROP ON * "{node_id}" '
-                f"YIELD id(vertex) AS id, tags(vertex) AS tag_names, "
-                f"properties(vertex) AS props;"
-            )
-            result = session.execute(stmt)
-            if not result.is_succeeded():
-                logger.error("[NebulaStore] get_node failed: %s", safe_error_msg(result))
-                return None
-            if result.is_empty():
-                return None
+        try:
+            with self._session_scope() as session:
+                # tags(vertex) 返回该 vertex 的所有 Tag 名列表
+                stmt = (
+                    f'FETCH PROP ON * "{node_id}" '
+                    f"YIELD id(vertex) AS id, tags(vertex) AS tag_names, "
+                    f"properties(vertex) AS props;"
+                )
+                result = session.execute(stmt)
+                if not result.is_succeeded():
+                    backend_error = RuntimeError(safe_error_msg(result))
+                    logger.error("[NebulaStore] get_node failed: %s", backend_error)
+                    raise StoreError("NebulaGraph get_node failed") from backend_error
+                if result.is_empty():
+                    return None
 
-            try:
                 keys = result.keys()
                 if not keys:
                     return None
@@ -443,9 +445,11 @@ class NebulaGraphStore(GraphStore):
                 # 恢复 VID（props map 中的 id 字段是 __NULL__，因为 id 不是 Tag 属性）
                 row["id"] = vid_value or node_id
                 return row
-            except Exception:
-                logger.exception("[NebulaStore] get_node decode failed for vid=%s", node_id)
-                return None
+        except StoreError:
+            raise
+        except Exception as exc:
+            logger.exception("[NebulaStore] get_node failed for vid=%s", node_id)
+            raise StoreError("NebulaGraph get_node failed") from exc
 
     def delete_node(self, node_id: str) -> bool:
         """DELETE VERTEX ``vid`` WITH EDGE。"""
@@ -564,14 +568,21 @@ class NebulaGraphStore(GraphStore):
         return_clause = " RETURN id(a) AS source_id, id(b) AS target_id, type(r) AS rel_type;"
         stmt = match_clause + where_clause + return_clause
 
-        with self._session_scope() as session:
-            result = session.execute(stmt)
-            if not result.is_succeeded():
-                logger.error("[NebulaStore] get_relations failed: %s", safe_error_msg(result))
-                return []
-            if result.is_empty():
-                return []
-            return _resultset_to_dicts(result)
+        try:
+            with self._session_scope() as session:
+                result = session.execute(stmt)
+                if not result.is_succeeded():
+                    backend_error = RuntimeError(safe_error_msg(result))
+                    logger.error("[NebulaStore] get_relations failed: %s", backend_error)
+                    raise StoreError("NebulaGraph get_relations failed") from backend_error
+                if result.is_empty():
+                    return []
+                return _resultset_to_dicts(result, strict=True)
+        except StoreError:
+            raise
+        except Exception as exc:
+            logger.exception("[NebulaStore] get_relations failed")
+            raise StoreError("NebulaGraph get_relations failed") from exc
 
     def query(self, ngql: str, params: dict | None = None) -> list[dict]:
         """执行原生 nGQL 查询。
@@ -1115,7 +1126,7 @@ def _unwrap_int(value_wrapper: Any) -> int:
         return 0
 
 
-def _resultset_to_dicts(result: Any) -> list[dict]:
+def _resultset_to_dicts(result: Any, *, strict: bool = False) -> list[dict]:
     """把 ResultSet 转为 list[dict]（与 Neo4jStore.query 返回格式一致）。"""
     try:
         keys = result.keys()
@@ -1129,9 +1140,13 @@ def _resultset_to_dicts(result: Any) -> list[dict]:
                     vw = col_values[row_idx] if row_idx < len(col_values) else None
                     row_dict[key] = _unwrap_value(vw) if vw is not None else None
                 except Exception:
+                    if strict:
+                        raise
                     row_dict[key] = None
             rows.append(row_dict)
         return rows
     except Exception:
         logger.exception("[NebulaStore] resultset decode failed")
+        if strict:
+            raise
         return []
