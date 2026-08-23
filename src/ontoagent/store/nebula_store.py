@@ -405,7 +405,8 @@ class NebulaGraphStore(GraphStore):
 
                 keys = result.keys()
                 if not keys:
-                    return None
+                    msg = "nonempty result has no columns"
+                    raise ValueError(msg)
                 row: dict = {}
                 for key in keys:
                     col_values = result.column_values(key)
@@ -577,7 +578,14 @@ class NebulaGraphStore(GraphStore):
                     raise StoreError("NebulaGraph get_relations failed") from backend_error
                 if result.is_empty():
                     return []
-                return _resultset_to_dicts(result, strict=True)
+                rows = _resultset_to_dicts(result, strict=True)
+                for row in rows:
+                    for field in ("source_id", "target_id", "rel_type"):
+                        value = row.get(field)
+                        if not isinstance(value, str) or not value.strip():
+                            msg = f"malformed relation result: missing {field}"
+                            raise ValueError(msg)
+                return rows
         except StoreError:
             raise
         except Exception as exc:
