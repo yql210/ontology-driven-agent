@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from ontoagent.domain.exceptions import StoreError
 from ontoagent.store.neo4j_store import Neo4jGraphStore
 
 
@@ -98,7 +99,7 @@ class TestNeo4jGraphStoreGetNode:
 
             pass
 
-        node_data = {"id": "test-123", "name": "foo"}
+        node_data = {"id": "test-123", "name": "foo", "businessDomain": "payments", "entryCodeEntityId": "code-1"}
         mock_node = MockNode(node_data)
 
         mock_record = MagicMock()
@@ -119,6 +120,8 @@ class TestNeo4jGraphStoreGetNode:
         assert result is not None
         assert result["id"] == "test-123"
         assert result["name"] == "foo"
+        assert result["businessDomain"] == "payments"
+        assert result["entryCodeEntityId"] == "code-1"
 
     def test_get_node_not_found(self, mock_driver: MagicMock, mock_session: MagicMock):
         """测试 get_node 未找到节点返回 None。"""
@@ -135,6 +138,53 @@ class TestNeo4jGraphStoreGetNode:
 
         # Assert
         assert result is None
+
+    @pytest.mark.parametrize("failure", ["run", "single", "record-get"])
+    def test_get_node_driver_failures_raise_stable_store_error(
+        self, mock_driver: MagicMock, mock_session: MagicMock, failure: str
+    ):
+        """测试 driver read failure 被标准化为 StoreError。"""
+        # Arrange
+        if failure == "run":
+            mock_session.run.side_effect = RuntimeError("run failed")
+        elif failure == "single":
+            mock_session.run.return_value.single.side_effect = RuntimeError("single failed")
+        else:
+            mock_session.run.return_value.single.return_value.get.side_effect = RuntimeError("get failed")
+        store = Neo4jGraphStore("bolt://localhost:7687", "neo4j", "password")
+        store._driver = mock_driver
+
+        # Act / Assert
+        with pytest.raises(StoreError, match=r"^Neo4jGraph get_node failed$") as exc_info:
+            store.get_node("node-1")
+        assert exc_info.value.__cause__ is not None
+
+    @pytest.mark.parametrize(
+        "node",
+        [
+            None,
+            object(),
+            {},
+            {"name": "missing id"},
+            {"id": " "},
+            {"id": 1},
+            {"id": "other-node"},
+        ],
+        ids=["none", "non-convertible", "empty", "missing-id", "blank-id", "non-string-id", "mismatch"],
+    )
+    def test_get_node_malformed_node_raises_stable_store_error(
+        self, mock_driver: MagicMock, mock_session: MagicMock, node: object
+    ):
+        """测试 malformed node 不会泄漏到业务读取层。"""
+        # Arrange
+        mock_session.run.return_value.single.return_value.get.return_value = node
+        store = Neo4jGraphStore("bolt://localhost:7687", "neo4j", "password")
+        store._driver = mock_driver
+
+        # Act / Assert
+        with pytest.raises(StoreError, match=r"^Neo4jGraph get_node failed$") as exc_info:
+            store.get_node("node-1")
+        assert exc_info.value.__cause__ is not None
 
 
 @pytest.mark.unit
@@ -421,6 +471,7 @@ class TestNeo4jGraphStoreGetRelations:
         assert len(result) == 1
         assert result[0]["source_id"] == "src-123"
         assert result[0]["target_id"] == "tgt-456"
+        assert result == [expected_data]
 
     def test_get_relations_by_type(self, mock_driver: MagicMock, mock_session: MagicMock):
         """测试 get_relations 按关系类型查询。"""
@@ -464,6 +515,157 @@ class TestNeo4jGraphStoreGetRelations:
         assert "MATCH" in cypher
         assert "WHERE" not in cypher
         assert result == []
+
+    def test_get_relations_realized_by_normalizes_semantic_row(self, mock_driver: MagicMock, mock_session: MagicMock):
+        """测试 B2 scoped read 规范化关系类型并保留额外属性。"""
+        # Arrange
+        row = {
+            "source_id": "cap-1",
+            "target_id": "code-1",
+            "rel_type": " realized_by ",
+            "properties": {"confidence": 0.8},
+        }
+        mock_session.run.return_value.__iter__ = MagicMock(
+            return_value=iter([MagicMock(data=MagicMock(return_value=row))])
+        )
+        store = Neo4jGraphStore("bolt://localhost:7687", "neo4j", "password")
+        store._driver = mock_driver
+
+        # Act
+        result = store.get_relations(source_id="cap-1", rel_type="realized_by")
+
+        # Assert
+        assert result == [
+            {
+                "source_id": "cap-1",
+                "target_id": "code-1",
+                "rel_type": "REALIZED_BY",
+                "properties": {"confidence": 0.8},
+            }
+        ]
+        assert "REALIZED_BY" in mock_session.run.call_args.args[0]
+
+    def test_get_relations_realized_by_preserves_row_order(self, mock_driver: MagicMock, mock_session: MagicMock):
+        """测试 B2 scoped read 保持驱动返回顺序。"""
+        # Arrange
+        rows = [
+            {"source_id": "cap-1", "target_id": "code-2", "rel_type": "REALIZED_BY"},
+            {"source_id": "cap-1", "target_id": "code-1", "rel_type": "realized_by"},
+        ]
+        mock_session.run.return_value.__iter__ = MagicMock(
+            return_value=iter([MagicMock(data=MagicMock(return_value=row)) for row in rows])
+        )
+        store = Neo4jGraphStore("bolt://localhost:7687", "neo4j", "password")
+        store._driver = mock_driver
+
+        # Act
+        result = store.get_relations(source_id="cap-1", rel_type="realized_by")
+
+        # Assert
+        assert [row["target_id"] for row in result] == ["code-2", "code-1"]
+
+    def test_get_relations_realized_by_empty_result_returns_empty_list(
+        self, mock_driver: MagicMock, mock_session: MagicMock
+    ):
+        """测试 B2 scoped read 的空结果保持为空列表。"""
+        # Arrange
+        mock_session.run.return_value.__iter__ = MagicMock(return_value=iter([]))
+        store = Neo4jGraphStore("bolt://localhost:7687", "neo4j", "password")
+        store._driver = mock_driver
+
+        # Act
+        result = store.get_relations(source_id="cap-1", rel_type="realized_by")
+
+        # Assert
+        assert result == []
+
+    @pytest.mark.parametrize(
+        "row",
+        [
+            None,
+            {},
+            {"source_id": "cap-1", "target_id": "code-1"},
+            {"target_id": "code-1", "rel_type": "REALIZED_BY"},
+            {"source_id": " ", "target_id": "code-1", "rel_type": "REALIZED_BY"},
+            {"source_id": "cap-1", "target_id": " ", "rel_type": "REALIZED_BY"},
+            {"source_id": 1, "target_id": "code-1", "rel_type": "REALIZED_BY"},
+            {"source_id": "cap-1", "target_id": 1, "rel_type": "REALIZED_BY"},
+            {"source_id": "other", "target_id": "code-1", "rel_type": "REALIZED_BY"},
+            {"source_id": "cap-1", "target_id": "code-1", "rel_type": 1},
+            {"source_id": "cap-1", "target_id": "code-1", "rel_type": "CALLS"},
+        ],
+        ids=[
+            "non-mapping",
+            "missing-fields",
+            "missing-type",
+            "missing-source",
+            "blank-source",
+            "blank-target",
+            "non-string-source",
+            "non-string-target",
+            "wrong-source",
+            "non-string-type",
+            "wrong-type",
+        ],
+    )
+    def test_get_relations_realized_by_malformed_rows_raise_stable_store_error(
+        self, mock_driver: MagicMock, mock_session: MagicMock, row: object
+    ):
+        """测试 B2 scoped read 拒绝 malformed semantic rows。"""
+        # Arrange
+        mock_session.run.return_value.__iter__ = MagicMock(
+            return_value=iter([MagicMock(data=MagicMock(return_value=row))])
+        )
+        store = Neo4jGraphStore("bolt://localhost:7687", "neo4j", "password")
+        store._driver = mock_driver
+
+        # Act / Assert
+        with pytest.raises(StoreError, match=r"^Neo4jGraph get_relations failed$") as exc_info:
+            store.get_relations(source_id="cap-1", rel_type="realized_by")
+        assert exc_info.value.__cause__ is not None
+
+    @pytest.mark.parametrize(
+        "failure",
+        ["run", "iterate", "data"],
+    )
+    def test_get_relations_driver_failures_raise_stable_store_error(
+        self, mock_driver: MagicMock, mock_session: MagicMock, failure: str
+    ):
+        """测试所有关系读取 driver failure 都被标准化。"""
+        # Arrange
+        if failure == "run":
+            mock_session.run.side_effect = RuntimeError("run failed")
+        elif failure == "iterate":
+            mock_session.run.return_value.__iter__ = MagicMock(side_effect=RuntimeError("iterate failed"))
+        else:
+            mock_session.run.return_value.__iter__ = MagicMock(
+                return_value=iter([MagicMock(data=MagicMock(side_effect=RuntimeError("data failed")))])
+            )
+        store = Neo4jGraphStore("bolt://localhost:7687", "neo4j", "password")
+        store._driver = mock_driver
+
+        # Act / Assert
+        with pytest.raises(StoreError, match=r"^Neo4jGraph get_relations failed$") as exc_info:
+            store.get_relations(source_id="cap-1", rel_type="realized_by")
+        assert exc_info.value.__cause__ is not None
+
+    def test_get_relations_generic_custom_type_returns_row_unchanged(
+        self, mock_driver: MagicMock, mock_session: MagicMock
+    ):
+        """测试非 B2 调用保留自定义关系行，不应用 semantic 校验。"""
+        # Arrange
+        row = {"source_id": "src-1", "target_id": "target-1", "rel_type": "CUSTOM_EDGE", "custom": True}
+        mock_session.run.return_value.__iter__ = MagicMock(
+            return_value=iter([MagicMock(data=MagicMock(return_value=row))])
+        )
+        store = Neo4jGraphStore("bolt://localhost:7687", "neo4j", "password")
+        store._driver = mock_driver
+
+        # Act
+        result = store.get_relations(source_id="src-1", rel_type="CUSTOM_EDGE")
+
+        # Assert
+        assert result == [row]
 
 
 @pytest.mark.unit

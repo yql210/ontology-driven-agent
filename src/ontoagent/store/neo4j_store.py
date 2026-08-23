@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from neo4j import GraphDatabase
 from neo4j import Result as Neo4jResult
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
+from ontoagent.domain.exceptions import StoreError
 from ontoagent.domain.schema import RELATION_TYPE_TO_NEO4J, validate_relation_constraint
 from ontoagent.store.graph_store import GraphStore
 from ontoagent.store.schema_version import register_schema_version
@@ -319,15 +321,29 @@ class Neo4jGraphStore(GraphStore):
         """
         cypher = "MATCH (n {id: $id}) RETURN n"
 
-        with self._driver.session() as session:
-            result: Neo4jResult = session.run(cypher, id=node_id)
-            record = result.single()
+        try:
+            with self._driver.session() as session:
+                result: Neo4jResult = session.run(cypher, id=node_id)
+                record = result.single()
+                if record is None:
+                    return None
 
-            if record is None:
-                return None
-
-            node = record.get("n")
-            return dict(node)
+                properties = dict(record.get("n"))
+                if not isinstance(properties, Mapping):
+                    msg = "malformed node result: properties are not a mapping"
+                    raise TypeError(msg)
+                node_result = dict(properties)
+                actual_id = node_result.get("id")
+                if not isinstance(actual_id, str) or not actual_id.strip():
+                    msg = "malformed node result: invalid id"
+                    raise ValueError(msg)
+                if actual_id != node_id:
+                    msg = "malformed node result: backend id does not match requested id"
+                    raise ValueError(msg)
+                return node_result
+        except Exception as exc:
+            logger.exception("[Neo4j] get_node failed for id=%s", node_id)
+            raise StoreError("Neo4jGraph get_node failed") from exc
 
     def delete_node(self, node_id: str) -> bool:
         """删除节点。
@@ -490,9 +506,36 @@ class Neo4jGraphStore(GraphStore):
             " RETURN source.id AS source_id, target.id AS target_id, type(r) AS rel_type, properties(r) AS properties"
         )
 
-        with self._driver.session() as session:
-            result: Neo4jResult = session.run(cypher, **params)
-            return [record.data() for record in result]
+        b2_realized_by = rel_type == "realized_by"
+        try:
+            with self._driver.session() as session:
+                result: Neo4jResult = session.run(cypher, **params)
+                relations: list[dict] = []
+                for record in result:
+                    row = record.data()
+                    if b2_realized_by:
+                        if not isinstance(row, Mapping):
+                            msg = "malformed relation result: row is not a mapping"
+                            raise TypeError(msg)
+                        row = dict(row)
+                        for field in ("source_id", "target_id"):
+                            value = row.get(field)
+                            if not isinstance(value, str) or not value.strip():
+                                msg = f"malformed relation result: invalid {field}"
+                                raise ValueError(msg)
+                        if row["source_id"] != source_id:
+                            msg = "malformed relation result: backend source does not match requested source"
+                            raise ValueError(msg)
+                        decoded_type = row.get("rel_type")
+                        if not isinstance(decoded_type, str) or decoded_type.strip().upper() != "REALIZED_BY":
+                            msg = "malformed relation result: invalid rel_type"
+                            raise ValueError(msg)
+                        row["rel_type"] = "REALIZED_BY"
+                    relations.append(row)
+                return relations
+        except Exception as exc:
+            logger.exception("[Neo4j] get_relations failed")
+            raise StoreError("Neo4jGraph get_relations failed") from exc
 
     def query(self, cypher: str, params: dict | None = None) -> list[dict]:
         """执行 Cypher 查询。
