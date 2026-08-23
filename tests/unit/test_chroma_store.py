@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from ontoagent.domain.exceptions import EmbeddingError
+from ontoagent.domain.index_health import VectorWriteOutcome
 from ontoagent.store.chroma_store import (
     ChromaStore,
     OllamaEmbeddingFunction,
@@ -376,6 +377,42 @@ class TestChromaStoreWrite:
 
         # Assert
         assert chroma_store.count() == 10
+
+    def test_put_entities_batch_with_outcome_confirms_sanitized_items(self, chroma_store) -> None:
+        outcome = chroma_store.put_entities_batch_with_outcome(
+            [("one", "text", {"nested": ["value"]}), ("blank", " ", {})]
+        )
+
+        assert outcome == VectorWriteOutcome(1, 1, 0)
+        assert chroma_store.get_entity("one")["metadata"]["nested"] == "['value']"
+
+    def test_put_entities_batch_with_outcome_counts_partial_batch_failure(self, chroma_store) -> None:
+        original_upsert = chroma_store._collection.upsert
+        calls = 0
+
+        def fail_second_batch(**kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise RuntimeError("second batch failed")
+            return original_upsert(**kwargs)
+
+        chroma_store._collection.upsert = fail_second_batch
+        outcome = chroma_store.put_entities_batch_with_outcome(
+            [(f"item-{index}", f"text {index}", {"index": index}) for index in range(3)], batch_size=2
+        )
+
+        assert outcome == VectorWriteOutcome(3, 2, 1)
+        assert outcome.submitted == outcome.confirmed + outcome.failed
+
+    def test_put_entities_batch_with_outcome_empty_and_blank_inputs_are_zero(self, chroma_store) -> None:
+        assert chroma_store.put_entities_batch_with_outcome([]) == VectorWriteOutcome(0, 0, 0)
+        assert chroma_store.put_entities_batch_with_outcome([("blank", "  ", {})]) == VectorWriteOutcome(0, 0, 0)
+
+    def test_legacy_batch_keeps_none_signature_and_swallows_batch_failure(self, chroma_store) -> None:
+        chroma_store._collection.upsert = MagicMock(side_effect=RuntimeError("unavailable"))
+
+        assert chroma_store.put_entities_batch([("one", "text", {})]) is None
 
 
 # =============================================================================

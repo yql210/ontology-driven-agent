@@ -8,6 +8,7 @@ import httpx
 from chromadb.api.types import EmbeddingFunction
 
 from ontoagent.domain.exceptions import EmbeddingError
+from ontoagent.domain.index_health import VectorWriteOutcome
 
 _VALID_METADATA_TYPES = (str, int, float, bool)
 
@@ -266,6 +267,47 @@ class ChromaStore:
                 )
         if failed:
             self._logger.warning("Vector write: %d/%d items failed", failed, len(ids))
+
+    def put_entities_batch_with_outcome(
+        self,
+        items: list[tuple[str, str, dict[str, Any]]],
+        batch_size: int = 20,
+    ) -> VectorWriteOutcome:
+        """Write sanitized items in batches and return per-item write outcomes.
+
+        The filtering and per-batch failure tolerance intentionally match
+        :meth:`put_entities_batch`; unlike that legacy API, the outcome is
+        retained for callers that need reliable build facts.
+        """
+        ids, docs, metas = [], [], []
+        for entity_id, text, metadata in items:
+            if text and text.strip():
+                ids.append(entity_id)
+                docs.append(text)
+                metas.append(_sanitize_metadata(metadata))
+        if not ids:
+            return VectorWriteOutcome(0, 0, 0)
+
+        total_batches = -(-len(ids) // batch_size)
+        confirmed = 0
+        failed = 0
+        for i in range(0, len(ids), batch_size):
+            batch_ids = ids[i : i + batch_size]
+            batch_docs = docs[i : i + batch_size]
+            batch_metas = metas[i : i + batch_size]
+            try:
+                self._collection.upsert(ids=batch_ids, documents=batch_docs, metadatas=batch_metas)
+            except Exception as e:
+                failed += len(batch_ids)
+                self._logger.warning(
+                    "Batch %d/%d failed (%d items): %s", i // batch_size + 1, total_batches, len(batch_ids), e
+                )
+            else:
+                confirmed += len(batch_ids)
+                self._logger.debug("Put batch (%d/%d): %d entities", i // batch_size + 1, total_batches, len(batch_ids))
+        if failed:
+            self._logger.warning("Vector write: %d/%d items failed", failed, len(ids))
+        return VectorWriteOutcome(len(ids), confirmed, failed)
 
     # --- 查询操作 ---
 

@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from ontoagent.api.web import app as app_module
 from ontoagent.api.web.router.build import BuildStatusResponse, _update_repo_status
+from ontoagent.domain.index_health import BusinessEntryIndexHealth, VectorWriteOutcome
 from ontoagent.pipeline.builder import BuildResult
 
 
@@ -235,6 +236,24 @@ def test_build_success_returns_result_and_frozen_logs(test_client: TestClient, t
     assert data["result"]["entities_created"] == 5
     assert data["result"]["relations_created"] == 3
     assert data["logs"]
+
+
+@pytest.mark.unit
+def test_build_success_serializes_business_entry_index(test_client: TestClient, tmp_path: Path) -> None:
+    health = BusinessEntryIndexHealth.from_build_facts(
+        aborted=False,
+        capability_extraction_failed=False,
+        eligible_entries_seen=1,
+        capabilities_merged=1,
+        realized_by_submitted=1,
+        capability_vector_outcome=VectorWriteOutcome(1, 1, 0),
+    )
+    with patch("ontoagent.pipeline.builder.OntoAgentBuilder") as mock_builder_cls:
+        mock_builder_cls.return_value.build.return_value = BuildResult(1, 1, 1, business_entry_index=health)
+        task_id = test_client.post("/api/build", json={"repo_url": str(tmp_path)}).json()["task_id"]
+
+    data = _wait_for_status(test_client, task_id)
+    assert data["result"]["business_entry_index"] == health.to_dict()
 
 
 @pytest.mark.unit

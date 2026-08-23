@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ontoagent.config import OntoAgentConfig
+from ontoagent.domain.index_health import BusinessEntryIndexHealth, VectorWriteOutcome
 from ontoagent.domain.provenance import add_provenance, clamp_confidence
 from ontoagent.domain.schema import (
     CodeEntity,
@@ -84,6 +85,10 @@ ENTITY_TYPE_TO_LABEL: dict[str, str] = {
 }
 
 
+class _CapabilityVectorWriteError(Exception):
+    """Marks a failure limited to Capability vector preparation or upsert."""
+
+
 @dataclass
 class BuildResult:
     """构建结果。
@@ -113,9 +118,13 @@ class BuildResult:
     aborted: bool = False
     elapsed_ms: float = 0.0
     errors: list[str] = field(default_factory=list)
+    business_entry_index: BusinessEntryIndexHealth | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return dataclasses.asdict(self)
+        result = dataclasses.asdict(self)
+        if self.business_entry_index is not None:
+            result["business_entry_index"] = self.business_entry_index.to_dict()
+        return result
 
     def __str__(self) -> str:
         lines = ["Build Report:"]
@@ -128,6 +137,9 @@ class BuildResult:
         lines.append(f"  Modules:          {self.modules_created}")
         lines.append(f"  Semantic stage: {'[!] skipped' if self.skipped_semantic else '[+] completed'}")
         lines.append(f"  Build status: {'[X] aborted' if self.aborted else '[+] success'}")
+        if self.business_entry_index is not None:
+            reasons = ", ".join(reason.value for reason in self.business_entry_index.reasons) or "none"
+            lines.append(f"  Business entry index: {self.business_entry_index.status.value} ({reasons})")
         if self.errors:
             lines.append(f"  Errors ({len(self.errors)}):")
             for err in self.errors:
@@ -678,6 +690,14 @@ class OntoAgentBuilder:
                 aborted=aborted,
                 elapsed_ms=elapsed,
                 errors=all_errors,
+                business_entry_index=BusinessEntryIndexHealth.from_build_facts(
+                    aborted=True,
+                    capability_extraction_failed=False,
+                    eligible_entries_seen=0,
+                    capabilities_merged=0,
+                    realized_by_submitted=0,
+                    capability_vector_outcome=VectorWriteOutcome(0, 0, 0),
+                ),
             )
 
         self._report_progress(progress_callback, "structural_write", f"Wrote {len(relations)} relations")
@@ -747,9 +767,14 @@ class OntoAgentBuilder:
         # Stage 2.7: Capability Extraction (V5 Phase 1, non-critical)
         capability_count = 0
         realized_by_count = 0
+        eligible_entries_seen = 0
+        capability_extraction_failed = False
         try:
-            capability_count, realized_by_count = self._extract_capabilities(all_entities, graph_store, batch_time)
+            capability_count, realized_by_count, eligible_entries_seen = self._extract_capabilities(
+                all_entities, graph_store, batch_time
+            )
         except Exception as e:
+            capability_extraction_failed = True
             self._logger.warning("Capability extraction failed (non-critical): %s", e)
             all_errors.append(f"Capability extraction error: {e}")
         self._logger.info(
@@ -798,12 +823,30 @@ class OntoAgentBuilder:
 
         # Stage 5: 向量写入（可降级）
         self._logger.info("═══ Stage 5/5: Vector Index ═══")
+        capability_vector_outcome = VectorWriteOutcome(0, 0, 0)
         try:
             cap_dicts = getattr(self, "_capability_dicts", None) or []
-            self._write_all_vectors(all_entities, doc_entities, new_concepts, clusters, capability_dicts=cap_dicts)
+            capability_vector_outcome = self._write_all_vectors(
+                all_entities, doc_entities, new_concepts, clusters, capability_dicts=cap_dicts
+            )
+        except _CapabilityVectorWriteError as e:
+            self._logger.warning("Capability vector write failed: %s", e)
+            all_errors.append(f"Capability vector write error: {e}")
+            capability_vector_outcome = VectorWriteOutcome(1, 0, 1)
         except Exception as e:
             self._logger.warning("Vector write failed: %s", e)
             all_errors.append(f"Vector write error: {e}")
+        else:
+            try:
+                capability_vector_outcome = VectorWriteOutcome(
+                    capability_vector_outcome.submitted,
+                    capability_vector_outcome.confirmed,
+                    capability_vector_outcome.failed,
+                )
+            except (AttributeError, ValueError, TypeError) as e:
+                self._logger.warning("Capability vector outcome invalid: %s", e)
+                all_errors.append(f"Capability vector write error: invalid outcome: {e}")
+                capability_vector_outcome = VectorWriteOutcome(1, 0, 1)
         self._report_progress(progress_callback, "vector_index", "Vector index complete")
 
         elapsed = (time.monotonic() - t0) * 1000
@@ -827,6 +870,14 @@ class OntoAgentBuilder:
             aborted=aborted,
             elapsed_ms=elapsed,
             errors=all_errors,
+            business_entry_index=BusinessEntryIndexHealth.from_build_facts(
+                aborted=False,
+                capability_extraction_failed=capability_extraction_failed,
+                eligible_entries_seen=eligible_entries_seen,
+                capabilities_merged=capability_count,
+                realized_by_submitted=realized_by_count,
+                capability_vector_outcome=capability_vector_outcome,
+            ),
         )
 
     def _write_service_topic_entities(
@@ -1161,7 +1212,7 @@ class OntoAgentBuilder:
         all_entities: list[CodeEntity],
         graph_store: GraphStore,
         batch_time: str,
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, int]:
         """Stage 2.7: 从 API 入口函数逆向 CapabilityEntity 并写入 Neo4j。
 
         Args:
@@ -1170,15 +1221,18 @@ class OntoAgentBuilder:
             batch_time: 批次时间戳。
 
         Returns:
-            (capability_count, realized_by_count) 元组。
+            (capability_count, realized_by_submitted, eligible_entries_seen) 元组。
         """
         from ontoagent.parsing.extractor.capability_extractor import CapabilityExtractor
 
         extractor = CapabilityExtractor()
         cap_dicts: list[dict] = []
         realized_by_rels: list[dict] = []
+        eligible_entries_seen = 0
 
         for entity in all_entities:
+            if entity.entry_category in {"http_api", "rpc_service"}:
+                eligible_entries_seen += 1
             capability = extractor.extract(entity)
             if capability is None:
                 continue
@@ -1219,10 +1273,11 @@ class OntoAgentBuilder:
 
         rel_count = 0
         if realized_by_rels:
-            rel_count = graph_store.merge_relations_batch(realized_by_rels, batch_size=200)
+            graph_store.merge_relations_batch(realized_by_rels, batch_size=200)
+            rel_count = len(realized_by_rels)
             self._logger.info("[Neo4j] Wrote %d REALIZED_BY relations", rel_count)
 
-        return cap_count, rel_count
+        return cap_count, rel_count, eligible_entries_seen
 
     def _extract_capabilities_to_dicts(
         self,
@@ -1240,7 +1295,7 @@ class OntoAgentBuilder:
         Returns:
             List of capability property dicts.
         """
-        _, _ = self._extract_capabilities(all_entities, graph_store, batch_time)
+        _, _, _ = self._extract_capabilities(all_entities, graph_store, batch_time)
         return self._capability_dicts
 
     def _detect_and_write_modules(
@@ -1273,7 +1328,7 @@ class OntoAgentBuilder:
         new_concepts: list[ConceptEntity],
         clusters: list[ModuleCluster],
         capability_dicts: list[dict] | None = None,
-    ) -> None:
+    ) -> VectorWriteOutcome:
         """Stage 5: 统一向量写入 ChromaDB.
 
         Args:
@@ -1310,9 +1365,13 @@ class OntoAgentBuilder:
             text = module.description or module.name
             items.append((module.id, text, {"entity_type": "module", "name": module.name}))
 
-        # V5 Phase 2: CapabilityEntity — indexed for semantic search
-        if capability_dicts:
-            for cap in capability_dicts:
+        if items:
+            self._logger.info("[Vector] Writing %d ordinary items to ChromaDB...", len(items))
+            chroma_store.put_entities_batch(items)
+
+        capability_items: list[tuple[str, str, dict[str, str]]] = []
+        try:
+            for cap in capability_dicts or []:
                 cap_name = str(cap.get("name", ""))
                 cap_desc = str(cap.get("description", ""))
                 cap_domain = str(cap.get("business_domain", ""))
@@ -1333,7 +1392,7 @@ class OntoAgentBuilder:
                         identity_value = cap.get(identity_key)
                         if identity_value is not None and str(identity_value).strip():
                             metadata[identity_key] = str(identity_value)
-                    items.append(
+                    capability_items.append(
                         (
                             cap_id,
                             search_text,
@@ -1341,10 +1400,12 @@ class OntoAgentBuilder:
                         )
                     )
 
-        if items:
-            self._logger.info("[Vector] Writing %d items to ChromaDB...", len(items))
-            chroma_store.put_entities_batch(items)
-            self._logger.info("[Vector] Wrote %d vectors complete", len(items))
+            if not capability_items:
+                return VectorWriteOutcome(0, 0, 0)
+            self._logger.info("[Vector] Writing %d Capability items to ChromaDB...", len(capability_items))
+            return chroma_store.put_entities_batch_with_outcome(capability_items)
+        except Exception as e:
+            raise _CapabilityVectorWriteError(str(e)) from e
 
     def _fuzzy_lookup_entity(
         self,

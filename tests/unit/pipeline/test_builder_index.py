@@ -6,6 +6,12 @@ from pathlib import Path
 import pytest
 
 from ontoagent.config import OntoAgentConfig
+from ontoagent.domain.index_health import (
+    BusinessEntryIndexHealth,
+    BusinessEntryIndexStatus,
+    IndexHealthReason,
+    VectorWriteOutcome,
+)
 from ontoagent.domain.schema import CodeEntity, ConceptEntity, DocEntity
 from ontoagent.parsing.extractor.semantic import SemanticRelation
 from ontoagent.pipeline.builder import OntoAgentBuilder
@@ -316,3 +322,174 @@ class TestBuildResult:
         assert result.skipped_semantic is False
         assert result.elapsed_ms == 0.0
         assert result.errors == []
+
+    def test_business_entry_index_is_optional_json_safe_and_printed_when_present(self) -> None:
+        from ontoagent.pipeline.builder import BuildResult
+
+        health = BusinessEntryIndexHealth.from_build_facts(
+            aborted=False,
+            capability_extraction_failed=False,
+            eligible_entries_seen=1,
+            capabilities_merged=1,
+            realized_by_submitted=1,
+            capability_vector_outcome=VectorWriteOutcome(1, 1, 0),
+        )
+        result = BuildResult(1, 2, 3, business_entry_index=health)
+
+        assert BuildResult(1, 2, 3).business_entry_index is None
+        assert result.to_dict()["business_entry_index"] == health.to_dict()
+        assert "Business entry index: healthy" in str(result)
+
+
+class _HealthGraphRecorder:
+    def ensure_constraints(self) -> None:
+        pass
+
+    def get_nodes_by_label(self, _label: str, _properties: list[str]) -> list[dict]:
+        return []
+
+    def merge_node(self, _label: str, _properties: dict) -> None:
+        pass
+
+    def merge_nodes_batch(self, _label: str, properties: list[dict], batch_size: int = 200) -> int:
+        del batch_size
+        return len(properties)
+
+    def merge_relations_batch(self, relations: list[dict], batch_size: int = 200) -> int:
+        del batch_size
+        return len(relations)
+
+
+class _HealthChromaRecorder:
+    def __init__(self, outcome: VectorWriteOutcome | object | None = None) -> None:
+        self.outcome = VectorWriteOutcome(0, 0, 0) if outcome is None else outcome
+        self.generic_batches: list[list[tuple[str, str, dict]]] = []
+        self.capability_batches: list[list[tuple[str, str, dict]]] = []
+
+    def put_entities_batch(self, items: list[tuple[str, str, dict]]) -> None:
+        self.generic_batches.append(items)
+
+    def put_entities_batch_with_outcome(self, items: list[tuple[str, str, dict]]) -> VectorWriteOutcome:
+        self.capability_batches.append(items)
+        if isinstance(self.outcome, Exception):
+            raise self.outcome
+        return self.outcome  # type: ignore[return-value]
+
+
+def _health_builder(tmp_path: Path, chroma: _HealthChromaRecorder) -> OntoAgentBuilder:
+    builder = OntoAgentBuilder(OntoAgentConfig())
+    builder._stage_parse = lambda _path: (  # type: ignore[method-assign]
+        [CodeEntity(name="orders", entity_type="function", entry_category="http_api")],
+        [],
+        [],
+        1,
+        [],
+    )
+    builder._get_graph_store = lambda: _HealthGraphRecorder()  # type: ignore[method-assign]
+    builder._get_chroma_store = lambda: chroma  # type: ignore[method-assign]
+    builder._write_business_ontology = lambda *args: (0, 0, 0)  # type: ignore[method-assign]
+    return builder
+
+
+@pytest.mark.unit
+def test_builder_reports_healthy_business_entry_index_from_real_stages(tmp_path: Path) -> None:
+    builder = _health_builder(tmp_path, _HealthChromaRecorder(VectorWriteOutcome(1, 1, 0)))
+
+    result = builder.build(tmp_path, skip_semantic=True, skip_clustering=True)
+
+    assert result.business_entry_index is not None
+    assert result.business_entry_index.status is BusinessEntryIndexStatus.HEALTHY
+    assert result.business_entry_index.eligible_entries_seen == 1
+    assert result.business_entry_index.capabilities_merged == 1
+    assert result.business_entry_index.realized_by_submitted == 1
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("outcome", "expected_reason"),
+    [
+        (VectorWriteOutcome(1, 0, 1), IndexHealthReason.CAPABILITY_VECTOR_WRITE_FAILED),
+        (VectorWriteOutcome(0, 0, 0), IndexHealthReason.NO_REALIZATIONS_SUBMITTED),
+    ],
+)
+def test_builder_reports_capability_health_anomalies(
+    tmp_path: Path, outcome: VectorWriteOutcome, expected_reason: IndexHealthReason
+) -> None:
+    builder = _health_builder(tmp_path, _HealthChromaRecorder(outcome))
+    if outcome.submitted == 0:
+        builder._extract_capabilities = lambda *args: (1, 0, 1)  # type: ignore[method-assign]
+
+    result = builder.build(tmp_path, skip_semantic=True, skip_clustering=True)
+
+    assert result.business_entry_index is not None
+    assert result.business_entry_index.status is BusinessEntryIndexStatus.DEGRADED
+    assert expected_reason in result.business_entry_index.reasons
+
+
+@pytest.mark.unit
+def test_builder_no_eligible_and_abort_have_unavailable_health(tmp_path: Path) -> None:
+    builder = _health_builder(tmp_path, _HealthChromaRecorder())
+    builder._stage_parse = lambda _path: ([CodeEntity(name="plain", entity_type="function")], [], [], 1, [])  # type: ignore[method-assign]
+    no_eligible = builder.build(tmp_path, skip_semantic=True, skip_clustering=True)
+    assert no_eligible.business_entry_index is not None
+    assert no_eligible.business_entry_index.status is BusinessEntryIndexStatus.UNAVAILABLE
+    assert no_eligible.business_entry_index.reasons == (IndexHealthReason.NO_ELIGIBLE_ENTRIES,)
+
+    aborted_builder = _health_builder(tmp_path, _HealthChromaRecorder())
+    aborted_builder._stage_write_structural = lambda *args: (_ for _ in ()).throw(RuntimeError("stage 2"))  # type: ignore[method-assign]
+    aborted = aborted_builder.build(tmp_path, skip_semantic=True, skip_clustering=True)
+    assert aborted.business_entry_index is not None
+    assert aborted.business_entry_index.reasons == (IndexHealthReason.BUILD_ABORTED,)
+
+
+@pytest.mark.unit
+def test_builder_extraction_failure_is_degraded(tmp_path: Path) -> None:
+    builder = _health_builder(tmp_path, _HealthChromaRecorder())
+    builder._extract_capabilities = lambda *args: (_ for _ in ()).throw(RuntimeError("extract failed"))  # type: ignore[method-assign]
+
+    result = builder.build(tmp_path, skip_semantic=True, skip_clustering=True)
+
+    assert result.business_entry_index is not None
+    assert result.business_entry_index.status is BusinessEntryIndexStatus.DEGRADED
+    assert result.business_entry_index.reasons == (IndexHealthReason.CAPABILITY_EXTRACTION_FAILED,)
+
+
+@pytest.mark.unit
+def test_builder_ordinary_vector_failure_does_not_poison_capability_health(tmp_path: Path) -> None:
+    class FailingOrdinaryChroma(_HealthChromaRecorder):
+        def put_entities_batch(self, items: list[tuple[str, str, dict]]) -> None:
+            del items
+            raise RuntimeError("ordinary vector failure")
+
+    builder = _health_builder(tmp_path, FailingOrdinaryChroma(VectorWriteOutcome(1, 1, 0)))
+    result = builder.build(tmp_path, skip_semantic=True, skip_clustering=True)
+
+    assert result.business_entry_index is not None
+    assert IndexHealthReason.CAPABILITY_VECTOR_WRITE_FAILED not in result.business_entry_index.reasons
+    assert result.business_entry_index.status is BusinessEntryIndexStatus.HEALTHY
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("origin", ["preparation", "outcome_call", "invalid_outcome"])
+def test_builder_capability_specific_failures_use_synthetic_outcome(tmp_path: Path, origin: str, monkeypatch) -> None:
+    chroma = _HealthChromaRecorder(VectorWriteOutcome(1, 1, 0))
+    builder = _health_builder(tmp_path, chroma)
+    if origin == "preparation":
+        monkeypatch.setattr(
+            "ontoagent.pipeline.builder.capability_to_searchable_text",
+            lambda *args: (_ for _ in ()).throw(RuntimeError("preparation failed")),
+        )
+    elif origin == "outcome_call":
+        chroma.outcome = RuntimeError("outcome call failed")
+    else:
+        chroma.outcome = object()
+
+    result = builder.build(tmp_path, skip_semantic=True, skip_clustering=True)
+
+    assert result.business_entry_index is not None
+    health = result.business_entry_index
+    assert health.status is BusinessEntryIndexStatus.DEGRADED
+    assert health.capability_vectors_submitted == 1
+    assert health.capability_vectors_confirmed == 0
+    assert health.capability_vectors_failed == 1
+    assert IndexHealthReason.CAPABILITY_VECTOR_WRITE_FAILED in health.reasons

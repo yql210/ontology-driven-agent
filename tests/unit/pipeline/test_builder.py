@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from ontoagent.config import OntoAgentConfig
+from ontoagent.domain.index_health import VectorWriteOutcome
 from ontoagent.domain.schema import CodeEntity, RepositoryEntity
 from ontoagent.pipeline.builder import BuildResult, OntoAgentBuilder
 from ontoagent.store.schema_version import SchemaStatus
@@ -48,6 +49,10 @@ class _RecordingChromaStore:
 
     def put_entities_batch(self, items: list[tuple[str, str, dict]]) -> None:
         self.batches.append(list(items))
+
+    def put_entities_batch_with_outcome(self, items: list[tuple[str, str, dict]]) -> VectorWriteOutcome:
+        self.batches.append(list(items))
+        return VectorWriteOutcome(len(items), len(items), 0)
 
 
 @pytest.fixture

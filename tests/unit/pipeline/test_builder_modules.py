@@ -108,7 +108,7 @@ class TestWriteAllVectors:
         with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
             builder._write_all_vectors([], [], [], [], capability_dicts=[capability])
 
-        item = mock_chroma.put_entities_batch.call_args.args[0][0]
+        item = mock_chroma.put_entities_batch_with_outcome.call_args.args[0][0]
         assert item[0] == "cap-repo-a-entry-1"
         assert "process_payment" in item[1]
         assert "Process a payment." in item[1]
@@ -136,7 +136,7 @@ class TestWriteAllVectors:
         with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
             builder._write_all_vectors([], [], [], [], capability_dicts=[capability])
 
-        metadata = mock_chroma.put_entities_batch.call_args.args[0][0][2]
+        metadata = mock_chroma.put_entities_batch_with_outcome.call_args.args[0][0][2]
         assert metadata == {
             "entity_type": "CapabilityEntity",
             "name": "process_payment",
@@ -178,7 +178,7 @@ class TestWriteAllVectors:
         with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
             builder._write_all_vectors([], [], [], [], capability_dicts=[repo_a_capability, repo_b_capability])
 
-        vector_items = mock_chroma.put_entities_batch.call_args.args[0]
+        vector_items = mock_chroma.put_entities_batch_with_outcome.call_args.args[0]
         assert [item[0] for item in vector_items] == [repo_a_capability["id"], repo_b_capability["id"]]
         assert vector_items[0][2]["repo_id"] == repo_a_capability["repo_id"]
         assert vector_items[0][2]["entry_code_entity_id"] == repo_a_capability["entry_code_entity_id"]
