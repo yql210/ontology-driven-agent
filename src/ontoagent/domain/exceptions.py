@@ -27,3 +27,7 @@ class ExtractionError(OntoAgentError):
 
 class SchemaMigrationError(OntoAgentError):
     """Schema 迁移错误。"""
+
+
+class BusinessEntryBackendUnavailable(OntoAgentError):  # noqa: N818 - public B1 contract name
+    """业务入口图读取后端不可用。"""
