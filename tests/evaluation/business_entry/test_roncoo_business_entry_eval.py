@@ -237,6 +237,80 @@ def test_static_validation_recognizes_composed_spring_routes(
         assert "ENTRY_ROUTE_MISSING" in report["cases"][0]["reasons"]
 
 
+def _route_fixture_gold(symbol: str, route: str) -> dict[str, object]:
+    gold = _gold_copy()
+    case = gold["cases"][0]
+    case["required_entries"] = [
+        {
+            "id": "entry_sample",
+            "path": "Sample.java",
+            "symbol": symbol,
+            "route": route,
+            "kind": "http_entry",
+            "state": "verified",
+        }
+    ]
+    case["required_symbols"] = [{"id": "sym_sample", "token": symbol, "state": "verified"}]
+    case["claims"] = [
+        {
+            "id": "claim_sample",
+            "kind": "behavior",
+            "state": "verified",
+            "text": "sample",
+            "source_refs": ["entry:entry_sample"],
+        }
+    ]
+    case["required_flow"] = ["entry:entry_sample"]
+    return gold
+
+
+def test_spring_route_does_not_leak_prefix_from_previous_class(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Sample.java").write_text(
+        '@RequestMapping("/first")\nclass First {\n@RequestMapping("/pay")\nvoid handleFirst() {}\n}\n'
+        'class Second {\n@RequestMapping("/pay")\nvoid handle() {}\n}',
+        encoding="utf-8",
+    )
+
+    report = validate_gold_against_source(
+        _route_fixture_gold("handle", "/first/pay"),
+        repo,
+        commit_getter=lambda _: "981e19475e9d794cbb14cb101883e1d0e1a36e9d",
+    ).to_dict()
+
+    assert report["cases"][0]["status"] == "failed"
+    assert "ENTRY_ROUTE_MISSING" in report["cases"][0]["reasons"]
+
+
+def test_spring_route_ignores_commented_request_mapping(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Sample.java").write_text(
+        'class Sample {\n// @RequestMapping("/pay")\nvoid handle() {}\n}', encoding="utf-8"
+    )
+
+    report = validate_gold_against_source(
+        _route_fixture_gold("handle", "/pay"), repo, commit_getter=lambda _: "981e19475e9d794cbb14cb101883e1d0e1a36e9d"
+    ).to_dict()
+
+    assert report["cases"][0]["status"] == "failed"
+    assert "ENTRY_ROUTE_MISSING" in report["cases"][0]["reasons"]
+
+
+def test_spring_route_requires_method_level_mapping(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Sample.java").write_text('@RequestMapping("/api")\nclass Sample {\nvoid handle() {}\n}', encoding="utf-8")
+
+    report = validate_gold_against_source(
+        _route_fixture_gold("handle", "/api"), repo, commit_getter=lambda _: "981e19475e9d794cbb14cb101883e1d0e1a36e9d"
+    ).to_dict()
+
+    assert report["cases"][0]["status"] == "failed"
+    assert "ENTRY_ROUTE_MISSING" in report["cases"][0]["reasons"]
+
+
 def test_preflight_ready_and_missing_are_metric_free(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr("socket.create_connection", lambda *_args, **_kwargs: object())
     monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/mvn")

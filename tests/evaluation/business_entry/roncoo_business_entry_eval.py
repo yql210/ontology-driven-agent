@@ -271,6 +271,24 @@ _REQUEST_MAPPING_PATTERN = re.compile(r"@RequestMapping\s*(?:\((?P<body>[^)]*)\)
 _CLASS_PATTERN = re.compile(r"\bclass\s+[A-Za-z_$][A-Za-z0-9_$]*\b")
 
 
+def _mask_java_comments(text: str) -> str:
+    """Replace Java comments with spaces while retaining line/position structure."""
+    return re.sub(r"//[^\r\n]*|/\*.*?\*/", lambda match: re.sub(r"[^\r\n]", " ", match.group(0)), text, flags=re.DOTALL)
+
+
+def _brace_depths(text: str) -> list[int]:
+    depths = [0] * (len(text) + 1)
+    depth = 0
+    for index, char in enumerate(text):
+        depths[index] = depth
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth = max(0, depth - 1)
+    depths[-1] = depth
+    return depths
+
+
 def _mapping_paths(annotation: re.Match[str]) -> list[str]:
     body = annotation.group("body") or ""
     assigned = re.findall(r"(?:value|path)\s*=\s*(?:\{\s*)?\"([^\"]*)\"", body)
@@ -285,17 +303,64 @@ def _join_route(prefix: str, suffix: str) -> str:
 
 
 def _spring_route_present(text: str, symbol: str, route: str) -> bool:
+    text = _mask_java_comments(text)
     mappings = list(_REQUEST_MAPPING_PATTERN.finditer(text))
     if not mappings:
         return False
-    classes = list(_CLASS_PATTERN.finditer(text))
+    depths = _brace_depths(text)
+    classes: list[tuple[re.Match[str], int, int]] = []
+    for class_match in _CLASS_PATTERN.finditer(text):
+        open_brace = text.find("{", class_match.end())
+        if open_brace < 0:
+            continue
+        body_depth = depths[open_brace] + 1
+        close_brace = len(text)
+        for index in range(open_brace + 1, len(text)):
+            if text[index] == "}" and depths[index] < body_depth:
+                close_brace = index
+                break
+        classes.append((class_match, open_brace, close_brace))
     for method_match in re.finditer(rf"\b{re.escape(symbol)}\s*\(", text):
-        class_match = next((item for item in reversed(classes) if item.start() < method_match.start()), None)
+        enclosing = next(
+            (
+                item
+                for item in reversed(classes)
+                if item[1] < method_match.start() < item[2] and depths[method_match.start()] >= depths[item[1]] + 1
+            ),
+            None,
+        )
+        if enclosing is None:
+            continue
+        class_match, open_brace, _ = enclosing
+        class_depth = depths[class_match.start()]
+        prior_boundary = max(
+            (
+                item[2]
+                for item in classes
+                if item[0].start() < class_match.start() and depths[item[0].start()] == class_depth
+            ),
+            default=0,
+        )
         class_mapping = next(
-            (item for item in reversed(mappings) if item.end() <= (class_match.start() if class_match else 0)), None
+            (
+                item
+                for item in reversed(mappings)
+                if item.end() <= class_match.start()
+                and depths[item.start()] == class_depth
+                and item.end() > prior_boundary
+            ),
+            None,
         )
         class_paths = _mapping_paths(class_mapping) if class_mapping else [""]
-        method_mapping = next((item for item in reversed(mappings) if item.end() <= method_match.start()), None)
+        method_mapping = next(
+            (
+                item
+                for item in reversed(mappings)
+                if open_brace < item.start() < method_match.start()
+                and depths[item.start()] == depths[method_match.start()]
+            ),
+            None,
+        )
         if method_mapping is None:
             continue
         between = text[method_mapping.end() : method_match.start()]
