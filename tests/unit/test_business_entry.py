@@ -185,6 +185,20 @@ def test_raw_entry_rejects_blank_identity_or_name_fields(field: str) -> None:
 
 
 @pytest.mark.parametrize("factory", [_evidence, _raw_entry])
+@pytest.mark.parametrize("file_path", ["", "   "])
+def test_records_reject_blank_file_paths(factory: object, file_path: str) -> None:
+    with pytest.raises(ValueError):
+        factory(file_path=file_path)  # type: ignore[operator]
+
+
+@pytest.mark.parametrize("factory", [_evidence, _raw_entry])
+@pytest.mark.parametrize("file_path", [None, " src/orders.py "])
+def test_records_accept_missing_or_nonblank_file_paths(factory: object, file_path: str | None) -> None:
+    record = factory(file_path=file_path)  # type: ignore[operator]
+    assert record.file_path == file_path
+
+
+@pytest.mark.parametrize("factory", [_evidence, _raw_entry])
 @pytest.mark.parametrize("start_line", [0, -1, True, 1.0])
 def test_records_reject_invalid_start_lines(factory: object, start_line: object) -> None:
     with pytest.raises(ValueError):

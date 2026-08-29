@@ -156,7 +156,7 @@ def _raw_entry_from_nodes(
         return False
 
     category_valid, entry_category = _optional_string(code, "entryCategory")
-    path_valid, file_path = _optional_string(code, "filePath")
+    path_valid, file_path = _optional_string(code, "filePath", reject_blank=True)
     metadata_valid, entry_metadata = _optional_string(code, "entryMetadata")
     start_valid, start_line = _optional_line(code, "startLine")
     end_valid, end_line = _optional_line(code, "endLine")
@@ -180,9 +180,13 @@ def _raw_entry_from_nodes(
     )
 
 
-def _optional_string(node: Mapping[object, object], field: str) -> tuple[bool, str | None]:
+def _optional_string(
+    node: Mapping[object, object], field: str, *, reject_blank: bool = False
+) -> tuple[bool, str | None]:
     value = node.get(field)
     if value is not None and not isinstance(value, str):
+        return False, None
+    if reject_blank and isinstance(value, str) and not value.strip():
         return False, None
     return True, value
 

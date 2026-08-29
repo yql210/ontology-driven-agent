@@ -79,6 +79,8 @@ def assemble_business_entry_lookup(
         endpoint, metadata_reason = endpoint_from_metadata(raw.entry_category, raw.entry_metadata)
         if metadata_reason is not None:
             _append_reason(reasons, metadata_reason)
+        if raw.file_path is None:
+            _append_reason(reasons, LookupReason.MISSING_ENTRY_METADATA)
         evidence_by_candidate[raw.capability_id].append(
             BusinessEntryEvidence(
                 repo_id=repo_id,

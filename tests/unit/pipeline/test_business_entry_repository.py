@@ -250,6 +250,26 @@ def test_find_realizations_validates_optional_entry_fields(
         assert (result.entries[0].start_line, result.entries[0].end_line) == expected_lines
 
 
+@pytest.mark.parametrize("file_path", ["", "   "])
+def test_find_realizations_classifies_blank_stored_file_paths_as_corrupt(file_path: str) -> None:
+    repository, _ = _repository(code=_code(filePath=file_path))
+
+    result = repository.find_realizations("repo-a", ["cap-1"])
+
+    assert result.entries == ()
+    assert result.reasons == (LookupReason.CORRUPT_GRAPH_DATA,)
+
+
+def test_find_realizations_preserves_missing_stored_file_path_for_assembler() -> None:
+    repository, _ = _repository(code=_code(filePath=None))
+
+    result = repository.find_realizations("repo-a", ["cap-1"])
+
+    assert result.reasons == ()
+    assert len(result.entries) == 1
+    assert result.entries[0].file_path is None
+
+
 def test_find_realizations_preserves_valid_entries_and_stably_deduplicates_reasons() -> None:
     store = FakeGraphStore(
         nodes={"cap-1": _capability(), "code-1": _code(), "cap-2": _capability("cap-2", id="cap-2")},

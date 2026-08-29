@@ -168,6 +168,14 @@ def test_assemble_retains_evidence_and_degrades_for_incomplete_or_unknown_metada
     assert result.reasons == (reason,)
 
 
+def test_assemble_degrades_missing_file_path_without_dropping_evidence() -> None:
+    result = _assemble(lookup=RepositoryLookup((_raw_entry(file_path=None),), ()))
+
+    assert result.status is LookupStatus.DEGRADED
+    assert result.evidences[0].file_path is None
+    assert result.reasons == (LookupReason.MISSING_ENTRY_METADATA,)
+
+
 def test_assemble_drops_cross_repo_and_unknown_entries_without_leaking_them() -> None:
     lookup = RepositoryLookup(
         (

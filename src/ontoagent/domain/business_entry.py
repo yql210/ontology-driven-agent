@@ -80,6 +80,11 @@ def _validate_optional_string(field_name: str, value: str | None) -> None:
         raise ValueError(f"{field_name} must be a string or None")
 
 
+def _validate_file_path(value: str | None) -> None:
+    if value is not None and (not isinstance(value, str) or not value.strip()):
+        raise ValueError("file_path must be a nonblank string or None")
+
+
 def _validate_lines(start_line: int | None, end_line: int | None) -> None:
     for field_name, value in (("start_line", start_line), ("end_line", end_line)):
         if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value <= 0):
@@ -151,7 +156,7 @@ class RawBusinessEntry:
             }
         )
         _validate_optional_string("entry_category", self.entry_category)
-        _validate_optional_string("file_path", self.file_path)
+        _validate_file_path(self.file_path)
         _validate_optional_string("entry_metadata", self.entry_metadata)
         _validate_lines(self.start_line, self.end_line)
 
@@ -186,7 +191,7 @@ class BusinessEntryEvidence:
             }
         )
         _validate_optional_string("entry_category", self.entry_category)
-        _validate_optional_string("file_path", self.file_path)
+        _validate_file_path(self.file_path)
         _validate_lines(self.start_line, self.end_line)
         object.__setattr__(self, "capability_score", _normalize_score("capability_score", self.capability_score))
         object.__setattr__(
