@@ -267,6 +267,47 @@ def _token_present(text: str, token: str) -> bool:
     return re.search(rf"(?<![A-Za-z0-9_$]){re.escape(token)}(?![A-Za-z0-9_$])", text) is not None
 
 
+_REQUEST_MAPPING_PATTERN = re.compile(r"@RequestMapping\s*(?:\((?P<body>[^)]*)\))?")
+_CLASS_PATTERN = re.compile(r"\bclass\s+[A-Za-z_$][A-Za-z0-9_$]*\b")
+
+
+def _mapping_paths(annotation: re.Match[str]) -> list[str]:
+    body = annotation.group("body") or ""
+    assigned = re.findall(r"(?:value|path)\s*=\s*(?:\{\s*)?\"([^\"]*)\"", body)
+    if assigned:
+        return assigned
+    bare = re.match(r"\s*\"([^\"]*)\"", body)
+    return [bare.group(1)] if bare else [""]
+
+
+def _join_route(prefix: str, suffix: str) -> str:
+    return "/" + "/".join(part.strip("/") for part in (prefix, suffix) if part.strip("/"))
+
+
+def _spring_route_present(text: str, symbol: str, route: str) -> bool:
+    mappings = list(_REQUEST_MAPPING_PATTERN.finditer(text))
+    if not mappings:
+        return False
+    classes = list(_CLASS_PATTERN.finditer(text))
+    for method_match in re.finditer(rf"\b{re.escape(symbol)}\s*\(", text):
+        class_match = next((item for item in reversed(classes) if item.start() < method_match.start()), None)
+        class_mapping = next(
+            (item for item in reversed(mappings) if item.end() <= (class_match.start() if class_match else 0)), None
+        )
+        class_paths = _mapping_paths(class_mapping) if class_mapping else [""]
+        method_mapping = next((item for item in reversed(mappings) if item.end() <= method_match.start()), None)
+        if method_mapping is None:
+            continue
+        between = text[method_mapping.end() : method_match.start()]
+        if "}" in between or ";" in between:
+            continue
+        for prefix in class_paths:
+            for suffix in _mapping_paths(method_mapping):
+                if _join_route(prefix, suffix) == route:
+                    return True
+    return False
+
+
 def validate_gold_against_source(
     gold: dict[str, Any], repo_root: Path, *, commit_getter: Callable[[Path], str | None] = _git_commit
 ) -> StaticValidationReport:
@@ -299,7 +340,10 @@ def validate_gold_against_source(
             entry_texts.append(text)
             if not _token_present(text, entry["symbol"]):
                 reasons.append("ENTRY_SYMBOL_MISSING")
-            if entry["route"] is not None and entry["route"] not in text:
+            if entry["route"] is not None and (
+                (entry["kind"] == "http_entry" and not _spring_route_present(text, entry["symbol"], entry["route"]))
+                or (entry["kind"] != "http_entry" and entry["route"] not in text)
+            ):
                 reasons.append("ENTRY_ROUTE_MISSING")
         source_text = "\n".join([*entry_texts, all_source_text])
         for symbol in case["required_symbols"]:

@@ -56,10 +56,47 @@ def test_gold_has_fixed_twelve_case_structure() -> None:
 def test_gold_protects_d0_qualified_cases() -> None:
     cases = {case["id"]: case for case in load_gold(GOLD_PATH)["cases"]}
 
+    routes = {
+        case_id: [entry["route"] for entry in cases[case_id]["required_entries"]]
+        for case_id in ("RONCOO-Q01", "RONCOO-Q05", "RONCOO-Q06", "RONCOO-Q09", "RONCOO-Q10")
+    }
+    assert routes == {
+        "RONCOO-Q01": ["/scanPay/initPay"],
+        "RONCOO-Q05": ["/f2fPay/doPay"],
+        "RONCOO-Q06": ["/scanPayNotify/notify/{payWayCode}"],
+        "RONCOO-Q09": ["/sett/launchSett"],
+        "RONCOO-Q10": ["/sett/audit", "/sett/remit"],
+    }
     assert any(claim["kind"] == "caveat" and claim["state"] == "verified" for claim in cases["RONCOO-Q07"]["claims"])
     assert any(entry["kind"] == "worker" for entry in cases["RONCOO-Q08"]["required_entries"])
     assert any(claim["kind"] == "worker_trigger" for claim in cases["RONCOO-Q08"]["claims"])
     assert cases["RONCOO-Q10"]["required_flow"] == ["entry:entry_audit", "entry:entry_remit"]
+    q11 = cases["RONCOO-Q11"]
+    assert q11["question"] == "结算日汇总的核心服务在哪里？"
+    assert q11["required_entries"] == [
+        {
+            "id": "entry_daily_settlement_collect",
+            "path": "roncoo-pay-service/src/main/java/com/roncoo/pay/account/service/impl/RpSettHandleServiceImpl.java",
+            "symbol": "dailySettlementCollect",
+            "route": None,
+            "kind": "service",
+            "state": "verified",
+            "line_hint": 86,
+        }
+    ]
+    assert q11["required_symbols"] == [
+        {"id": "sym_sett_collect_success", "token": "settCollectSuccess", "state": "verified"}
+    ]
+    assert q11["claims"] == [
+        {
+            "id": "claim_daily_settlement_collection",
+            "kind": "behavior",
+            "state": "verified",
+            "text": "结算日汇总服务汇总账户历史并更新可结算金额。",
+            "source_refs": ["entry:entry_daily_settlement_collect", "symbol:sym_sett_collect_success"],
+        }
+    ]
+    assert q11["required_flow"] == ["entry:entry_daily_settlement_collect", "symbol:sym_sett_collect_success"]
     q12 = cases["RONCOO-Q12"]
     assert any(symbol["state"] == "unverified" for symbol in q12["required_symbols"])
     assert any(claim["kind"] == "boundary" and claim["state"] == "out_of_scope" for claim in q12["claims"])
@@ -145,6 +182,59 @@ def test_static_validation_reports_commit_file_symbol_and_route_failures(tmp_pat
     mismatch = validate_gold_against_source(gold, repo, commit_getter=lambda _: "wrong").to_dict()
     assert mismatch["status"] == "failed"
     assert mismatch["reasons"] == ["SOURCE_COMMIT_MISMATCH"]
+
+
+@pytest.mark.parametrize(
+    ("class_mapping", "method_mapping", "route", "expected_status"),
+    [
+        ('@RequestMapping(value = "/api")', '@RequestMapping("/pay")', "/api/pay", "passed"),
+        (
+            '@RequestMapping(path = "/api/")',
+            '@RequestMapping(value = "/pay", method = RequestMethod.POST)',
+            "/api/pay",
+            "passed",
+        ),
+        ('@RequestMapping("/api")', '@RequestMapping(path = "/pay")', "/api/pay", "passed"),
+        ('@RequestMapping(value = "/api")', '@RequestMapping("/pay")', "/api/payment", "failed"),
+    ],
+)
+def test_static_validation_recognizes_composed_spring_routes(
+    tmp_path: Path, class_mapping: str, method_mapping: str, route: str, expected_status: str
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Sample.java").write_text(
+        f"{class_mapping}\nclass Sample {{\n{method_mapping}\nvoid handle() {{}}\n}}", encoding="utf-8"
+    )
+    gold = _gold_copy()
+    case = gold["cases"][0]
+    case["required_entries"] = [
+        {
+            "id": "entry_sample",
+            "path": "Sample.java",
+            "symbol": "handle",
+            "route": route,
+            "kind": "http_entry",
+            "state": "verified",
+        }
+    ]
+    case["required_symbols"] = [{"id": "sym_handle", "token": "handle", "state": "verified"}]
+    case["claims"] = [
+        {
+            "id": "claim_sample",
+            "kind": "behavior",
+            "state": "verified",
+            "text": "sample",
+            "source_refs": ["entry:entry_sample"],
+        }
+    ]
+    case["required_flow"] = ["entry:entry_sample"]
+
+    report = validate_gold_against_source(gold, repo, commit_getter=lambda _: gold["repo"]["commit"]).to_dict()
+
+    assert report["cases"][0]["status"] == expected_status
+    if expected_status == "failed":
+        assert "ENTRY_ROUTE_MISSING" in report["cases"][0]["reasons"]
 
 
 def test_preflight_ready_and_missing_are_metric_free(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
