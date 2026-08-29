@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
 from typing import Protocol
 
 from ontoagent.domain.business_entry import BusinessEntryLookupResult
@@ -34,11 +33,9 @@ class BusinessEntryFinder:
         self,
         capability_finder: CapabilityFinder,
         repository: BusinessEntryRepository,
-        assembler: Callable[[str, tuple[CapabilityCandidate, ...], RepositoryLookup], object] | None = None,
     ) -> None:
         self._capability_finder: _CapabilityFinder = capability_finder
         self._repository: _Repository = repository
-        self._assembler = assemble_business_entry_lookup if assembler is None else assembler
 
     def find(self, repo_id: str, query: str, *, top_k: int = 5, domain: str | None = None) -> BusinessEntryLookupResult:
         """Find business-entry evidence for a query within one repository."""
@@ -53,7 +50,7 @@ class BusinessEntryFinder:
         if type(lookup) is not RepositoryLookup:
             raise ValueError("lookup must be a RepositoryLookup")
 
-        result = self._assembler(normalized_repo_id, candidates, lookup)
+        result = assemble_business_entry_lookup(normalized_repo_id, candidates, lookup)
         if type(result) is not BusinessEntryLookupResult:
             raise ValueError("result must be a BusinessEntryLookupResult")
         return result
