@@ -264,6 +264,24 @@ def _route_fixture_gold(symbol: str, route: str) -> dict[str, object]:
     return gold
 
 
+def test_spring_route_recognizes_second_class_boundary(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "Sample.java").write_text(
+        '@RequestMapping("/first")\nclass First {\n@RequestMapping("/pay")\nvoid handleFirst() {}\n}\n'
+        '@RequestMapping("/second")\nclass Second {\n@RequestMapping("/pay")\nvoid handle() {}\n}',
+        encoding="utf-8",
+    )
+
+    report = validate_gold_against_source(
+        _route_fixture_gold("handle", "/second/pay"),
+        repo,
+        commit_getter=lambda _: "981e19475e9d794cbb14cb101883e1d0e1a36e9d",
+    ).to_dict()
+
+    assert report["cases"][0]["status"] == "passed"
+
+
 def test_spring_route_does_not_leak_prefix_from_previous_class(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()

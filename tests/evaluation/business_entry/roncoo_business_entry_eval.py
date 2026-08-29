@@ -316,7 +316,7 @@ def _spring_route_present(text: str, symbol: str, route: str) -> bool:
         body_depth = depths[open_brace] + 1
         close_brace = len(text)
         for index in range(open_brace + 1, len(text)):
-            if text[index] == "}" and depths[index] < body_depth:
+            if text[index] == "}" and depths[index] == body_depth:
                 close_brace = index
                 break
         classes.append((class_match, open_brace, close_brace))
