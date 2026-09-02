@@ -23,6 +23,39 @@ def _make_search_result(item_id: str, name: str, domain: str, text: str, distanc
     }
 
 
+def test_generation_scoped_find_scans_and_validates_all_repository_records() -> None:
+    store = MagicMock()
+    store.list.return_value = [
+        {"id": "cap-a", "metadata": {"entity_type": "CapabilityEntity", "repo_id": "repo-a", "generation_id": "gen-a"}}
+    ]
+    store.search.return_value = [
+        {
+            **_make_search_result("cap-a", "orders", "commerce", "orders"),
+            "metadata": {
+                "entity_type": "CapabilityEntity",
+                "repo_id": "repo-a",
+                "generation_id": "gen-a",
+                "name": "orders",
+                "business_domain": "commerce",
+            },
+        }
+    ]
+
+    result = CapabilityFinder(store).find("orders", repo_id="repo-a", generation_id=" gen-a ")
+
+    assert result[0].generation_id == "gen-a"
+    store.list.assert_called_once()
+
+
+def test_generation_scoped_find_rejects_malformed_record_before_search() -> None:
+    store = MagicMock()
+    store.list.return_value = [{"id": "bad", "metadata": {"entity_type": "CapabilityEntity", "repo_id": "repo-a"}}]
+
+    with pytest.raises(ValueError, match="generation_id"):
+        CapabilityFinder(store).find("orders", repo_id="repo-a", generation_id="gen-a")
+    store.search.assert_not_called()
+
+
 @pytest.fixture
 def chroma_store():
     """Create an in-memory Chroma collection with mocked HTTP embeddings."""

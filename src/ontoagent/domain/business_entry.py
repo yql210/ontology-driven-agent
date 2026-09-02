@@ -142,6 +142,7 @@ class RawBusinessEntry:
     start_line: int | None
     end_line: int | None
     entry_metadata: str | None
+    generation_id: str | None = None
 
     def __post_init__(self) -> None:
         _validate_required_strings(

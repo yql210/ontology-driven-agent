@@ -97,6 +97,7 @@ class CodeEntity:
     business_priority: str | None = None
     business_lifecycle: str | None = None
     business_owner: str | None = None
+    generation_id: str | None = None
 
     VALID_ENTITY_TYPES = {"function", "class", "interface", "module", "file", "enum", "record", "field"}
     VALID_ENTRY_CATEGORIES = frozenset({"http_api", "rpc_service", "scheduled", "mq_consumer", "event_handler"})
@@ -592,6 +593,7 @@ class CapabilityEntity:
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     repo_id: str = ""
     entry_code_entity_id: str = ""
+    generation_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id:

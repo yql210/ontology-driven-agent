@@ -13,8 +13,16 @@ from ontoagent.pipeline.business_entry_finder import BusinessEntryFinder
 from ontoagent.pipeline.business_entry_repository import RepositoryLookup
 
 
-def _match(capability_id: str = "cap-1", *, repo_id: str | None = "repo-a", distance: float = 0.25) -> CapabilityMatch:
-    return CapabilityMatch(capability_id, "Orders", "commerce", "desc", distance, repo_id=repo_id)
+def _match(
+    capability_id: str = "cap-1",
+    *,
+    repo_id: str | None = "repo-a",
+    distance: float = 0.25,
+    generation_id: str | None = "gen-a",
+) -> CapabilityMatch:
+    return CapabilityMatch(
+        capability_id, "Orders", "commerce", "desc", distance, repo_id=repo_id, generation_id=generation_id
+    )
 
 
 def _result(status: LookupStatus = LookupStatus.NOT_FOUND) -> BusinessEntryLookupResult:
@@ -30,7 +38,14 @@ def _service(
     return BusinessEntryFinder(finder, repository), finder, repository, _result() if result is None else result
 
 
-def test_find_orchestrates_in_order_and_normalizes_repo_id() -> None:
+def test_find_passes_generation_to_both_collaborators() -> None:
+    service, finder, repository, _ = _service([_match()], RepositoryLookup((), ()), _result())
+
+    service.find("repo-a", "orders", generation_id="gen-a")
+
+    finder.find.assert_called_once_with("orders", top_k=5, domain=None, repo_id="repo-a", generation_id="gen-a")
+    repository.find_realizations.assert_called_once_with("repo-a", ["cap-1"], generation_id="gen-a")
+
     service, finder, repository, assembler = _service([_match()], RepositoryLookup((), ()), _result())
     assembler_spy = Mock(return_value=assembler)
     events: list[str] = []

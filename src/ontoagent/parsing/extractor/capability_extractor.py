@@ -195,7 +195,7 @@ class CapabilityExtractor:
     仅处理 entry_category 为 http_api / rpc_service 的实体。
     """
 
-    def extract(self, entity: CodeEntity) -> CapabilityEntity | None:
+    def extract(self, entity: CodeEntity, *, generation_id: str | None = None) -> CapabilityEntity | None:
         """从单个 CodeEntity 提取 CapabilityEntity。
 
         Args:
@@ -204,6 +204,7 @@ class CapabilityExtractor:
         Returns:
             CapabilityEntity，若非入口函数则返回 None。
         """
+        normalized_generation = _validate_generation_id(generation_id)
         if entity.entry_category not in _CAPABILITY_ENTRY_CATEGORIES:
             return None
 
@@ -231,4 +232,13 @@ class CapabilityExtractor:
             output_contract=output_contract,
             keywords=keywords,
             realized_by=realized_by,
+            generation_id=normalized_generation,
         )
+
+
+def _validate_generation_id(generation_id: object) -> str | None:
+    if generation_id is None:
+        return None
+    if not isinstance(generation_id, str) or not generation_id.strip():
+        raise ValueError("generation_id must be a nonblank string")
+    return generation_id.strip()

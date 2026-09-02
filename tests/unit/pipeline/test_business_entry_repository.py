@@ -66,6 +66,34 @@ def _relation(capability_id: str = "cap-1", code_id: str = "code-1", **overrides
 _DEFAULT = object()
 
 
+def test_generation_scoped_repository_requires_matching_nodes_and_relation() -> None:
+    repository, _ = _repository(
+        capability=_capability(generationId="gen-a"),
+        code=_code(generationId="gen-a"),
+        relations=[_relation(properties={"generationId": "gen-a"})],
+    )
+    result = repository.find_realizations("repo-a", ["cap-1"], generation_id=" gen-a ")
+    assert len(result.entries) == 1
+    assert result.entries[0].generation_id == "gen-a"
+
+
+@pytest.mark.parametrize("part", ["capability", "code", "relation"])
+def test_generation_scoped_repository_rejects_missing_generation(part: str) -> None:
+    capability = _capability(generationId="gen-a")
+    code = _code(generationId="gen-a")
+    relation = _relation(properties={"generationId": "gen-a"})
+    if part == "capability":
+        capability.pop("generationId")
+    elif part == "code":
+        code.pop("generationId")
+    else:
+        relation["properties"] = {}
+    repository, _ = _repository(capability=capability, code=code, relations=[relation])
+    result = repository.find_realizations("repo-a", ["cap-1"], generation_id="gen-a")
+    assert result.entries == ()
+    assert result.reasons == (LookupReason.CORRUPT_GRAPH_DATA,)
+
+
 def _repository(
     capability: object = _DEFAULT, relations: object = _DEFAULT, code: object = _DEFAULT
 ) -> tuple[BusinessEntryRepository, FakeGraphStore]:

@@ -34,9 +34,12 @@ class BusinessEntryRepository:
     def __init__(self, graph_store: GraphStore) -> None:
         self._graph_store = graph_store
 
-    def find_realizations(self, repo_id: str, capability_ids: Sequence[str]) -> RepositoryLookup:
+    def find_realizations(
+        self, repo_id: str, capability_ids: Sequence[str], *, generation_id: str | None = None
+    ) -> RepositoryLookup:
         """Find verified code realizations for candidate capabilities in one repository."""
         candidates = _validate_lookup_input(repo_id, capability_ids)
+        normalized_generation = _validate_generation_id(generation_id)
         entries: list[RawBusinessEntry] = []
         reasons: list[LookupReason] = []
 
@@ -58,12 +61,16 @@ class BusinessEntryRepository:
             if capability_fields["repoId"] != repo_id:
                 _append_reason(reasons, LookupReason.REPO_MISMATCH)
                 continue
+            if normalized_generation is not None and capability.get("generationId") != normalized_generation:
+                _append_reason(reasons, LookupReason.CORRUPT_GRAPH_DATA)
+                continue
 
-            target_ids, relation_corrupt = self._realization_target_ids(capability_id)
+            target_ids, relation_corrupt = self._realization_target_ids(capability_id, normalized_generation)
             if relation_corrupt:
                 _append_reason(reasons, LookupReason.CORRUPT_GRAPH_DATA)
             if not target_ids:
-                _append_reason(reasons, LookupReason.NO_REALIZATION)
+                if generation_id is None or not relation_corrupt:
+                    _append_reason(reasons, LookupReason.NO_REALIZATION)
                 continue
 
             for target_id in target_ids:
@@ -79,7 +86,7 @@ class BusinessEntryRepository:
                     _append_reason(reasons, LookupReason.CORRUPT_GRAPH_DATA)
                     continue
 
-                entry = _raw_entry_from_nodes(capability_fields, code, target_id, repo_id)
+                entry = _raw_entry_from_nodes(capability_fields, code, target_id, repo_id, normalized_generation)
                 if entry is None:
                     _append_reason(reasons, LookupReason.CORRUPT_GRAPH_DATA)
                 elif entry is False:
@@ -95,7 +102,7 @@ class BusinessEntryRepository:
         except Exception as exc:
             raise BusinessEntryBackendUnavailable("Business entry graph backend unavailable") from exc
 
-    def _realization_target_ids(self, capability_id: str) -> tuple[list[str], bool]:
+    def _realization_target_ids(self, capability_id: str, generation_id: str | None = None) -> tuple[list[str], bool]:
         try:
             relations = self._graph_store.get_relations(source_id=capability_id, rel_type="realized_by")
         except Exception as exc:
@@ -116,6 +123,11 @@ class BusinessEntryRepository:
             if source_id != capability_id or rel_type != "REALIZED_BY" or not _is_nonblank_string(target_id):
                 corrupt = True
                 continue
+            if generation_id is not None:
+                properties = relation.get("properties")
+                if not isinstance(properties, Mapping) or properties.get("generationId") != generation_id:
+                    corrupt = True
+                    continue
             if target_id not in targets:
                 targets.append(target_id)
         return targets, corrupt
@@ -136,6 +148,14 @@ def _validate_lookup_input(repo_id: str, capability_ids: Sequence[str]) -> list[
     return candidates
 
 
+def _validate_generation_id(generation_id: object) -> str | None:
+    if generation_id is None:
+        return None
+    if not isinstance(generation_id, str) or not generation_id.strip():
+        raise ValueError("generation_id must be a nonblank string")
+    return generation_id.strip()
+
+
 def _required_fields(node: Mapping[object, object], fields: tuple[str, ...]) -> dict[str, str] | None:
     values: dict[str, str] = {}
     for field in fields:
@@ -147,13 +167,19 @@ def _required_fields(node: Mapping[object, object], fields: tuple[str, ...]) -> 
 
 
 def _raw_entry_from_nodes(
-    capability: Mapping[str, str], code: Mapping[object, object], target_id: str, repo_id: str
+    capability: Mapping[str, str],
+    code: Mapping[object, object],
+    target_id: str,
+    repo_id: str,
+    generation_id: str | None = None,
 ) -> RawBusinessEntry | bool | None:
     code_fields = _required_fields(code, ("id", "name", "repoId"))
     if code_fields is None or code_fields["id"] != target_id:
         return None
     if code_fields["repoId"] != repo_id:
         return False
+    if generation_id is not None and code.get("generationId") != generation_id:
+        return None
 
     category_valid, entry_category = _optional_string(code, "entryCategory")
     path_valid, file_path = _optional_string(code, "filePath", reject_blank=True)
@@ -177,6 +203,7 @@ def _raw_entry_from_nodes(
         start_line=start_line,
         end_line=end_line,
         entry_metadata=entry_metadata,
+        generation_id=generation_id,
     )
 
 

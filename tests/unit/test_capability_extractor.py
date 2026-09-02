@@ -92,6 +92,20 @@ class TestExtractHttpPathPrefix:
 
 @pytest.mark.unit
 class TestCapabilityExtractor:
+    def test_generation_is_normalized_and_propagated(self) -> None:
+        entity = _make_code_entity("process_payment", entry_category="http_api", entity_id="entry-1")
+
+        result = CapabilityExtractor().extract(entity, generation_id=" gen-a ")
+
+        assert result is not None
+        assert result.generation_id == "gen-a"
+
+    def test_blank_generation_is_rejected(self) -> None:
+        entity = _make_code_entity("process_payment", entry_category="http_api")
+
+        with pytest.raises(ValueError, match="generation_id"):
+            CapabilityExtractor().extract(entity, generation_id=" ")
+
     def test_http_api_function_preserves_repo_scoped_entry_identity(self) -> None:
         """Capability identity comes from its source HTTP API entry."""
         entity = _make_code_entity(
