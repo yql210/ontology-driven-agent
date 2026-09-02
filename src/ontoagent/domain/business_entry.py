@@ -257,3 +257,11 @@ class BusinessEntryLookupResult:
             valid = not evidences and reasons == (LookupReason.BACKEND_UNAVAILABLE,)
         if not valid:
             raise ValueError("status, evidences, and reasons violate lookup-result invariants")
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-safe representation of the lookup result."""
+        return {
+            "status": self.status.value,
+            "evidences": [evidence.to_dict() for evidence in self.evidences],
+            "reasons": [reason.value for reason in self.reasons],
+        }
