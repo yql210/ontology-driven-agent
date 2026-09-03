@@ -26,7 +26,7 @@ def _plan():
 
 def test_in_memory_writer_returns_confirmed_exact_readback_receipt():
     plan = _plan()
-    sink = InMemoryGraphSink()
+    sink = InMemoryGraphSink(namespace="service-graph")
 
     receipt = GraphWriter(sink).write(plan)
 
@@ -34,23 +34,30 @@ def test_in_memory_writer_returns_confirmed_exact_readback_receipt():
     assert receipt.node_count == len(plan.nodes)
     assert receipt.relation_count == len(plan.relations)
     assert receipt.readback == plan
+    assert receipt.graph_namespace == "service-graph"
     assert sink.readback() == plan
 
 
 def test_in_memory_writer_confirms_explicit_empty_plan() -> None:
     plan = GraphWritePlan((), ())
 
-    receipt = GraphWriter(InMemoryGraphSink()).write(plan)
+    receipt = GraphWriter(InMemoryGraphSink(namespace="service-graph")).write(plan)
 
     assert receipt.confirmed
     assert receipt.node_count == 0
     assert receipt.relation_count == 0
     assert receipt.readback == plan
+    assert receipt.graph_namespace == "service-graph"
 
 
 class ReadbackSink(GraphSink):
-    def __init__(self, readback: GraphWritePlan | Exception) -> None:
+    def __init__(self, readback: GraphWritePlan | Exception, namespace: str = "service-graph") -> None:
         self._readback = readback
+        self._graph_namespace = namespace
+
+    @property
+    def graph_namespace(self) -> str:
+        return self._graph_namespace
 
     def write(self, plan: GraphWritePlan) -> None:
         return None
@@ -71,6 +78,7 @@ def test_writer_returns_unconfirmed_receipt_with_exact_mismatched_readback() -> 
     assert receipt.node_count == len(actual.nodes)
     assert receipt.relation_count == len(actual.relations)
     assert receipt.readback == actual
+    assert receipt.graph_namespace == "service-graph"
 
 
 def test_writer_returns_unconfirmed_empty_receipt_when_readback_fails() -> None:
@@ -80,3 +88,11 @@ def test_writer_returns_unconfirmed_empty_receipt_when_readback_fails() -> None:
     assert receipt.node_count == 0
     assert receipt.relation_count == 0
     assert receipt.readback == GraphWritePlan((), ())
+    assert receipt.graph_namespace == "service-graph"
+
+
+def test_writer_does_not_confirm_a_sink_without_an_explicit_namespace() -> None:
+    receipt = GraphWriter(ReadbackSink(_plan(), namespace=" ")).write(_plan())
+
+    assert not receipt.confirmed
+    assert receipt.graph_namespace == " "

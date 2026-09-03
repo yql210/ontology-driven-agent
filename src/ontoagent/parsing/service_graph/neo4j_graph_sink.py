@@ -31,7 +31,7 @@ class Neo4jGraphSink(GraphSink):
             "UNWIND $rows AS row "
             "MATCH (source {id: row.source_id, _ontoagent_namespace: $namespace}) "
             "MATCH (target {id: row.target_id, _ontoagent_namespace: $namespace}) "
-            f"MERGE (source)-[r:{relation_type} {{_ontoagent_relation_id: row.id}}]->(target) "
+            f"MERGE (source)-[r:{relation_type} {{_ontoagent_relation_id: row.id, _ontoagent_namespace: $namespace}}]->(target) "
             "SET r = {_ontoagent_relation_id: row.id, _ontoagent_props: row.encoded_props, "
             "_ontoagent_namespace: $namespace}"
         )
@@ -58,6 +58,11 @@ class Neo4jGraphSink(GraphSink):
         self._node_ids: tuple[str, ...] = ()
         self._relation_ids: tuple[str, ...] = ()
         self._has_submitted_plan = False
+
+    @property
+    def graph_namespace(self) -> str:
+        """The exact namespace used for both writes and readback queries."""
+        return self._namespace
 
     @staticmethod
     def encode_props(props: Mapping[str, object]) -> str:

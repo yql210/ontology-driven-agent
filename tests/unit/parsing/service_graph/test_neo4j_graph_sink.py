@@ -74,8 +74,16 @@ class StatefulFakeDriver:
             relation_type = next(
                 kind for kind, statement in Neo4jGraphSink._RELATION_QUERIES.items() if statement == query
             )
+            merge_clause = query.partition("MERGE ")[2].partition(" SET ")[0]
+            relationship_identity_is_namespaced = "_ontoagent_namespace: $namespace" in merge_clause
             for row in rows:
                 assert isinstance(row, dict)
+                if not relationship_identity_is_namespaced:
+                    self.relations = {
+                        key: relation
+                        for key, relation in self.relations.items()
+                        if relation["properties"]["_ontoagent_relation_id"] != row["id"]
+                    }
                 self.relations[(namespace, row["id"])] = {
                     "type": relation_type,
                     "source_id": row["source_id"],
@@ -171,6 +179,7 @@ def test_neo4j_sink_writes_and_reads_exact_plan_from_stateful_driver() -> None:
     assert all("$rows" in query for query in write_queries)
     assert all("service" not in query and "r1" not in query for query in write_queries)
     assert all("$node_ids" in query or "$relation_ids" in query for query, _ in driver.calls if "RETURN" in query)
+    assert sink.graph_namespace == "test"
 
 
 def test_neo4j_sink_readback_is_scoped_to_written_namespace_and_ids() -> None:
@@ -182,6 +191,24 @@ def test_neo4j_sink_readback_is_scoped_to_written_namespace_and_ids() -> None:
     driver.relations[("other", "foreign")] = {"type": "DEPENDS_ON", "properties": {}}
 
     assert sink.readback() == plan
+
+
+def test_neo4j_sink_relation_merge_identity_is_scoped_to_namespace() -> None:
+    plan = _plan()
+    plan_with_one_relation = GraphWritePlan(plan.nodes[:2], (plan.relations[0],))
+    other_namespace_plan = replace(
+        plan_with_one_relation,
+        relations=(replace(plan.relations[0], props={**plan.relations[0].props, "namespace": "other"}),),
+    )
+    driver = StatefulFakeDriver()
+    first_sink = Neo4jGraphSink(driver, namespace="first")
+    second_sink = Neo4jGraphSink(driver, namespace="second")
+
+    first_sink.write(plan_with_one_relation)
+    second_sink.write(other_namespace_plan)
+
+    assert first_sink.readback() == plan_with_one_relation
+    assert second_sink.readback() == other_namespace_plan
 
 
 def test_neo4j_sink_empty_submitted_plan_round_trips() -> None:
