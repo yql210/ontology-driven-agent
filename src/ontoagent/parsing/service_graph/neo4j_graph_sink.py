@@ -243,5 +243,43 @@ class Neo4jGraphSink(GraphSink):
             for relation in plan.relations
         ):
             raise ValueError("plan relationship endpoint is missing")
+        for node in plan.nodes:
+            self._validate_node_provenance(node)
+        for relation in plan.relations:
+            self._validate_relation_provenance(relation)
         for item in (*plan.nodes, *plan.relations):
             self.encode_props(item.props)
+
+    @staticmethod
+    def _validate_node_provenance(node: GraphNode) -> None:
+        if node.props.get("id") != node.id:
+            raise ValueError("node provenance id must match node id")
+        if not all(
+            Neo4jGraphSink._is_nonblank_string(node.props.get(name))
+            for name in ("repo_id", "generation_id", "source_revision", "canonical_key")
+        ):
+            raise ValueError("node provenance is incomplete")
+        if not Neo4jGraphSink._has_evidence_ids(node.props.get("evidence_ids")):
+            raise ValueError("node provenance evidence IDs are invalid")
+
+    @staticmethod
+    def _validate_relation_provenance(relation: GraphRelation) -> None:
+        if not all(
+            Neo4jGraphSink._is_nonblank_string(relation.props.get(name))
+            for name in ("canonical_key", "generation_id", "source_revision")
+        ):
+            raise ValueError("relationship provenance is incomplete")
+        if not Neo4jGraphSink._has_evidence_ids(relation.props.get("evidence_ids")):
+            raise ValueError("relationship provenance evidence IDs are invalid")
+
+    @staticmethod
+    def _is_nonblank_string(value: object) -> bool:
+        return isinstance(value, str) and bool(value.strip())
+
+    @staticmethod
+    def _has_evidence_ids(value: object) -> bool:
+        return (
+            isinstance(value, tuple)
+            and bool(value)
+            and all(Neo4jGraphSink._is_nonblank_string(evidence_id) for evidence_id in value)
+        )

@@ -2,11 +2,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
-from ontoagent.parsing.service_graph.graph_plan import GraphNode, GraphRelation, GraphWritePlan
+from ontoagent.parsing.service_graph.detectors.dubbo import DubboDetector
+from ontoagent.parsing.service_graph.detectors.messaging import MessagingDetector
+from ontoagent.parsing.service_graph.detectors.spring_http import SpringHttpDetector
+from ontoagent.parsing.service_graph.graph_plan import GraphNode, GraphPlanBuilder, GraphRelation, GraphWritePlan
+from ontoagent.parsing.service_graph.models import RepositorySnapshot
 from ontoagent.parsing.service_graph.neo4j_graph_sink import Neo4jGraphSink
+from ontoagent.parsing.service_graph.resolver import FactBatch, ServiceGraphResolver
+
+FIXTURE = Path(__file__).parents[3] / "fixtures/service_graph/neutral_three_repo"
 
 
 class FakeSession:
@@ -34,12 +42,14 @@ class StatefulFakeDriver:
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object]]] = []
+        self.session_calls = 0
         self.nodes: dict[tuple[str, str], dict[str, object]] = {}
         self.relations: dict[tuple[str, str], dict[str, object]] = {}
         self.node_row_override: Callable[[list[dict[str, object]]], list[dict[str, object]]] | None = None
         self.relation_row_override: Callable[[list[dict[str, object]]], list[dict[str, object]]] | None = None
 
     def session(self) -> FakeSession:
+        self.session_calls += 1
         return FakeSession(self)
 
     def apply_write(self, query: str, parameters: dict[str, object]) -> None:
@@ -103,20 +113,46 @@ class StatefulFakeDriver:
 
 
 def _plan() -> GraphWritePlan:
+    node_provenance = {
+        "repo_id": "repo",
+        "source_revision": "revision",
+        "generation_id": "generation",
+        "canonical_key": "canonical",
+        "evidence_ids": ("e1",),
+    }
+    relation_provenance = {
+        "source_revision": "revision",
+        "generation_id": "generation",
+        "canonical_key": "canonical",
+        "evidence_ids": ("e1",),
+    }
     return GraphWritePlan(
         nodes=(
             GraphNode(
-                "service", "ServiceDefinition", {"id": "service", "optional": None, "evidence_ids": ("e1", "e2")}
+                "service",
+                "ServiceDefinition",
+                {"id": "service", "optional": None, **node_provenance},
             ),
-            GraphNode("endpoint", "Endpoint", {"id": "endpoint", "nested": (None, "value")}),
-            GraphNode("evidence", "Evidence", {"id": "evidence", "source": None}),
+            GraphNode("endpoint", "Endpoint", {"id": "endpoint", "nested": (None, "value"), **node_provenance}),
+            GraphNode("evidence", "Evidence", {"id": "evidence", "source": None, **node_provenance}),
         ),
         relations=(
-            GraphRelation("r1", "PROVIDES_ENDPOINT", "service", "endpoint", {"evidence_ids": ("e1",), "none": None}),
-            GraphRelation("r2", "PROVIDES_ENDPOINT", "service", "endpoint", {"evidence_ids": ("e2",), "none": None}),
-            GraphRelation("r3", "SUPPORTED_BY_EVIDENCE", "endpoint", "evidence", {"none": None}),
+            GraphRelation("r1", "PROVIDES_ENDPOINT", "service", "endpoint", {"none": None, **relation_provenance}),
+            GraphRelation("r2", "PROVIDES_ENDPOINT", "service", "endpoint", {"none": None, **relation_provenance}),
+            GraphRelation("r3", "SUPPORTED_BY_EVIDENCE", "endpoint", "evidence", {"none": None, **relation_provenance}),
         ),
     )
+
+
+def _neutral_three_repo_plan() -> GraphWritePlan:
+    batches = []
+    for repo_id, revision in (("provider-orders", "p1"), ("consumer-checkout", "c1"), ("isolated-inventory", "i1")):
+        snapshot = RepositorySnapshot(repo_id, revision, FIXTURE / repo_id, frozenset({"java", "yaml"}))
+        facts = tuple(
+            detector.detect(snapshot) for detector in (SpringHttpDetector(), DubboDetector(), MessagingDetector())
+        )
+        batches.append(FactBatch(repo_id, revision, "generation-1", "main", facts))
+    return GraphPlanBuilder().build(ServiceGraphResolver().resolve(tuple(batches)))
 
 
 def test_neo4j_sink_writes_and_reads_exact_plan_from_stateful_driver() -> None:
@@ -156,6 +192,99 @@ def test_neo4j_sink_empty_submitted_plan_round_trips() -> None:
     sink.write(plan)
 
     assert sink.readback() == plan
+
+
+def test_neo4j_sink_writes_neutral_three_repo_plan_with_provider_consumer_provenance() -> None:
+    plan = _neutral_three_repo_plan()
+    driver = StatefulFakeDriver()
+    sink = Neo4jGraphSink(driver, namespace="test")
+
+    sink.write(plan)
+
+    assert sink.readback() == plan
+
+
+@pytest.mark.parametrize(
+    "invalid_plan",
+    [
+        lambda plan: replace(plan, nodes=(replace(plan.nodes[0], props={**plan.nodes[0].props, "id": "other"}),)),
+        lambda plan: replace(
+            plan,
+            nodes=(
+                replace(
+                    plan.nodes[0], props={key: value for key, value in plan.nodes[0].props.items() if key != "repo_id"}
+                ),
+            ),
+        ),
+        lambda plan: replace(plan, nodes=(replace(plan.nodes[0], props={**plan.nodes[0].props, "generation_id": ""}),)),
+        lambda plan: replace(
+            plan, nodes=(replace(plan.nodes[0], props={**plan.nodes[0].props, "source_revision": None}),)
+        ),
+        lambda plan: replace(
+            plan, nodes=(replace(plan.nodes[0], props={**plan.nodes[0].props, "canonical_key": " "}),)
+        ),
+        lambda plan: replace(plan, nodes=(replace(plan.nodes[0], props={**plan.nodes[0].props, "evidence_ids": ()}),)),
+        lambda plan: replace(
+            plan, nodes=(replace(plan.nodes[0], props={**plan.nodes[0].props, "evidence_ids": ["e1"]}),)
+        ),
+        lambda plan: replace(
+            plan, nodes=(replace(plan.nodes[0], props={**plan.nodes[0].props, "evidence_ids": (" ",)}),)
+        ),
+    ],
+)
+def test_neo4j_sink_rejects_invalid_node_provenance_before_opening_driver_session(
+    invalid_plan: Callable[[GraphWritePlan], GraphWritePlan],
+) -> None:
+    driver = StatefulFakeDriver()
+    sink = Neo4jGraphSink(driver)
+
+    with pytest.raises(ValueError):
+        sink.write(invalid_plan(GraphWritePlan((_plan().nodes[0],), ())))
+
+    assert driver.session_calls == 0
+    assert driver.calls == []
+
+
+@pytest.mark.parametrize(
+    "invalid_plan",
+    [
+        lambda plan: replace(
+            plan,
+            relations=(
+                replace(
+                    plan.relations[0], props={"generation_id": "g", "source_revision": "r", "evidence_ids": ("e1",)}
+                ),
+            ),
+        ),
+        lambda plan: replace(
+            plan, relations=(replace(plan.relations[0], props={**plan.relations[0].props, "generation_id": " "}),)
+        ),
+        lambda plan: replace(
+            plan, relations=(replace(plan.relations[0], props={**plan.relations[0].props, "source_revision": None}),)
+        ),
+        lambda plan: replace(
+            plan, relations=(replace(plan.relations[0], props={**plan.relations[0].props, "evidence_ids": ()}),)
+        ),
+        lambda plan: replace(
+            plan, relations=(replace(plan.relations[0], props={**plan.relations[0].props, "evidence_ids": ["e1"]}),)
+        ),
+        lambda plan: replace(
+            plan, relations=(replace(plan.relations[0], props={**plan.relations[0].props, "evidence_ids": (" ",)}),)
+        ),
+    ],
+)
+def test_neo4j_sink_rejects_invalid_relation_provenance_before_opening_driver_session(
+    invalid_plan: Callable[[GraphWritePlan], GraphWritePlan],
+) -> None:
+    driver = StatefulFakeDriver()
+    sink = Neo4jGraphSink(driver)
+    plan = _plan()
+
+    with pytest.raises(ValueError):
+        sink.write(invalid_plan(GraphWritePlan(plan.nodes[:2], (plan.relations[0],))))
+
+    assert driver.session_calls == 0
+    assert driver.calls == []
 
 
 def test_neo4j_sink_relation_readback_scopes_both_endpoints_to_namespace() -> None:
