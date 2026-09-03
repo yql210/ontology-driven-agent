@@ -42,7 +42,10 @@ class GraphWriter:
 
     def write(self, plan: GraphWritePlan) -> WriteReceipt:
         self._sink.write(plan)
-        readback = self._sink.readback()
+        try:
+            readback = self._sink.readback()
+        except Exception:
+            readback = GraphWritePlan((), ())
         confirmed = readback == plan and self._matches(plan.relations, readback.relations)
         return WriteReceipt(confirmed, len(readback.nodes), len(readback.relations), readback)
 

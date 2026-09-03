@@ -12,6 +12,7 @@ from .models import (
     ServiceDefinition,
     UnresolvedFact,
 )
+from .neo4j_graph_sink import Neo4jGraphSink
 from .resolver import FactBatch, ResolvedLink, ResolveResult, ServiceGraphResolver, UnresolvedEndpoint
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "GraphWritePlan",
     "GraphWriter",
     "InMemoryGraphSink",
+    "Neo4jGraphSink",
     "ResolveResult",
     "ResolvedLink",
     "ServiceGraphResolver",
