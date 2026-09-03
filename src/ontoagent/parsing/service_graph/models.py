@@ -167,6 +167,84 @@ class HttpEndpoint:
 
 
 @dataclass(frozen=True)
+class RpcEndpoint:
+    repo_id: str
+    service_name: str
+    role: str
+    fact_kind: str
+    interface_name: str
+    method: str
+    group: str
+    version: str
+    file_path: str
+    evidence_id: str
+    raw_target: str | None = None
+    unresolved_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.role not in {"provider", "consumer"}:
+            raise ValueError("invalid role")
+        for name in (
+            "repo_id",
+            "service_name",
+            "fact_kind",
+            "interface_name",
+            "method",
+            "file_path",
+            "evidence_id",
+        ):
+            _require_nonblank(getattr(self, name), name)
+        if not isinstance(self.group, str) or not isinstance(self.version, str):
+            raise ValueError("group and version must be strings")
+        object.__setattr__(self, "group", self.group.strip() or "-")
+        object.__setattr__(self, "version", self.version.strip() or "-")
+        for name in ("raw_target", "unresolved_reason"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be nonblank when provided")
+        if self.unresolved_reason is not None and self.unresolved_reason not in REASONS:
+            raise ValueError("invalid unresolved_reason")
+
+    @property
+    def canonical_key(self) -> str:
+        return f"DUBBO|{self.group}|{self.interface_name}|{self.method}|{self.version}"
+
+
+@dataclass(frozen=True)
+class MessageEndpoint:
+    repo_id: str
+    broker: str
+    role: str
+    topic_or_queue: str
+    consumer_group: str
+    file_path: str
+    evidence_id: str
+    raw_target: str | None = None
+    unresolved_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.broker not in {"kafka", "rabbitmq"} or self.role not in {"producer", "consumer"}:
+            raise ValueError("invalid message endpoint")
+        for name in ("repo_id", "topic_or_queue", "file_path", "evidence_id"):
+            _require_nonblank(getattr(self, name), name)
+        if not isinstance(self.consumer_group, str):
+            raise ValueError("consumer_group must be a string")
+        object.__setattr__(
+            self, "consumer_group", "-" if self.role == "producer" else (self.consumer_group.strip() or "-")
+        )
+        for name in ("raw_target", "unresolved_reason"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be nonblank when provided")
+        if self.unresolved_reason is not None and self.unresolved_reason not in REASONS:
+            raise ValueError("invalid unresolved_reason")
+
+    @property
+    def canonical_key(self) -> str:
+        return f"MQ|{self.broker}|{self.topic_or_queue}|{self.consumer_group}"
+
+
+@dataclass(frozen=True)
 class UnresolvedFact:
     repo_id: str
     file_path: str
@@ -193,12 +271,23 @@ class DetectorFacts:
     unresolved: tuple[UnresolvedFact, ...]
     evidence_links: tuple[str, ...] = ()
     endpoint_evidence_links: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    rpc_endpoints: tuple[RpcEndpoint, ...] = ()
+    message_endpoints: tuple[MessageEndpoint, ...] = ()
 
     def __post_init__(self) -> None:
+        for name in ("detector_id", "detector_version", "repo_id", "source_revision"):
+            _require_nonblank(getattr(self, name), name)
         evidence_by_id = {evidence.id: evidence for evidence in self.evidences}
         if len(evidence_by_id) != len(self.evidences):
             raise ValueError("duplicate evidence id")
-        nested = (*self.services, *self.http_endpoints, *self.evidences, *self.unresolved)
+        nested = (
+            *self.services,
+            *self.http_endpoints,
+            *self.rpc_endpoints,
+            *self.message_endpoints,
+            *self.evidences,
+            *self.unresolved,
+        )
         for item in nested:
             if item.repo_id != self.repo_id:
                 raise ValueError("nested repo mismatch")
@@ -208,12 +297,16 @@ class DetectorFacts:
         references = (
             [service.evidence_id for service in self.services]
             + [endpoint.evidence_id for endpoint in self.http_endpoints]
+            + [endpoint.evidence_id for endpoint in self.rpc_endpoints]
+            + [endpoint.evidence_id for endpoint in self.message_endpoints]
             + [item.evidence_id for item in self.unresolved]
             + list(self.evidence_links)
         )
         if any(reference not in evidence_by_id for reference in references):
             raise ValueError("missing evidence")
-        endpoint_keys = {endpoint.canonical_key for endpoint in self.http_endpoints}
+        endpoint_keys = {
+            endpoint.canonical_key for endpoint in (*self.http_endpoints, *self.rpc_endpoints, *self.message_endpoints)
+        }
         if len(self.endpoint_evidence_links) != len({key for key, _ in self.endpoint_evidence_links}):
             raise ValueError("duplicate endpoint evidence link")
         for endpoint_key, linked_ids in self.endpoint_evidence_links:
@@ -236,6 +329,14 @@ class DetectorFacts:
             "http_endpoints": [
                 {**self._as_dict(item), "canonical_key": item.canonical_key}
                 for item in sorted(self.http_endpoints, key=lambda value: value.canonical_key)
+            ],
+            "rpc_endpoints": [
+                {**self._as_dict(item), "canonical_key": item.canonical_key}
+                for item in sorted(self.rpc_endpoints, key=lambda value: value.canonical_key)
+            ],
+            "message_endpoints": [
+                {**self._as_dict(item), "canonical_key": item.canonical_key}
+                for item in sorted(self.message_endpoints, key=lambda value: value.canonical_key)
             ],
             "evidences": [
                 {**self._as_dict(item), "id": item.id} for item in sorted(self.evidences, key=lambda value: value.id)
