@@ -1,5 +1,7 @@
 from .detectors.registry import DetectorRegistry
 from .detectors.spring_http import SpringHttpDetector
+from .graph_plan import GraphNode, GraphPlanBuilder, GraphRelation, GraphWritePlan
+from .graph_writer import GraphWriter, InMemoryGraphSink, WriteReceipt
 from .models import (
     DetectorFacts,
     Evidence,
@@ -10,6 +12,7 @@ from .models import (
     ServiceDefinition,
     UnresolvedFact,
 )
+from .resolver import FactBatch, ResolvedLink, ResolveResult, ServiceGraphResolver, UnresolvedEndpoint
 
 __all__ = [
     "DetectorFacts",
@@ -22,4 +25,16 @@ __all__ = [
     "UnresolvedFact",
     "DetectorRegistry",
     "SpringHttpDetector",
+    "FactBatch",
+    "GraphNode",
+    "GraphPlanBuilder",
+    "GraphRelation",
+    "GraphWritePlan",
+    "GraphWriter",
+    "InMemoryGraphSink",
+    "ResolveResult",
+    "ResolvedLink",
+    "ServiceGraphResolver",
+    "UnresolvedEndpoint",
+    "WriteReceipt",
 ]
