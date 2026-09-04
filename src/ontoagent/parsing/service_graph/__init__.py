@@ -1,3 +1,16 @@
+from .change_analysis import (
+    DirectServiceGraphImpact,
+    EndpointAddition,
+    EndpointContractChange,
+    EndpointDeletion,
+    EndpointFactRevision,
+    ServiceEndpointContract,
+    ServiceEndpointFact,
+    ServiceGraphChangeAnalysis,
+    ServiceGraphChangeAnalysisBlockReason,
+    ServiceGraphChangeAnalysisResult,
+    ServiceGraphChangeAnalysisStatus,
+)
 from .detectors.registry import DetectorRegistry
 from .detectors.spring_http import SpringHttpDetector
 from .graph_plan import GraphNode, GraphPlanBuilder, GraphRelation, GraphWritePlan
@@ -25,12 +38,23 @@ from .resolver import FactBatch, ResolvedLink, ResolveResult, ServiceGraphResolv
 
 __all__ = [
     "DetectorFacts",
+    "DirectServiceGraphImpact",
+    "EndpointAddition",
+    "EndpointContractChange",
+    "EndpointDeletion",
+    "EndpointFactRevision",
     "Evidence",
     "HttpEndpoint",
     "MessageEndpoint",
     "RepositorySnapshot",
     "RpcEndpoint",
     "ServiceDefinition",
+    "ServiceEndpointContract",
+    "ServiceEndpointFact",
+    "ServiceGraphChangeAnalysis",
+    "ServiceGraphChangeAnalysisBlockReason",
+    "ServiceGraphChangeAnalysisResult",
+    "ServiceGraphChangeAnalysisStatus",
     "UnresolvedFact",
     "DetectorRegistry",
     "SpringHttpDetector",
