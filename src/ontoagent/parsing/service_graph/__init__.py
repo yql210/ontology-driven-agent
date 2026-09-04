@@ -13,6 +13,14 @@ from .models import (
     UnresolvedFact,
 )
 from .neo4j_graph_sink import Neo4jGraphSink
+from .query import (
+    ServiceGraphNodeResult,
+    ServiceGraphQuery,
+    ServiceGraphQueryBlockReason,
+    ServiceGraphQueryResult,
+    ServiceGraphQueryStatus,
+    ServiceGraphRelationResult,
+)
 from .resolver import FactBatch, ResolvedLink, ResolveResult, ServiceGraphResolver, UnresolvedEndpoint
 
 __all__ = [
@@ -34,6 +42,12 @@ __all__ = [
     "GraphWriter",
     "InMemoryGraphSink",
     "Neo4jGraphSink",
+    "ServiceGraphNodeResult",
+    "ServiceGraphQuery",
+    "ServiceGraphQueryBlockReason",
+    "ServiceGraphQueryResult",
+    "ServiceGraphQueryStatus",
+    "ServiceGraphRelationResult",
     "ResolveResult",
     "ResolvedLink",
     "ServiceGraphResolver",
