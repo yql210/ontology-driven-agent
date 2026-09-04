@@ -34,6 +34,11 @@ class ServiceGraphQueryBlockReason(StrEnum):
     GENERATION_MISMATCH = "generation_mismatch"
     NODE_NOT_FOUND = "node_not_found"
     ENTITY_OR_RELATION_NOT_FOUND = "entity_or_relation_not_found"
+    MISSING_ACTIVE = "missing_active"
+    MALFORMED_RECORD = "malformed_record"
+    NAMESPACE_MISMATCH = "namespace_mismatch"
+    NOT_READY = "not_ready"
+    UNCONFIRMED_RECEIPT = "unconfirmed_receipt"
 
 
 @dataclass(frozen=True)
