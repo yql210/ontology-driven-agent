@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import importlib
+import importlib.util
+import json
 import logging
 import sys
+from dataclasses import asdict
 from pathlib import Path
+from types import ModuleType
 
 import click
 
@@ -120,6 +125,76 @@ def version() -> None:
     click.echo("OntoAgent v0.1.0")
     click.echo(f"Python: {sys.version.split()[0]}")
     click.echo(f"Neo4j URI: {OntoAgentConfig.from_env().neo4j_uri}")
+
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_SERVICE_GRAPH_GOLDEN = _PROJECT_ROOT / "tests" / "evaluation" / "open_service_graph" / "golden_dataset.json"
+_DEFAULT_SERVICE_GRAPH_FIXTURE_ROOT = _PROJECT_ROOT / "tests" / "fixtures" / "service_graph" / "neutral_three_repo"
+_SERVICE_GRAPH_EVALUATOR_PATH = (
+    _PROJECT_ROOT / "tests" / "evaluation" / "open_service_graph" / "open_service_graph_eval.py"
+)
+_SERVICE_GRAPH_EVALUATOR_EXIT_CODES = {
+    "passed": 0,
+    "failed": 2,
+    "unverified": 3,
+}
+
+
+def _load_open_service_graph_evaluator() -> ModuleType:
+    """Load the checked-in offline evaluator in source and installed CLI contexts."""
+    module_name = "tests.evaluation.open_service_graph.open_service_graph_eval"
+    try:
+        return importlib.import_module(module_name)
+    except ModuleNotFoundError as error:
+        if error.name != "tests":
+            raise
+
+    spec = importlib.util.spec_from_file_location("ontoagent_open_service_graph_eval", _SERVICE_GRAPH_EVALUATOR_PATH)
+    if spec is None or spec.loader is None:
+        raise click.ClickException(f"Offline evaluator is not available at {_SERVICE_GRAPH_EVALUATOR_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@main.command(name="service-graph-eval")
+@click.option(
+    "--golden",
+    type=click.Path(exists=True, dir_okay=False, readable=True, path_type=Path),
+    default=_DEFAULT_SERVICE_GRAPH_GOLDEN,
+    show_default=True,
+    help="Golden dataset JSON path.",
+)
+@click.option(
+    "--fixture-root",
+    type=click.Path(exists=True, file_okay=False, readable=True, path_type=Path),
+    default=_DEFAULT_SERVICE_GRAPH_FIXTURE_ROOT,
+    show_default=True,
+    help="Neutral service graph fixture root.",
+)
+def evaluate_open_service_graph(golden: Path, fixture_root: Path) -> None:
+    """Run the deterministic offline Open Service Graph Golden evaluation."""
+    evaluator = _load_open_service_graph_evaluator()
+
+    try:
+        report = evaluator.evaluate(evaluator.load_gold(golden), fixture_root)
+    except ValueError as error:
+        raise click.ClickException(f"Invalid Golden dataset: {error}") from error
+
+    exit_code = _SERVICE_GRAPH_EVALUATOR_EXIT_CODES[report.outcome.value]
+    payload = {
+        "outcome": report.outcome.value,
+        "exit_code": exit_code,
+        "metrics": asdict(report.metrics) if report.metrics is not None else None,
+        "reasons": list(report.reasons),
+    }
+    click.echo(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+    if exit_code:
+        raise click.exceptions.Exit(exit_code)
+
+
+main.add_command(evaluate_open_service_graph, name="evaluate-open-service-graph")
 
 
 @main.command()
