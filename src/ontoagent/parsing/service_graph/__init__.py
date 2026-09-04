@@ -26,6 +26,12 @@ from .models import (
     UnresolvedFact,
 )
 from .neo4j_graph_sink import Neo4jGraphSink
+from .neo4j_manifest_repository import (
+    DurableServiceGraphManifest,
+    ManifestPublicationResult,
+    ManifestPublicationStatus,
+    Neo4jServiceGraphManifestRepository,
+)
 from .query import (
     ServiceGraphNodeResult,
     ServiceGraphQuery,
@@ -66,6 +72,10 @@ __all__ = [
     "GraphWriter",
     "InMemoryGraphSink",
     "Neo4jGraphSink",
+    "Neo4jServiceGraphManifestRepository",
+    "DurableServiceGraphManifest",
+    "ManifestPublicationResult",
+    "ManifestPublicationStatus",
     "ServiceGraphNodeResult",
     "ServiceGraphQuery",
     "ServiceGraphQueryBlockReason",
