@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.0",
+  "fixture": "neutral_three_repo",
+  "fixture_commit": "fixture-neutral-three-repo-v1",
+  "thresholds": {
+    "provider_precision": 0.98,
+    "consumer_precision": 0.95,
+    "cross_repo_matching_precision": 0.95,
+    "high_confidence_false_positive_rate": 0.02
+  },
+  "records": [
+    {
+      "gold_id": "OSG-I7-HTTP-POST-001",
+      "fixture_commit": "fixture-neutral-three-repo-v1",
+      "source_revisions": {"provider-orders": "fixture-provider-v1", "consumer-checkout": "fixture-consumer-v1"},
+      "generation_id": "generation-1",
+      "protocol": "HTTP",
+      "canonical_endpoint_key": "HTTP|POST|/orders|orders",
+      "match_key": "HTTP|POST|/orders|orders",
+      "expected_provider_refs": [{"repo_id": "provider-orders", "source_revision": "fixture-provider-v1", "canonical_key": "HTTP|POST|/orders|orders:Order"}],
+      "expected_consumer_refs": [{"repo_id": "consumer-checkout", "source_revision": "fixture-consumer-v1", "canonical_key": "HTTP|POST|/orders|orders"}],
+      "expected_unresolved": null,
+      "expected_evidence": ["c095a6a8cddd0ac761d204b3be5d00a5", "683143aa25799491b10c2042e6d95c37"]
+    },
+    {
+      "gold_id": "OSG-I7-DUBBO-GET-001",
+      "fixture_commit": "fixture-neutral-three-repo-v1",
+      "source_revisions": {"provider-orders": "fixture-provider-v1", "consumer-checkout": "fixture-consumer-v1"},
+      "generation_id": "generation-1",
+      "protocol": "DUBBO",
+      "canonical_endpoint_key": "DUBBO|orders|example.orders.OrderApi|getOrder|1.0",
+      "match_key": "DUBBO|orders|example.orders.OrderApi|getOrder|1.0",
+      "expected_provider_refs": [{"repo_id": "provider-orders", "source_revision": "fixture-provider-v1", "canonical_key": "DUBBO|orders|example.orders.OrderApi|getOrder|1.0"}],
+      "expected_consumer_refs": [{"repo_id": "consumer-checkout", "source_revision": "fixture-consumer-v1", "canonical_key": "DUBBO|orders|example.orders.OrderApi|getOrder|1.0"}],
+      "expected_unresolved": null,
+      "expected_evidence": ["a904d8ccf7cd88dd656aeeea9d5b06b2", "4a45fd6d55eb9604d5a78ceaf7b2defa"]
+    },
+    {
+      "gold_id": "OSG-I7-KAFKA-ORDER-EVENTS-001",
+      "fixture_commit": "fixture-neutral-three-repo-v1",
+      "source_revisions": {"provider-orders": "fixture-provider-v1", "consumer-checkout": "fixture-consumer-v1"},
+      "generation_id": "generation-1",
+      "protocol": "MQ",
+      "canonical_endpoint_key": "MQ|kafka|order-events|checkout",
+      "match_key": "MQ|kafka|order-events",
+      "expected_provider_refs": [{"repo_id": "provider-orders", "source_revision": "fixture-provider-v1", "canonical_key": "MQ|kafka|order-events|-"}],
+      "expected_consumer_refs": [{"repo_id": "consumer-checkout", "source_revision": "fixture-consumer-v1", "canonical_key": "MQ|kafka|order-events|checkout"}],
+      "expected_unresolved": null,
+      "expected_evidence": ["e12dbd02fa2b25af55c6a5fde678f7ea", "3b3fdd62d1c6628c0f9711604ce5fe9b"]
+    },
+    {
+      "gold_id": "OSG-I7-HTTP-UNRESOLVED-001",
+      "fixture_commit": "fixture-neutral-three-repo-v1",
+      "source_revisions": {"consumer-checkout": "fixture-consumer-v1"},
+      "generation_id": "generation-1",
+      "protocol": "HTTP",
+      "canonical_endpoint_key": "HTTP|GET|/orders/1|orders",
+      "match_key": "HTTP|GET|/orders/1|orders",
+      "expected_provider_refs": [],
+      "expected_consumer_refs": [{"repo_id": "consumer-checkout", "source_revision": "fixture-consumer-v1", "canonical_key": "HTTP|GET|/orders/1|orders"}],
+      "expected_unresolved": {"repo_id": "consumer-checkout", "source_revision": "fixture-consumer-v1", "role": "consumer", "reason_code": "NO_PROVIDER_MATCH"},
+      "expected_evidence": ["f7b740a4b871e9ae367606dab032c0b1"]
+    },
+    {
+      "gold_id": "OSG-I7-ISOLATED-CATALOG-001",
+      "fixture_commit": "fixture-neutral-three-repo-v1",
+      "source_revisions": {"isolated-catalog": "fixture-isolated-v1"},
+      "generation_id": "generation-1",
+      "protocol": "DUBBO",
+      "canonical_endpoint_key": "DUBBO|catalog|example.catalog.CatalogApi|lookup|9.0",
+      "match_key": "DUBBO|catalog|example.catalog.CatalogApi|lookup|9.0",
+      "expected_provider_refs": [{"repo_id": "isolated-catalog", "source_revision": "fixture-isolated-v1", "canonical_key": "DUBBO|catalog|example.catalog.CatalogApi|lookup|9.0"}],
+      "expected_consumer_refs": [],
+      "expected_unresolved": {"repo_id": "isolated-catalog", "source_revision": "fixture-isolated-v1", "role": "provider", "reason_code": "NO_CONSUMER_MATCH"},
+      "expected_evidence": ["845f79bc82e9e7d53628cd9c8b9033d5"]
+    }
+  ]
+}
