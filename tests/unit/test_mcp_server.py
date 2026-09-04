@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import inspect
+from types import SimpleNamespace
+from unittest.mock import patch
+
 import pytest
 
 
@@ -534,6 +538,78 @@ def test_serve_options():
     assert "--port" in result.output
 
 
+def test_evaluate_open_service_graph_returns_pinned_offline_passed_result_without_backends():
+    """The MCP evaluator runs only the checked-in Golden data and neutral fixture."""
+    from ontoagent.api import mcp_server
+
+    with (
+        patch.object(mcp_server, "_get_config", side_effect=AssertionError("config must not be loaded")),
+        patch.object(mcp_server, "_get_graph_store", side_effect=AssertionError("graph store must not be loaded")),
+        patch.object(mcp_server, "_get_chroma", side_effect=AssertionError("chroma must not be loaded")),
+        patch.object(mcp_server, "_get_builder", side_effect=AssertionError("builder must not be loaded")),
+    ):
+        result = mcp_server.evaluate_open_service_graph()
+
+    assert result == {
+        "outcome": "passed",
+        "exit_code": 0,
+        "metrics": {
+            "provider_precision": 1.0,
+            "consumer_precision": 1.0,
+            "cross_repo_matching_precision": 1.0,
+            "high_confidence_false_positive_rate": 0.0,
+        },
+        "reasons": [],
+    }
+    assert inspect.signature(mcp_server.evaluate_open_service_graph).parameters == {}
+
+
+def test_evaluate_open_service_graph_returns_unverified_when_evaluator_loading_is_blocked():
+    """An unavailable or corrupt evaluator is reported without touching application backends."""
+    from ontoagent.api import mcp_server
+
+    with (
+        patch.object(mcp_server, "_load_open_service_graph_evaluator", side_effect=RuntimeError("evaluator blocked")),
+        patch.object(mcp_server, "_get_config", side_effect=AssertionError("config must not be loaded")),
+        patch.object(mcp_server, "_get_graph_store", side_effect=AssertionError("graph store must not be loaded")),
+        patch.object(mcp_server, "_get_chroma", side_effect=AssertionError("chroma must not be loaded")),
+        patch.object(mcp_server, "_get_builder", side_effect=AssertionError("builder must not be loaded")),
+    ):
+        result = mcp_server.evaluate_open_service_graph()
+
+    assert result == {
+        "outcome": "unverified",
+        "exit_code": 3,
+        "metrics": None,
+        "reasons": ["OFFLINE_EVALUATOR_UNAVAILABLE:evaluator blocked"],
+    }
+
+
+def test_evaluate_open_service_graph_normalizes_failed_report_exit_code():
+    """A failed evaluator report uses the MCP public exit code rather than the internal one."""
+    from ontoagent.api import mcp_server
+    from tests.evaluation.open_service_graph.open_service_graph_eval import (
+        EvaluationMetrics,
+        EvaluationOutcome,
+        EvaluationReport,
+    )
+
+    report = EvaluationReport(
+        outcome=EvaluationOutcome.FAILED,
+        exit_code=1,
+        reasons=("TEST_REASON",),
+        metrics=EvaluationMetrics(0.5, 0.5, 0.5, 0.5),
+        records=(),
+    )
+    evaluator = SimpleNamespace(load_gold=lambda _: {}, evaluate=lambda _, __: report)
+
+    with patch.object(mcp_server, "_load_open_service_graph_evaluator", return_value=evaluator):
+        result = mcp_server.evaluate_open_service_graph()
+
+    assert result["outcome"] == "failed"
+    assert result["exit_code"] == 2
+
+
 class TestToolRegistration:
     """测试 MCP 工具注册。"""
 
@@ -547,7 +623,7 @@ class TestToolRegistration:
         mcp_server._reset_components()
 
     def test_all_tools_registered(self):
-        """验证 8 个工具都注册在 mcp 实例中。"""
+        """验证 9 个工具都注册在 mcp 实例中。"""
         import asyncio
 
         from ontoagent.api.mcp_server import mcp
@@ -561,6 +637,7 @@ class TestToolRegistration:
             "get_module_tree",
             "detect_changes",
             "export_graph",
+            "evaluate_open_service_graph",
         }
 
         tools = asyncio.run(mcp._local_provider.list_tools())

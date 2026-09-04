@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import subprocess
+import sys
+from dataclasses import asdict
+from pathlib import Path
+from types import ModuleType
 
 from fastmcp import FastMCP
 
@@ -13,6 +19,14 @@ from ontoagent.store.factory import create_graph_store
 from ontoagent.store.graph_store import GraphStore
 
 mcp = FastMCP("OntoAgent", instructions="OntoAgent Knowledge Graph MCP Server")
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_OPEN_SERVICE_GRAPH_GOLDEN_PATH = _PROJECT_ROOT / "tests" / "evaluation" / "open_service_graph" / "golden_dataset.json"
+_OPEN_SERVICE_GRAPH_FIXTURE_ROOT = _PROJECT_ROOT / "tests" / "fixtures" / "service_graph" / "neutral_three_repo"
+_OPEN_SERVICE_GRAPH_EVALUATOR_PATH = (
+    _PROJECT_ROOT / "tests" / "evaluation" / "open_service_graph" / "open_service_graph_eval.py"
+)
+_OPEN_SERVICE_GRAPH_EXIT_CODES = {"passed": 0, "failed": 2, "unverified": 3}
 
 # 组件懒加载缓存
 _components: dict = {}
@@ -96,6 +110,51 @@ def _reset_components() -> None:
         comp = _components.pop(key)
         if hasattr(comp, "close"):
             comp.close()
+
+
+def _load_open_service_graph_evaluator() -> ModuleType:
+    """Load the checked-in offline Open Service Graph evaluator."""
+    module_name = "tests.evaluation.open_service_graph.open_service_graph_eval"
+    try:
+        return importlib.import_module(module_name)
+    except ModuleNotFoundError as error:
+        if error.name != "tests":
+            raise
+
+    spec = importlib.util.spec_from_file_location(
+        "ontoagent_open_service_graph_mcp_eval", _OPEN_SERVICE_GRAPH_EVALUATOR_PATH
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"offline evaluator is unavailable at {_OPEN_SERVICE_GRAPH_EVALUATOR_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@mcp.tool
+def evaluate_open_service_graph() -> dict[str, object]:
+    """Evaluate the pinned Open Service Graph Golden dataset using offline fixtures only."""
+    try:
+        evaluator = _load_open_service_graph_evaluator()
+        report = evaluator.evaluate(
+            evaluator.load_gold(_OPEN_SERVICE_GRAPH_GOLDEN_PATH), _OPEN_SERVICE_GRAPH_FIXTURE_ROOT
+        )
+        outcome = report.outcome.value
+        exit_code = _OPEN_SERVICE_GRAPH_EXIT_CODES[outcome]
+        return {
+            "outcome": outcome,
+            "exit_code": exit_code,
+            "metrics": asdict(report.metrics) if report.metrics is not None else None,
+            "reasons": list(report.reasons),
+        }
+    except (AttributeError, ImportError, KeyError, OSError, RuntimeError, SyntaxError, ValueError) as error:
+        return {
+            "outcome": "unverified",
+            "exit_code": 3,
+            "metrics": None,
+            "reasons": [f"OFFLINE_EVALUATOR_UNAVAILABLE:{error}"],
+        }
 
 
 @mcp.tool
