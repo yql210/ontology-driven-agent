@@ -13,6 +13,7 @@ from ontoagent.agent.trace import TraceCollector
 from ontoagent.api.web.rate_limit import limiter
 from ontoagent.api.web.router import chat as chat_router
 from ontoagent.api.web.router.graph import router as graph_router
+from ontoagent.api.web.router.service_graph_eval import router as service_graph_eval_router
 from ontoagent.auth import RepoAccessControl, RepoAuthMiddleware
 from ontoagent.config import OntoAgentConfig
 from ontoagent.observability import (
@@ -157,6 +158,7 @@ def create_app() -> FastAPI:
     chat_router.collector = _trace_collector
     app.include_router(chat_router.router, prefix="/api")
     app.include_router(graph_router, prefix="/api")
+    app.include_router(service_graph_eval_router, prefix="/api")
 
     # 挂载 trace router
     from ontoagent.api.web.router import trace as trace_router
