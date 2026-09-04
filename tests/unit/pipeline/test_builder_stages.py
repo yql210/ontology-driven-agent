@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from uuid import UUID
 
 import pytest
 
@@ -194,6 +195,9 @@ class TestBuildAborted:
             assert result.relations_created == 0
             assert len(result.errors) > 0
             assert "Stage 2 structural write failed" in result.errors[0]
+            assert result.generation_id
+            assert str(UUID(result.generation_id)) == result.generation_id
+            assert result.to_dict()["generation_id"] == result.generation_id
 
 
 class TestBuildElapsed:
@@ -214,6 +218,23 @@ class TestBuildElapsed:
 
             # Assert
             assert result.elapsed_ms > 0
+
+    def test_build_generates_distinct_ids_for_separate_invocations(
+        self, builder: OntoAgentBuilder, temp_repo: Path
+    ) -> None:
+        mock_graph = MagicMock()
+        mock_chroma = MagicMock()
+
+        with (
+            patch.object(builder, "_get_graph_store", return_value=mock_graph),
+            patch.object(builder, "_get_chroma_store", return_value=mock_chroma),
+        ):
+            first = builder.build(temp_repo, skip_semantic=True, skip_clustering=True)
+            second = builder.build(temp_repo, skip_semantic=True, skip_clustering=True)
+
+        assert first.generation_id
+        assert second.generation_id
+        assert first.generation_id != second.generation_id
 
 
 class TestBuildFullPipeline:

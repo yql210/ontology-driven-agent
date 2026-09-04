@@ -14,7 +14,7 @@ from ontoagent.domain.index_health import (
 )
 from ontoagent.domain.schema import CodeEntity, ConceptEntity, DocEntity
 from ontoagent.parsing.extractor.semantic import SemanticRelation
-from ontoagent.pipeline.builder import OntoAgentBuilder
+from ontoagent.pipeline.builder import BuildResult, OntoAgentBuilder
 
 
 class TestNormalizePath:
@@ -305,6 +305,12 @@ class TestBuildResult:
         assert d["elapsed_ms"] == 1234.5
         assert d["errors"] == ["error1", "error2"]
 
+    def test_generation_id_is_a_final_default_field(self) -> None:
+        result = BuildResult(1, 2, 3, generation_id="generation-1")
+
+        assert result.generation_id == "generation-1"
+        assert result.to_dict()["generation_id"] == "generation-1"
+
     def test_defaults(self) -> None:
         """测试新字段的默认值。"""
         from ontoagent.pipeline.builder import BuildResult
@@ -417,7 +423,7 @@ def test_builder_reports_capability_health_anomalies(
 ) -> None:
     builder = _health_builder(tmp_path, _HealthChromaRecorder(outcome))
     if outcome.submitted == 0:
-        builder._extract_capabilities = lambda *args: (1, 0, 1)  # type: ignore[method-assign]
+        builder._extract_capabilities = lambda *args, **kwargs: (1, 0, 1)  # type: ignore[method-assign]
 
     result = builder.build(tmp_path, skip_semantic=True, skip_clustering=True)
 

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from ontoagent.config import OntoAgentConfig
 from ontoagent.domain.index_health import BusinessEntryIndexHealth, VectorWriteOutcome
@@ -119,6 +120,7 @@ class BuildResult:
     elapsed_ms: float = 0.0
     errors: list[str] = field(default_factory=list)
     business_entry_index: BusinessEntryIndexHealth | None = None
+    generation_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         result = dataclasses.asdict(self)
@@ -135,6 +137,8 @@ class BuildResult:
         lines.append(f"  Concepts:         {self.concepts_created}")
         lines.append(f"  Semantic rels:    {self.semantic_relations_created}")
         lines.append(f"  Modules:          {self.modules_created}")
+        if self.generation_id is not None:
+            lines.append(f"  Generation ID:     {self.generation_id}")
         lines.append(f"  Semantic stage: {'[!] skipped' if self.skipped_semantic else '[+] completed'}")
         lines.append(f"  Build status: {'[X] aborted' if self.aborted else '[+] success'}")
         if self.business_entry_index is not None:
@@ -565,6 +569,7 @@ class OntoAgentBuilder:
         """
         import time
 
+        generation_id = str(uuid4())
         self._repo_id = repo_id
         # Stage 2.7 is non-critical; never carry capabilities into the next build.
         self._capability_dicts = []
@@ -627,6 +632,8 @@ class OntoAgentBuilder:
         # Stage 1: 解析
         self._logger.info("═══ Stage 1/5: Parse ═══")
         all_entities, doc_entities, relations, files_scanned, unresolved_imports = self._stage_parse(repo_path)
+        for entity in all_entities:
+            entity.generation_id = generation_id
         self._report_progress(
             progress_callback,
             "parse",
@@ -698,6 +705,7 @@ class OntoAgentBuilder:
                     realized_by_submitted=0,
                     capability_vector_outcome=VectorWriteOutcome(0, 0, 0),
                 ),
+                generation_id=generation_id,
             )
 
         self._report_progress(progress_callback, "structural_write", f"Wrote {len(relations)} relations")
@@ -771,7 +779,7 @@ class OntoAgentBuilder:
         capability_extraction_failed = False
         try:
             capability_count, realized_by_count, eligible_entries_seen = self._extract_capabilities(
-                all_entities, graph_store, batch_time
+                all_entities, graph_store, batch_time, generation_id=generation_id
             )
         except Exception as e:
             capability_extraction_failed = True
@@ -827,7 +835,12 @@ class OntoAgentBuilder:
         try:
             cap_dicts = getattr(self, "_capability_dicts", None) or []
             capability_vector_outcome = self._write_all_vectors(
-                all_entities, doc_entities, new_concepts, clusters, capability_dicts=cap_dicts
+                all_entities,
+                doc_entities,
+                new_concepts,
+                clusters,
+                capability_dicts=cap_dicts,
+                generation_id=generation_id,
             )
         except _CapabilityVectorWriteError as e:
             self._logger.warning("Capability vector write failed: %s", e)
@@ -878,6 +891,7 @@ class OntoAgentBuilder:
                 realized_by_submitted=realized_by_count,
                 capability_vector_outcome=capability_vector_outcome,
             ),
+            generation_id=generation_id,
         )
 
     def _write_service_topic_entities(
@@ -1114,7 +1128,10 @@ class OntoAgentBuilder:
         Returns:
             属性字典。
         """
-        return entity_to_dict(entity)
+        properties = entity_to_dict(entity)
+        if entity.generation_id is not None:
+            properties["generation_id"] = entity.generation_id
+        return properties
 
     @staticmethod
     def _doc_entity_to_dict(entity: DocEntity) -> dict:
@@ -1212,6 +1229,8 @@ class OntoAgentBuilder:
         all_entities: list[CodeEntity],
         graph_store: GraphStore,
         batch_time: str,
+        *,
+        generation_id: str | None = None,
     ) -> tuple[int, int, int]:
         """Stage 2.7: 从 API 入口函数逆向 CapabilityEntity 并写入 Neo4j。
 
@@ -1233,13 +1252,16 @@ class OntoAgentBuilder:
         for entity in all_entities:
             if entity.entry_category in {"http_api", "rpc_service"}:
                 eligible_entries_seen += 1
-            capability = extractor.extract(entity)
+            capability = extractor.extract(entity, generation_id=generation_id)
             if capability is None:
                 continue
 
+            capability_props = capability_entity_to_dict(capability)
+            if generation_id is not None:
+                capability_props["generation_id"] = generation_id
             cap_dicts.append(
                 add_provenance(
-                    capability_entity_to_dict(capability),
+                    capability_props,
                     source="ast_parser",
                     confidence=0.85,
                     extracted_at=batch_time,
@@ -1256,7 +1278,7 @@ class OntoAgentBuilder:
                             "source_label": "CapabilityEntity",
                             "target_label": "CodeEntity",
                             "properties": add_provenance(
-                                {},
+                                {"generation_id": generation_id} if generation_id is not None else {},
                                 source="ast_parser",
                                 confidence=0.85,
                                 extracted_at=batch_time,
@@ -1328,6 +1350,8 @@ class OntoAgentBuilder:
         new_concepts: list[ConceptEntity],
         clusters: list[ModuleCluster],
         capability_dicts: list[dict] | None = None,
+        *,
+        generation_id: str | None = None,
     ) -> VectorWriteOutcome:
         """Stage 5: 统一向量写入 ChromaDB.
 
@@ -1392,6 +1416,9 @@ class OntoAgentBuilder:
                         identity_value = cap.get(identity_key)
                         if identity_value is not None and str(identity_value).strip():
                             metadata[identity_key] = str(identity_value)
+                    capability_generation_id = cap.get("generation_id", generation_id)
+                    if capability_generation_id is not None and str(capability_generation_id).strip():
+                        metadata["generation_id"] = str(capability_generation_id)
                     capability_items.append(
                         (
                             cap_id,

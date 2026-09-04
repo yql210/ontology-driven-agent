@@ -41,6 +41,16 @@ class TestBuildResultStr:
         assert "[+] success" in output
         assert "Elapsed:" in output
 
+    def test_build_result_str_contains_generation_id(self) -> None:
+        result = BuildResult(
+            files_scanned=1,
+            entities_created=1,
+            relations_created=0,
+            generation_id="generation-1",
+        )
+
+        assert "Generation ID:     generation-1" in str(result)
+
     def test_build_result_str_errors(self) -> None:
         # Arrange & Act
         result = BuildResult(

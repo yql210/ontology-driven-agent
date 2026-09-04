@@ -92,6 +92,22 @@ class TestDetectAndWriteModules:
 
 
 class TestWriteAllVectors:
+    def test_write_all_vectors_capability_includes_generation_metadata(self, builder: OntoAgentBuilder) -> None:
+        capability = {
+            "id": "cap-1",
+            "name": "process_payment",
+            "business_domain": "payment",
+            "description": "Process a payment.",
+            "generation_id": "generation-1",
+        }
+        mock_chroma = MagicMock()
+
+        with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
+            builder._write_all_vectors([], [], [], [], capability_dicts=[capability])
+
+        metadata = mock_chroma.put_entities_batch_with_outcome.call_args.args[0][0][2]
+        assert metadata["generation_id"] == "generation-1"
+
     def test_write_all_vectors_capability_preserves_repository_identity(self, builder: OntoAgentBuilder) -> None:
         """Capability vectors retain the graph identity metadata used for repo isolation."""
         capability = {
@@ -184,6 +200,30 @@ class TestWriteAllVectors:
         assert vector_items[0][2]["entry_code_entity_id"] == repo_a_capability["entry_code_entity_id"]
         assert vector_items[1][2]["repo_id"] == repo_b_capability["repo_id"]
         assert vector_items[1][2]["entry_code_entity_id"] == repo_b_capability["entry_code_entity_id"]
+
+    def test_capability_generation_matches_graph_relation_and_vector_metadata(self, builder: OntoAgentBuilder) -> None:
+        graph_store = MagicMock()
+        entry = CodeEntity(
+            id="entry-1",
+            name="process_payment",
+            entity_type="function",
+            repo_id="repo-a",
+            file_path="api/payment.py",
+        )
+        entry.entry_category = "http_api"
+
+        builder._extract_capabilities([entry], graph_store, "2026-01-01T00:00:00+00:00", generation_id="generation-1")
+
+        capability = builder._capability_dicts[0]
+        relation = graph_store.merge_relations_batch.call_args.args[0][0]
+        mock_chroma = MagicMock()
+        with patch.object(builder, "_get_chroma_store", return_value=mock_chroma):
+            builder._write_all_vectors([], [], [], [], capability_dicts=[capability])
+
+        vector_metadata = mock_chroma.put_entities_batch_with_outcome.call_args.args[0][0][2]
+        assert capability["generation_id"] == "generation-1"
+        assert relation["properties"]["generation_id"] == "generation-1"
+        assert vector_metadata["generation_id"] == "generation-1"
 
     def test_write_all_vectors_code_entities_only(self, builder: OntoAgentBuilder) -> None:
         """CodeEntity 向量写入。"""
