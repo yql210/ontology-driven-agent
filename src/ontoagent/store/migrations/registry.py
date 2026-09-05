@@ -18,6 +18,7 @@ _BUILTIN_MIGRATIONS: list[str] = [
     "2.2.0",
     "2.3.0",
     "2.4.0",
+    "2.5.0",
 ]
 
 
@@ -73,6 +74,12 @@ def _load_migration(version: str) -> MigrationBase:
         )
 
         return CapabilityEntryIdentityMigration()
+    if version == "2.5.0":
+        from ontoagent.store.migrations.v2_5_0_workspace_persistence import (
+            WorkspacePersistenceMigration,
+        )
+
+        return WorkspacePersistenceMigration()
     raise ValueError(f"Unknown migration version: {version}")
 
 

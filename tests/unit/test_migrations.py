@@ -115,14 +115,14 @@ class TestMigrationRegistry:
         reg.register(m1)
         reg.register(m3)
         path = reg.get_migration_path("0.0.0", "3.0.0")
-        # m1 + builtins through 2.4.0 + m3 = 8 migrations.
-        assert len(path) == 8
+        # m1 + builtins through 2.5.0. The final m3 is not contiguous after v2.5.0.
+        assert len(path) == 9
 
     def test_get_latest_version(self):
         reg = MigrationRegistry()
-        # builtin migrations now include v2.4.0
-        assert reg.get_latest_version() == "2.4.0"
-        reg.register(DummyMigration("2.4.0", "3.0.0"))
+        # builtin migrations now include v2.5.0
+        assert reg.get_latest_version() == "2.5.0"
+        reg.register(DummyMigration("2.5.0", "3.0.0"))
         assert reg.get_latest_version() == "3.0.0"
 
 
@@ -380,9 +380,9 @@ def test_migration_registry_includes_v5_capability() -> None:
 
 
 @pytest.mark.unit
-def test_current_schema_version_is_2_4_0() -> None:
-    """Capability entry identity migration advances the schema to v2.4.0."""
-    assert CURRENT_SCHEMA_VERSION == "2.4.0", f"Expected 2.4.0, got {CURRENT_SCHEMA_VERSION}"
+def test_current_schema_version_is_2_5_0() -> None:
+    """Workspace persistence migration advances the schema to v2.5.0."""
+    assert CURRENT_SCHEMA_VERSION == "2.5.0", f"Expected 2.5.0, got {CURRENT_SCHEMA_VERSION}"
 
 
 @pytest.mark.unit
@@ -474,4 +474,72 @@ def test_migration_registry_includes_capability_entry_identity_version() -> None
     path = registry.get_migration_path("2.3.0", "2.4.0")
 
     assert [migration.version_to for migration in path] == ["2.4.0"]
-    assert registry.get_latest_version() == "2.4.0"
+    assert registry.get_latest_version() == "2.5.0"
+
+
+@pytest.mark.unit
+def test_workspace_persistence_migration_is_registered_after_v2_4_0() -> None:
+    """The workspace schema migration is the next normal-chain migration."""
+    registry = MigrationRegistry()
+
+    path = registry.get_migration_path("2.4.0", CURRENT_SCHEMA_VERSION)
+
+    assert [migration.version_to for migration in path] == ["2.5.0"]
+    assert registry.get_latest_version() == "2.5.0"
+
+
+@pytest.mark.unit
+def test_workspace_persistence_migration_uses_only_dedicated_additive_neo4j_ddl() -> None:
+    """Workspace DDL must be named, idempotent, and isolated from legacy graphs."""
+    from ontoagent.store.migrations.v2_5_0_workspace_persistence import WorkspacePersistenceMigration
+
+    store = MagicMock()
+    migration = WorkspacePersistenceMigration()
+
+    migration.upgrade(store)
+
+    statements = [call.args[0] for call in store.query.call_args_list]
+    labels = (
+        "OntoAgentWorkspace",
+        "OntoAgentWorkspaceBuildTask",
+        "OntoAgentWorkspaceGeneration",
+        "OntoAgentWorkspaceRepositorySnapshot",
+        "OntoAgentWorkspaceActiveBinding",
+    )
+    assert migration.version_from == "2.4.0"
+    assert migration.version_to == "2.5.0"
+    assert len(statements) == 6
+    assert all("IF NOT EXISTS" in statement for statement in statements)
+    assert all(any(label in statement for statement in statements) for label in labels)
+    assert all("OntoAgentServiceGraph" not in statement for statement in statements)
+    assert all("CodeEntity" not in statement for statement in statements)
+    assert all("DELETE" not in statement and "DROP" not in statement for statement in statements)
+
+
+@pytest.mark.unit
+def test_workspace_persistence_migration_runner_is_idempotent() -> None:
+    """A rerun after recording v2.5.0 must not replay workspace DDL."""
+
+    class VersionTrackingStore:
+        def __init__(self) -> None:
+            self.version = "2.4.0"
+            self.statements: list[str] = []
+
+        def query(self, statement: str, params: dict[str, object] | None = None) -> list[dict[str, str]]:
+            self.statements.append(statement)
+            if "RETURN sv.version AS version" in statement:
+                return [{"version": self.version}]
+            if "MERGE (sv:SchemaVersion" in statement:
+                assert params is not None
+                self.version = str(params["version"])
+            return []
+
+    store = VersionTrackingStore()
+    runner = MigrationRunner(store, MigrationRegistry(load_builtins=True))  # type: ignore[arg-type]
+
+    with patch.object(runner, "_acquire_lock", return_value=MagicMock()), patch.object(runner, "_release_lock"):
+        assert runner.run_pending() == ["2.5.0"]
+        assert runner.run_pending() == []
+
+    ddl = [statement for statement in store.statements if statement.startswith("CREATE CONSTRAINT")]
+    assert len(ddl) == 6
