@@ -16,6 +16,13 @@ from ontoagent.parsing.service_graph.detectors.registry import DetectorRegistry
 from ontoagent.parsing.service_graph.detectors.spring_http import SpringHttpDetector
 from ontoagent.parsing.service_graph.graph_plan import GraphPlanBuilder
 from ontoagent.parsing.service_graph.graph_writer import GraphWriter, WriteReceipt
+from ontoagent.parsing.service_graph.methods import (
+    ImplementationMethod,
+    MethodEvidence,
+    MethodFacts,
+    OperationBinding,
+    ServiceOperation,
+)
 from ontoagent.parsing.service_graph.models import RepositorySnapshot
 from ontoagent.parsing.service_graph.neo4j_graph_sink import Neo4jGraphSink
 from ontoagent.parsing.service_graph.resolver import ServiceGraphResolver
@@ -87,7 +94,12 @@ def _credentials() -> tuple[str, str, str]:
     return uri, user, password
 
 
-def _input(workspace: Workspace, generation_id: str, expected_active: str | None) -> WorkspaceServiceGraphPublishInput:
+def _input(
+    workspace: Workspace,
+    generation_id: str,
+    expected_active: str | None,
+    method_facts: tuple[MethodFacts, ...] = (),
+) -> WorkspaceServiceGraphPublishInput:
     frozen = tuple(
         WorkspaceRepositorySnapshot(
             workspace.workspace_id,
@@ -103,8 +115,80 @@ def _input(workspace: Workspace, generation_id: str, expected_active: str | None
         for repo_id, revision in REVISIONS.items()
     )
     return WorkspaceServiceGraphPublishInput(
-        workspace, frozen, runtime, f"request-{generation_id}", generation_id, expected_active
+        workspace, frozen, runtime, f"request-{generation_id}", generation_id, expected_active, (), method_facts
     )
+
+
+def _method_facts(generation_id: str) -> tuple[MethodFacts, ...]:
+    facts: list[MethodFacts] = []
+    for repo_id, revision in REVISIONS.items():
+        evidence = MethodEvidence(
+            repo_id,
+            "module",
+            "service",
+            revision,
+            generation_id,
+            "src/Service.java",
+            1,
+            1,
+            "generic-java",
+            "1",
+            "method",
+            f"{repo_id}.find",
+            1.0,
+        )
+        operation = ServiceOperation(
+            repo_id,
+            "module",
+            "service",
+            revision,
+            generation_id,
+            "provider",
+            f"example.{repo_id}.Api",
+            "find",
+            f"example.{repo_id}.Api#find():void",
+            (evidence.id,),
+        )
+        implementation = ImplementationMethod(
+            repo_id,
+            "module",
+            "service",
+            revision,
+            generation_id,
+            f"example.{repo_id}.Service",
+            "find",
+            f"example.{repo_id}.Service#find():void",
+            "src/Service.java",
+            (evidence.id,),
+        )
+        facts.append(
+            MethodFacts(
+                "generic-java",
+                "1",
+                repo_id,
+                revision,
+                generation_id,
+                (operation,),
+                (implementation,),
+                (),
+                (
+                    OperationBinding(
+                        repo_id,
+                        "module",
+                        "service",
+                        revision,
+                        generation_id,
+                        "endpoint-ref",
+                        operation.id,
+                        implementation.id,
+                        (evidence.id,),
+                    ),
+                ),
+                (evidence,),
+                (),
+            )
+        )
+    return tuple(facts)
 
 
 def test_workspace_orchestrator_publishes_replaces_and_blocks_stale_generation_in_remote_neo4j() -> None:
@@ -124,7 +208,7 @@ def test_workspace_orchestrator_publishes_replaces_and_blocks_stale_generation_i
         for generation in (generation_one, generation_two, generation_three)
     )
     try:
-        first = orchestrator.publish(_input(workspace, generation_one, None))
+        first = orchestrator.publish(_input(workspace, generation_one, None, _method_facts(generation_one)))
         assert first.status is WorkspacePublishStatus.ACTIVE
         assert first.candidate_namespace == namespaces[0]
 
@@ -135,6 +219,15 @@ def test_workspace_orchestrator_publishes_replaces_and_blocks_stale_generation_i
                 "MATCH (n { _ontoagent_namespace: $namespace }) RETURN count(n) AS count", namespace=namespaces[0]
             ).single()["count"]
         assert count > 0
+        with driver.session() as session:
+            method_count = session.run(
+                "MATCH (n:ServiceOperation {namespace: $namespace, workspaceId: $workspace_id, "
+                "generationId: $generation_id}) RETURN count(n) AS count",
+                namespace=namespaces[0],
+                workspace_id=workspace.workspace_id,
+                generation_id=generation_one,
+            ).single()["count"]
+        assert method_count == 3
 
         second = orchestrator.publish(_input(workspace, generation_two, generation_one))
         assert second.status is WorkspacePublishStatus.ACTIVE
@@ -144,7 +237,9 @@ def test_workspace_orchestrator_publishes_replaces_and_blocks_stale_generation_i
             is WorkspaceGenerationState.SUPERSEDED
         )  # type: ignore[union-attr]
 
-        stale = orchestrator.publish(_input(workspace, generation_three, generation_one))
+        stale = orchestrator.publish(
+            _input(workspace, generation_three, generation_one, _method_facts(generation_three))
+        )
         assert stale.status is WorkspacePublishStatus.BLOCKED
         assert repository.get_active_binding(workspace.workspace_id).generation_id == generation_two  # type: ignore[union-attr]
         assert (

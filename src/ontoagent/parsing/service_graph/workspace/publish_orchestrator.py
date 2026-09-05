@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from ..detectors.registry import DetectorRegistry
 from ..graph_plan import GraphNode, GraphPlanBuilder, GraphRelation, GraphWritePlan
@@ -23,6 +24,10 @@ from .models import (
     WorkspacePublishStatus as WorkspacePublicationStatus,
 )
 from .neo4j_repository import Neo4jWorkspaceRepository
+
+if TYPE_CHECKING:
+    from ..method_graph_writer import MethodGraphScope, MethodGraphSink, MethodGraphWritePlan
+    from ..methods import MethodFacts
 
 
 class WorkspacePublishStatus(StrEnum):
@@ -43,6 +48,8 @@ class WorkspacePublishReason(StrEnum):
     GRAPH_WRITE_UNCONFIRMED = "graph_write_unconfirmed"
     ACTIVE_COMPARE_AND_SET_REJECTED = "active_compare_and_set_rejected"
     ACTIVE_COMPARE_AND_SET_FAILED = "active_compare_and_set_failed"
+    METHOD_GRAPH_WRITE_FAILED = "method_graph_write_failed"
+    METHOD_GRAPH_WRITE_UNCONFIRMED = "method_graph_write_unconfirmed"
 
 
 @dataclass(frozen=True)
@@ -56,8 +63,12 @@ class WorkspaceServiceGraphPublishInput:
     generation_id: str
     expected_active_generation_id: str | None
     owned_work_dirs: tuple[Path, ...] = ()
+    method_facts: tuple[MethodFacts, ...] = ()
 
     def __post_init__(self) -> None:
+        from ..method_graph_writer import MethodGraphScope, MethodGraphWritePlan
+        from ..methods import MethodFacts
+
         if type(self.workspace) is not Workspace:
             raise ValueError("workspace must be a Workspace")
         if type(self.snapshots) is not tuple or len(self.snapshots) < 3:
@@ -66,6 +77,8 @@ class WorkspaceServiceGraphPublishInput:
             raise ValueError("repository_snapshots must be an immutable tuple")
         if type(self.owned_work_dirs) is not tuple or any(not isinstance(path, Path) for path in self.owned_work_dirs):
             raise ValueError("owned_work_dirs must be an immutable tuple of paths")
+        if type(self.method_facts) is not tuple or any(type(fact) is not MethodFacts for fact in self.method_facts):
+            raise ValueError("method_facts must be an immutable tuple of MethodFacts")
         if any(type(snapshot) is not WorkspaceRepositorySnapshot for snapshot in self.snapshots):
             raise ValueError("snapshots must contain WorkspaceRepositorySnapshot values")
         if any(type(snapshot) is not RepositorySnapshot for snapshot in self.repository_snapshots):
@@ -86,6 +99,14 @@ class WorkspaceServiceGraphPublishInput:
         object.__setattr__(
             self, "repository_snapshots", tuple(sorted(self.repository_snapshots, key=lambda item: item.repo_id))
         )
+        if self.method_facts:
+            MethodGraphWritePlan(
+                MethodGraphScope(
+                    "method-fact-validation",
+                    WorkspaceGeneration(self.workspace.workspace_id, self.generation_id, self.snapshots),
+                ),
+                self.method_facts,
+            )
 
 
 @dataclass(frozen=True)
@@ -179,6 +200,7 @@ class WorkspaceServiceGraphPublishComponents:
     plan_builder: GraphPlanBuilderPort
     graph_writer: GraphWriterPort
     workspace_repository: WorkspaceRepositoryPort
+    method_graph_sink_factory: Callable[[MethodGraphScope], MethodGraphSink] | None = None
 
 
 class WorkspaceServiceGraphPublishComponentFactory(Protocol):
@@ -193,12 +215,15 @@ class Neo4jWorkspaceServiceGraphPublishComponentFactory:
         self._detector_registry = detector_registry
 
     def create(self, namespace: str) -> WorkspaceServiceGraphPublishComponents:
+        from ..neo4j_method_graph_sink import Neo4jMethodGraphSink
+
         return WorkspaceServiceGraphPublishComponents(
             self._detector_registry,
             ServiceGraphResolver(),
             GraphPlanBuilder(),
             GraphWriter(Neo4jGraphSink(self._driver, namespace=namespace)),
             Neo4jWorkspaceRepository(self._driver),
+            lambda scope: Neo4jMethodGraphSink(self._driver, scope),
         )
 
 
@@ -220,8 +245,13 @@ class WorkspaceServiceGraphPublishOrchestrator:
             raise ValueError("request must be a WorkspaceServiceGraphPublishInput")
         _assert_p0_snapshot_boundary(request.snapshots)
         namespace = self.namespace_for(request.workspace.workspace_id, request.generation_id)
-        components = self._component_factory.create(namespace)
         generation = WorkspaceGeneration(request.workspace.workspace_id, request.generation_id, request.snapshots)
+        method_plan: MethodGraphWritePlan | None = None
+        if request.method_facts:
+            from ..method_graph_writer import MethodGraphScope, MethodGraphWritePlan
+
+            method_plan = MethodGraphWritePlan(MethodGraphScope(namespace, generation), request.method_facts)
+        components = self._component_factory.create(namespace)
         try:
             components.workspace_repository.create_workspace(request.workspace)
             components.workspace_repository.create_build_task(
@@ -295,6 +325,30 @@ class WorkspaceServiceGraphPublishOrchestrator:
                 generation,
                 WorkspacePublishReason.GRAPH_WRITE_UNCONFIRMED,
             )
+        if method_plan is not None:
+            from ..method_graph_writer import MethodGraphWriter
+
+            try:
+                sink_factory = components.method_graph_sink_factory
+                if sink_factory is None:
+                    raise RuntimeError("method graph sink factory is required for method facts")
+                method_receipt = MethodGraphWriter(sink_factory(method_plan.scope)).write(method_plan)
+            except Exception:
+                return self._fail(
+                    components.workspace_repository,
+                    request,
+                    namespace,
+                    generation,
+                    WorkspacePublishReason.METHOD_GRAPH_WRITE_FAILED,
+                )
+            if not _confirmed_method_receipt(method_receipt, method_plan, method_plan.scope):
+                return self._fail(
+                    components.workspace_repository,
+                    request,
+                    namespace,
+                    generation,
+                    WorkspacePublishReason.METHOD_GRAPH_WRITE_UNCONFIRMED,
+                )
         try:
             generation = components.workspace_repository.advance_generation_state(
                 generation, WorkspaceGenerationState.VERIFYING
@@ -463,6 +517,20 @@ def _confirmed_receipt(receipt: object, plan: GraphWritePlan, namespace: str) ->
         and receipt.readback == plan
         and receipt.node_count == len(plan.nodes)
         and receipt.relation_count == len(plan.relations)
+    )
+
+
+def _confirmed_method_receipt(receipt: object, plan: MethodGraphWritePlan, scope: MethodGraphScope) -> bool:
+    from ..method_graph_writer import MethodWriteReceipt
+
+    return (
+        type(receipt) is MethodWriteReceipt
+        and receipt.confirmed
+        and receipt.scope == scope
+        and receipt.fingerprint == plan.fingerprint
+        and receipt.readback == plan
+        and receipt.node_count == plan.node_count
+        and receipt.relation_count == plan.relation_count
     )
 
 

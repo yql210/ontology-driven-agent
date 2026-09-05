@@ -7,6 +7,14 @@ import pytest
 
 from ontoagent.parsing.service_graph.graph_plan import GraphNode, GraphWritePlan
 from ontoagent.parsing.service_graph.graph_writer import WriteReceipt
+from ontoagent.parsing.service_graph.method_graph_writer import MethodGraphScope, MethodGraphWritePlan
+from ontoagent.parsing.service_graph.methods import (
+    ImplementationMethod,
+    MethodEvidence,
+    MethodFacts,
+    OperationBinding,
+    ServiceOperation,
+)
 from ontoagent.parsing.service_graph.models import DetectorFacts, RepositorySnapshot
 from ontoagent.parsing.service_graph.resolver import ResolveResult
 from ontoagent.parsing.service_graph.workspace.models import (
@@ -88,6 +96,24 @@ class _Writer:
         return WriteReceipt(self._confirmed, len(plan.nodes), len(plan.relations), plan, self.namespace)
 
 
+class _MethodSink:
+    def __init__(self, calls: list[str], scope: MethodGraphScope, *, confirmed: bool = True) -> None:
+        self._calls = calls
+        self.scope = scope
+        self._confirmed = confirmed
+        self._plan: MethodGraphWritePlan | None = None
+
+    def write(self, plan: MethodGraphWritePlan) -> None:
+        self._calls.append(f"method-write:{plan.scope.namespace}")
+        self._plan = plan
+
+    def readback(self, scope: MethodGraphScope) -> MethodGraphWritePlan:
+        if not self._confirmed:
+            raise ValueError("simulated receipt mismatch")
+        assert self._plan is not None
+        return self._plan
+
+
 class _Repository:
     def __init__(
         self, calls: list[str], *, publication: WorkspacePublishStatus = WorkspacePublishStatus.PUBLISHED
@@ -123,7 +149,7 @@ class _Repository:
         return WorkspacePublishResult(self._publication, self.active)
 
 
-def _input() -> WorkspaceServiceGraphPublishInput:
+def _input(method_facts: tuple[MethodFacts, ...] = ()) -> WorkspaceServiceGraphPublishInput:
     workspace = Workspace("workspace-1", "Workspace")
     persisted = tuple(
         WorkspaceRepositorySnapshot(
@@ -139,7 +165,75 @@ def _input() -> WorkspaceServiceGraphPublishInput:
         RepositorySnapshot(snapshot.repo_id, snapshot.source_revision, Path("."), frozenset({"java"}))
         for snapshot in persisted
     )
-    return WorkspaceServiceGraphPublishInput(workspace, persisted, runtime, "request-1", "generation-1", None)
+    return WorkspaceServiceGraphPublishInput(
+        workspace, persisted, runtime, "request-1", "generation-1", None, (), method_facts
+    )
+
+
+def _method_facts(*, source_revision: str = "revision-repo-a", generation_id: str = "generation-1") -> MethodFacts:
+    evidence = MethodEvidence(
+        "repo-a",
+        "module",
+        "service",
+        source_revision,
+        generation_id,
+        "src/Service.java",
+        1,
+        1,
+        "generic-java",
+        "1",
+        "method",
+        "Service.find",
+        1.0,
+    )
+    operation = ServiceOperation(
+        "repo-a",
+        "module",
+        "service",
+        source_revision,
+        generation_id,
+        "provider",
+        "example.ServiceApi",
+        "find",
+        "example.ServiceApi#find():void",
+        (evidence.id,),
+    )
+    implementation = ImplementationMethod(
+        "repo-a",
+        "module",
+        "service",
+        source_revision,
+        generation_id,
+        "example.Service",
+        "find",
+        "example.Service#find():void",
+        "src/Service.java",
+        (evidence.id,),
+    )
+    binding = OperationBinding(
+        "repo-a",
+        "module",
+        "service",
+        source_revision,
+        generation_id,
+        "endpoint-ref",
+        operation.id,
+        implementation.id,
+        (evidence.id,),
+    )
+    return MethodFacts(
+        "generic-java",
+        "1",
+        "repo-a",
+        source_revision,
+        generation_id,
+        (operation,),
+        (implementation,),
+        (),
+        (binding,),
+        (evidence,),
+        (),
+    )
 
 
 def _orchestrator(
@@ -148,16 +242,22 @@ def _orchestrator(
     detector_fails: bool = False,
     confirmed: bool = True,
     missing_repo: bool = False,
+    method_confirmed: bool = True,
     publication: WorkspacePublishStatus = WorkspacePublishStatus.PUBLISHED,
 ) -> tuple[WorkspaceServiceGraphPublishOrchestrator, _Factory, _Writer, _Repository]:
     writer = _Writer(calls, confirmed=confirmed)
     repository = _Repository(calls, publication=publication)
+
+    def method_sink_factory(scope: MethodGraphScope) -> _MethodSink:
+        return _MethodSink(calls, scope, confirmed=method_confirmed)
+
     components = WorkspaceServiceGraphPublishComponents(
         _Registry(calls, fail=detector_fails),
         _Resolver(calls),
         _PlanBuilder(calls, missing_repo=missing_repo),
         writer,
         repository,
+        method_sink_factory,
     )
     factory = _Factory(components, [])
     return WorkspaceServiceGraphPublishOrchestrator(factory), factory, writer, repository
@@ -257,6 +357,7 @@ def test_publish_defensively_rejects_less_than_three_frozen_repositories_before_
         ("generation_id", valid.generation_id),
         ("expected_active_generation_id", valid.expected_active_generation_id),
         ("owned_work_dirs", ()),
+        ("method_facts", ()),
     ):
         object.__setattr__(malformed, field_name, value)
 
@@ -265,3 +366,65 @@ def test_publish_defensively_rejects_less_than_three_frozen_repositories_before_
 
     assert factory.namespaces == []
     assert calls == []
+
+
+def test_publish_empty_method_facts_retains_endpoint_only_route() -> None:
+    calls: list[str] = []
+    orchestrator, _, writer, _ = _orchestrator(calls)
+    writer.namespace = WorkspaceServiceGraphPublishOrchestrator.namespace_for("workspace-1", "generation-1")
+
+    outcome = orchestrator.publish(_input())
+
+    assert outcome.status is OrchestratorStatus.ACTIVE
+    assert not any(call.startswith("method-") for call in calls)
+    assert calls.count("cas:None:generation-1") == 1
+
+
+def test_publish_method_facts_uses_endpoint_namespace_and_single_cas_after_both_receipts() -> None:
+    calls: list[str] = []
+    orchestrator, _, writer, _ = _orchestrator(calls)
+    namespace = WorkspaceServiceGraphPublishOrchestrator.namespace_for("workspace-1", "generation-1")
+    writer.namespace = namespace
+
+    outcome = orchestrator.publish(_input((_method_facts(),)))
+
+    assert outcome.status is OrchestratorStatus.ACTIVE
+    assert calls.index("write") < calls.index(f"method-write:{namespace}") < calls.index("state:verifying")
+    assert calls.count("cas:None:generation-1") == 1
+
+
+def test_publish_invalid_method_fact_is_rejected_before_endpoint_write() -> None:
+    calls: list[str] = []
+    orchestrator, factory, _, _ = _orchestrator(calls)
+    valid = _input()
+    malformed = object.__new__(WorkspaceServiceGraphPublishInput)
+    for field_name, value in (
+        ("workspace", valid.workspace),
+        ("snapshots", valid.snapshots),
+        ("repository_snapshots", valid.repository_snapshots),
+        ("task_idempotency_key", valid.task_idempotency_key),
+        ("generation_id", valid.generation_id),
+        ("expected_active_generation_id", valid.expected_active_generation_id),
+        ("owned_work_dirs", valid.owned_work_dirs),
+        ("method_facts", (_method_facts(source_revision="stale-revision"),)),
+    ):
+        object.__setattr__(malformed, field_name, value)
+
+    with pytest.raises(ValueError, match="workspace snapshot and generation"):
+        orchestrator.publish(malformed)
+
+    assert factory.namespaces == []
+    assert calls == []
+
+
+def test_publish_method_receipt_mismatch_fails_without_replacing_active_binding() -> None:
+    calls: list[str] = []
+    orchestrator, _, writer, repository = _orchestrator(calls, method_confirmed=False)
+    writer.namespace = WorkspaceServiceGraphPublishOrchestrator.namespace_for("workspace-1", "generation-1")
+
+    outcome = orchestrator.publish(_input((_method_facts(),)))
+
+    assert outcome.status is OrchestratorStatus.FAILED
+    assert outcome.generation_state is WorkspaceGenerationState.FAILED
+    assert repository.active == "old-generation"
+    assert not any(call.startswith("cas:") for call in calls)
