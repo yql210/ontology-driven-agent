@@ -11,10 +11,21 @@ from .change_analysis import (
     ServiceGraphChangeAnalysisResult,
     ServiceGraphChangeAnalysisStatus,
 )
+from .detector_sdk import DetectorCapability, DetectorMetadata, DetectorMetadataPort, MethodDetector
 from .detectors.registry import DetectorRegistry
 from .detectors.spring_http import SpringHttpDetector
 from .graph_plan import GraphNode, GraphPlanBuilder, GraphRelation, GraphWritePlan
 from .graph_writer import GraphWriter, InMemoryGraphSink, WriteReceipt
+from .methods import (
+    METHOD_UNRESOLVED_REASONS,
+    ConsumerMethodCall,
+    ImplementationMethod,
+    MethodEvidence,
+    MethodFacts,
+    MethodUnresolved,
+    OperationBinding,
+    ServiceOperation,
+)
 from .models import (
     DetectorFacts,
     Evidence,
@@ -54,7 +65,11 @@ from .query import (
 from .resolver import FactBatch, ResolvedLink, ResolveResult, ServiceGraphResolver, UnresolvedEndpoint
 
 __all__ = [
+    "ConsumerMethodCall",
+    "DetectorCapability",
     "DetectorFacts",
+    "DetectorMetadata",
+    "DetectorMetadataPort",
     "DirectServiceGraphImpact",
     "EndpointAddition",
     "EndpointContractChange",
@@ -82,6 +97,12 @@ __all__ = [
     "GraphWritePlan",
     "GraphWriter",
     "InMemoryGraphSink",
+    "ImplementationMethod",
+    "METHOD_UNRESOLVED_REASONS",
+    "MethodDetector",
+    "MethodEvidence",
+    "MethodFacts",
+    "MethodUnresolved",
     "Neo4jGraphSink",
     "Neo4jServiceGraphChangeImpactAdapter",
     "Neo4jServiceGraphManifestRepository",
@@ -89,6 +110,7 @@ __all__ = [
     "ManifestPublicationResult",
     "ManifestPublicationStatus",
     "Neo4jServiceGraphPublishComponentFactory",
+    "OperationBinding",
     "ServiceGraphPublicationReceipt",
     "ServiceGraphPublishComponents",
     "ServiceGraphPublishInput",
@@ -105,6 +127,7 @@ __all__ = [
     "ResolveResult",
     "ResolvedLink",
     "ServiceGraphResolver",
+    "ServiceOperation",
     "UnresolvedEndpoint",
     "WriteReceipt",
 ]
