@@ -183,7 +183,14 @@ class Neo4jMethodGraphSink:
                     nodes.append(self._node("MethodCallTarget", target_id, fact, fact_id, payload))
                     relations.append(self._relation("CALLS_ENDPOINT_TARGET", call.id, target_id, fact, fact_id))
                 else:
-                    relations.append(self._relation("CALLS_OPERATION", call.id, call.target_reference, fact, fact_id))
+                    try:
+                        operation_id = plan.operation_id_for(call.target_reference)
+                    except ValueError:
+                        target_id = f"endpoint-target:{call.id}"
+                        nodes.append(self._node("MethodCallTarget", target_id, fact, fact_id, payload))
+                        relations.append(self._relation("CALLS_ENDPOINT_TARGET", call.id, target_id, fact, fact_id))
+                    else:
+                        relations.append(self._relation("CALLS_OPERATION", call.id, operation_id, fact, fact_id))
                 relations.append(self._relation("CALLER_METHOD", call.caller_implementation_id, call.id, fact, fact_id))
             for binding in fact.bindings:
                 relations.append(self._relation("OPERATION_BINDING", binding.id, binding.operation_id, fact, fact_id))

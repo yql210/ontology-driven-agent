@@ -11,9 +11,16 @@ from .change_analysis import (
     ServiceGraphChangeAnalysisResult,
     ServiceGraphChangeAnalysisStatus,
 )
-from .detector_sdk import DetectorCapability, DetectorMetadata, DetectorMetadataPort, MethodDetector
+from .detector_sdk import (
+    DetectorCapability,
+    DetectorMetadata,
+    DetectorMetadataPort,
+    MethodDetectionContext,
+    MethodDetector,
+)
 from .detectors.registry import DetectorRegistry
 from .detectors.spring_http import SpringHttpDetector
+from .detectors.spring_http_method import SpringHttpMethodDetector
 from .graph_plan import GraphNode, GraphPlanBuilder, GraphRelation, GraphWritePlan
 from .graph_writer import GraphWriter, InMemoryGraphSink, WriteReceipt
 from .method_graph_writer import (
@@ -98,6 +105,7 @@ __all__ = [
     "UnresolvedFact",
     "DetectorRegistry",
     "SpringHttpDetector",
+    "SpringHttpMethodDetector",
     "FactBatch",
     "GraphNode",
     "GraphPlanBuilder",
@@ -108,6 +116,7 @@ __all__ = [
     "ImplementationMethod",
     "METHOD_UNRESOLVED_REASONS",
     "MethodDetector",
+    "MethodDetectionContext",
     "MethodEvidence",
     "MethodFacts",
     "MethodGraphScope",

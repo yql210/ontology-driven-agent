@@ -57,6 +57,21 @@ class DetectorMetadata:
         }
 
 
+@dataclass(frozen=True)
+class MethodDetectionContext:
+    """Immutable identity supplied by the caller for one method detection run."""
+
+    repo_id: str
+    module_id: str
+    service_id: str
+    source_revision: str
+    generation_id: str
+
+    def __post_init__(self) -> None:
+        for name in ("repo_id", "module_id", "service_id", "source_revision", "generation_id"):
+            _require_nonblank(getattr(self, name), name)
+
+
 @runtime_checkable
 class DetectorMetadataPort(Protocol):
     detector_id: str
@@ -69,4 +84,4 @@ class DetectorMetadataPort(Protocol):
 class MethodDetector(Protocol):
     metadata: DetectorMetadataPort
 
-    def detect_methods(self, snapshot: RepositorySnapshot) -> MethodFacts: ...
+    def detect_methods(self, snapshot: RepositorySnapshot, context: MethodDetectionContext) -> MethodFacts: ...

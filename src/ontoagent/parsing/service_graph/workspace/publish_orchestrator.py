@@ -26,6 +26,7 @@ from .models import (
 from .neo4j_repository import Neo4jWorkspaceRepository
 
 if TYPE_CHECKING:
+    from ..detector_sdk import MethodDetector
     from ..method_graph_writer import MethodGraphScope, MethodGraphSink, MethodGraphWritePlan
     from ..methods import MethodFacts
 
@@ -201,6 +202,7 @@ class WorkspaceServiceGraphPublishComponents:
     graph_writer: GraphWriterPort
     workspace_repository: WorkspaceRepositoryPort
     method_graph_sink_factory: Callable[[MethodGraphScope], MethodGraphSink] | None = None
+    method_detectors: tuple[MethodDetector, ...] = ()
 
 
 class WorkspaceServiceGraphPublishComponentFactory(Protocol):
@@ -215,6 +217,7 @@ class Neo4jWorkspaceServiceGraphPublishComponentFactory:
         self._detector_registry = detector_registry
 
     def create(self, namespace: str) -> WorkspaceServiceGraphPublishComponents:
+        from ..detectors.spring_http_method import SpringHttpMethodDetector
         from ..neo4j_method_graph_sink import Neo4jMethodGraphSink
 
         return WorkspaceServiceGraphPublishComponents(
@@ -224,6 +227,7 @@ class Neo4jWorkspaceServiceGraphPublishComponentFactory:
             GraphWriter(Neo4jGraphSink(self._driver, namespace=namespace)),
             Neo4jWorkspaceRepository(self._driver),
             lambda scope: Neo4jMethodGraphSink(self._driver, scope),
+            (SpringHttpMethodDetector(),),
         )
 
 
@@ -250,7 +254,7 @@ class WorkspaceServiceGraphPublishOrchestrator:
         if request.method_facts:
             from ..method_graph_writer import MethodGraphScope, MethodGraphWritePlan
 
-            method_plan = MethodGraphWritePlan(MethodGraphScope(namespace, generation), request.method_facts)
+            MethodGraphWritePlan(MethodGraphScope(namespace, generation), request.method_facts)
         components = self._component_factory.create(namespace)
         try:
             components.workspace_repository.create_workspace(request.workspace)
@@ -282,6 +286,18 @@ class WorkspaceServiceGraphPublishOrchestrator:
             return self._fail(
                 components.workspace_repository, request, namespace, generation, WorkspacePublishReason.DETECTOR_FAILED
             )
+        detected_method_facts = self._detect_methods(
+            components.method_detectors, request.repository_snapshots, request.generation_id
+        )
+        if detected_method_facts is None:
+            return self._fail(
+                components.workspace_repository, request, namespace, generation, WorkspacePublishReason.DETECTOR_FAILED
+            )
+        all_method_facts = (*request.method_facts, *detected_method_facts)
+        if all_method_facts:
+            from ..method_graph_writer import MethodGraphScope, MethodGraphWritePlan
+
+            method_plan = MethodGraphWritePlan(MethodGraphScope(namespace, generation), all_method_facts)
         try:
             generation = components.workspace_repository.advance_generation_state(
                 generation, WorkspaceGenerationState.RESOLVING
@@ -408,6 +424,25 @@ class WorkspaceServiceGraphPublishOrchestrator:
                 FactBatch(snapshot.repo_id, snapshot.source_revision, generation_id, frozen.branch, tuple(facts))
             )
         return tuple(batches)
+
+    @staticmethod
+    def _detect_methods(
+        detectors: tuple[MethodDetector, ...], snapshots: tuple[RepositorySnapshot, ...], generation_id: str
+    ) -> tuple[MethodFacts, ...] | None:
+        if not detectors:
+            return ()
+        from ..detector_sdk import MethodDetectionContext
+
+        facts: list[MethodFacts] = []
+        try:
+            for snapshot in snapshots:
+                context = MethodDetectionContext(
+                    snapshot.repo_id, snapshot.repo_id, snapshot.repo_id, snapshot.source_revision, generation_id
+                )
+                facts.extend(detector.detect_methods(snapshot, context) for detector in detectors)
+        except (OSError, ValueError):
+            return None
+        return tuple(facts)
 
     def _fail(
         self,

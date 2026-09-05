@@ -17,6 +17,7 @@ from ontoagent.parsing.service_graph.detectors.spring_http import SpringHttpDete
 from ontoagent.parsing.service_graph.graph_plan import GraphPlanBuilder
 from ontoagent.parsing.service_graph.graph_writer import GraphWriter, WriteReceipt
 from ontoagent.parsing.service_graph.methods import (
+    ConsumerMethodCall,
     ImplementationMethod,
     MethodEvidence,
     MethodFacts,
@@ -227,7 +228,8 @@ def test_workspace_orchestrator_publishes_replaces_and_blocks_stale_generation_i
                 workspace_id=workspace.workspace_id,
                 generation_id=generation_one,
             ).single()["count"]
-        assert method_count == 3
+        # The three explicit generic facts remain alongside four Spring provider operations.
+        assert method_count == 7
 
         second = orchestrator.publish(_input(workspace, generation_two, generation_one))
         assert second.status is WorkspacePublishStatus.ACTIVE
@@ -251,6 +253,123 @@ def test_workspace_orchestrator_publishes_replaces_and_blocks_stale_generation_i
             session.run(
                 "MATCH (n) WHERE n._ontoagent_namespace IN $namespaces DETACH DELETE n", namespaces=list(namespaces)
             )
+            session.run(
+                "MATCH (n) WHERE n.workspaceId = $workspace_id "
+                "AND (n:OntoAgentWorkspace OR n:OntoAgentWorkspaceBuildTask "
+                "OR n:OntoAgentWorkspaceGeneration OR n:OntoAgentWorkspaceRepositorySnapshot "
+                "OR n:OntoAgentWorkspaceActiveBinding) DETACH DELETE n",
+                workspace_id=workspace.workspace_id,
+            )
+        driver.close()
+
+
+def test_workspace_publisher_links_spring_consumer_method_to_provider_operation() -> None:
+    uri, user, password = _credentials()
+    workspace = Workspace(f"workspace-spring-methods-{uuid4()}", "Spring method graph integration")
+    generation_id = f"generation-spring-methods-{uuid4()}"
+    namespace = WorkspaceServiceGraphPublishOrchestrator.namespace_for(workspace.workspace_id, generation_id)
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+    orchestrator = WorkspaceServiceGraphPublishOrchestrator(
+        Neo4jWorkspaceServiceGraphPublishComponentFactory(
+            driver, DetectorRegistry([SpringHttpDetector(), DubboDetector(), MessagingDetector()])
+        )
+    )
+    try:
+        outcome = orchestrator.publish(_input(workspace, generation_id, None))
+
+        assert outcome.status is WorkspacePublishStatus.ACTIVE
+        load_order = ImplementationMethod(
+            "consumer-checkout",
+            "consumer-checkout",
+            "consumer-checkout",
+            REVISIONS["consumer-checkout"],
+            generation_id,
+            "example.checkout.CheckoutService",
+            "loadOrder",
+            "example.checkout.CheckoutService#loadOrder(java.lang.String):java.lang.Object",
+            "src/main/java/example/checkout/CheckoutService.java",
+            ("expected-evidence",),
+        )
+        run = ImplementationMethod(
+            "consumer-checkout",
+            "consumer-checkout",
+            "consumer-checkout",
+            REVISIONS["consumer-checkout"],
+            generation_id,
+            "example.checkout.CheckoutService",
+            "run",
+            "example.checkout.CheckoutService#run(java.lang.String):void",
+            "src/main/java/example/checkout/CheckoutService.java",
+            ("expected-evidence",),
+        )
+        get_order = ServiceOperation(
+            "provider-orders",
+            "provider-orders",
+            "provider-orders",
+            REVISIONS["provider-orders"],
+            generation_id,
+            "provider",
+            "spring-http:GET:/orders/{id}",
+            "get",
+            "example.orders.OrderApi#get(java.lang.String):example.orders.OrderDto",
+            ("expected-evidence",),
+        )
+        create_order = ServiceOperation(
+            "provider-orders",
+            "provider-orders",
+            "provider-orders",
+            REVISIONS["provider-orders"],
+            generation_id,
+            "provider",
+            "spring-http:POST:/orders",
+            "create",
+            "example.orders.OrderApi#create():example.orders.OrderDto",
+            ("expected-evidence",),
+        )
+        with driver.session() as session:
+            links = session.run(
+                "MATCH (caller:ImplementationMethod {namespace: $namespace, repoId: 'consumer-checkout'}) "
+                "-[:CALLER_METHOD]->(call:ConsumerMethodCall)-[:CALLS_OPERATION]->"
+                "(operation:ServiceOperation {namespace: $namespace, repoId: 'provider-orders'}) "
+                "RETURN caller.id AS caller, call.id AS call, operation.id AS operation "
+                "ORDER BY caller, call, operation",
+                namespace=namespace,
+            ).data()
+        assert links == [
+            {
+                "caller": load_order.id,
+                "call": ConsumerMethodCall(
+                    "consumer-checkout",
+                    "consumer-checkout",
+                    "consumer-checkout",
+                    REVISIONS["consumer-checkout"],
+                    generation_id,
+                    load_order.id,
+                    "spring-http:GET:/orders/{id}",
+                    "operation",
+                    ("expected-evidence",),
+                ).id,
+                "operation": get_order.id,
+            },
+            {
+                "caller": run.id,
+                "call": ConsumerMethodCall(
+                    "consumer-checkout",
+                    "consumer-checkout",
+                    "consumer-checkout",
+                    REVISIONS["consumer-checkout"],
+                    generation_id,
+                    run.id,
+                    "spring-http:POST:/orders",
+                    "operation",
+                    ("expected-evidence",),
+                ).id,
+                "operation": create_order.id,
+            },
+        ]
+    finally:
+        with driver.session() as session:
+            session.run("MATCH (n { _ontoagent_namespace: $namespace }) DETACH DELETE n", namespace=namespace)
             session.run(
                 "MATCH (n) WHERE n.workspaceId = $workspace_id "
                 "AND (n:OntoAgentWorkspace OR n:OntoAgentWorkspaceBuildTask "

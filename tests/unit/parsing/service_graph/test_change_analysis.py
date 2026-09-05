@@ -125,7 +125,7 @@ def test_evidence_or_source_revision_change_is_fact_revision_not_contract_change
     assert result.endpoint_additions == ()
     assert result.endpoint_deletions == ()
     assert result.contract_changes == ()
-    assert len(result.fact_revisions) == 6
+    assert len(result.fact_revisions) == 8
     assert {revision.before.source_revision for revision in result.fact_revisions} == {"p1"}
     assert {revision.after.source_revision for revision in result.fact_revisions} == {"p2"}
 

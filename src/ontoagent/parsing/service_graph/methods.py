@@ -375,6 +375,15 @@ class MethodFacts:
             for item in nested
         ):
             raise ValueError("nested method fact identity mismatch")
+        for name, items in (
+            ("operations", self.operations),
+            ("implementations", self.implementations),
+            ("consumer_calls", self.consumer_calls),
+            ("bindings", self.bindings),
+            ("evidences", self.evidences),
+            ("unresolved", self.unresolved),
+        ):
+            object.__setattr__(self, name, tuple(sorted(items, key=lambda item: item.id)))
         evidence_ids = {evidence.id for evidence in self.evidences}
         if len(evidence_ids) != len(self.evidences):
             raise ValueError("duplicate method evidence id")

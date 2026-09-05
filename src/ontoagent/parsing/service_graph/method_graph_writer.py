@@ -130,6 +130,9 @@ class MethodGraphWritePlan:
 
     def _validate_references(self) -> None:
         operations = {item.id for fact in self.facts for item in fact.operations}
+        operation_references = {
+            item.declaring_interface_fqcn: item.id for fact in self.facts for item in fact.operations
+        }
         implementations = {item.id for fact in self.facts for item in fact.implementations}
         evidences = {item.id for fact in self.facts for item in fact.evidences}
         for fact in self.facts:
@@ -145,10 +148,24 @@ class MethodGraphWritePlan:
             if any(call.caller_implementation_id not in implementations for call in fact.consumer_calls):
                 raise ValueError("method graph has orphan caller")
             if any(
-                call.target_kind == "operation" and call.target_reference not in operations
+                call.target_kind == "operation"
+                and call.target_reference not in operations
+                and call.target_reference not in operation_references
+                and not call.target_reference.startswith("spring-http:")
                 for call in fact.consumer_calls
             ):
                 raise ValueError("method graph has orphan call target")
+
+    def operation_id_for(self, reference: str) -> str:
+        operations = {item.id: item.id for fact in self.facts for item in fact.operations}
+        if reference in operations:
+            return reference
+        matches = [
+            item.id for fact in self.facts for item in fact.operations if item.declaring_interface_fqcn == reference
+        ]
+        if len(matches) != 1:
+            raise ValueError("method graph has ambiguous call target")
+        return matches[0]
 
 
 class MethodGraphSink(Protocol):

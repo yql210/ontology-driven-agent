@@ -10,6 +10,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import example.orders.OrderApi;
 
 class CheckoutService {
+    private Object eagerClientCall = new RestTemplate().getForObject("http://orders.internal/orders/0", Object.class);
     @DubboReference(interfaceClass = example.orders.OrderApi.class, group = "orders", version = "1.0")
     private OrderApi orderApi;
     private KafkaTemplate<String, Object> kafkaTemplate;
@@ -31,6 +32,18 @@ class CheckoutService {
         client.put().uri("http://orders.internal/orders/2");
         client.delete().uri("http://orders.internal/orders/2");
         client.get().uri(baseUrl + id);
+    }
+
+    Object loadOrder(String id) {
+        return new RestTemplate().getForObject("http://orders.internal/orders/{id}", Object.class, id);
+    }
+
+    Object dynamicOrder(String id) {
+        return new RestTemplate().getForObject(baseUrl + "/orders/" + id, Object.class);
+    }
+
+    Object helper(String id) {
+        return id.toUpperCase();
     }
 
 }

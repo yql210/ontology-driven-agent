@@ -14,6 +14,8 @@ def test_spring_detector_extracts_provider_and_consumer_fixture():
     )
     assert {e.canonical_key for e in provider.http_endpoints} == {
         "HTTP|GET|/orders/{id}|orders:Order",
+        "HTTP|GET|/orders/lookup/by-key|orders:Order",
+        "HTTP|GET|/orders/lookup/by-number|orders:Order",
         "HTTP|POST|/orders|orders:Order",
     }
     consumer = detector.detect(
