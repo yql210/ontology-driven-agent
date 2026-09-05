@@ -115,14 +115,14 @@ class TestMigrationRegistry:
         reg.register(m1)
         reg.register(m3)
         path = reg.get_migration_path("0.0.0", "3.0.0")
-        # m1 + builtins through 2.5.0. The final m3 is not contiguous after v2.5.0.
-        assert len(path) == 9
+        # m1 + builtins through 2.6.0. The final m3 is not contiguous after v2.6.0.
+        assert len(path) == 10
 
     def test_get_latest_version(self):
         reg = MigrationRegistry()
-        # builtin migrations now include v2.5.0
-        assert reg.get_latest_version() == "2.5.0"
-        reg.register(DummyMigration("2.5.0", "3.0.0"))
+        # builtin migrations now include v2.6.0
+        assert reg.get_latest_version() == "2.6.0"
+        reg.register(DummyMigration("2.6.0", "3.0.0"))
         assert reg.get_latest_version() == "3.0.0"
 
 
@@ -380,9 +380,9 @@ def test_migration_registry_includes_v5_capability() -> None:
 
 
 @pytest.mark.unit
-def test_current_schema_version_is_2_5_0() -> None:
-    """Workspace persistence migration advances the schema to v2.5.0."""
-    assert CURRENT_SCHEMA_VERSION == "2.5.0", f"Expected 2.5.0, got {CURRENT_SCHEMA_VERSION}"
+def test_current_schema_version_is_2_6_0() -> None:
+    """Method graph persistence migration advances the schema to v2.6.0."""
+    assert CURRENT_SCHEMA_VERSION == "2.6.0", f"Expected 2.6.0, got {CURRENT_SCHEMA_VERSION}"
 
 
 @pytest.mark.unit
@@ -474,7 +474,7 @@ def test_migration_registry_includes_capability_entry_identity_version() -> None
     path = registry.get_migration_path("2.3.0", "2.4.0")
 
     assert [migration.version_to for migration in path] == ["2.4.0"]
-    assert registry.get_latest_version() == "2.5.0"
+    assert registry.get_latest_version() == "2.6.0"
 
 
 @pytest.mark.unit
@@ -484,8 +484,8 @@ def test_workspace_persistence_migration_is_registered_after_v2_4_0() -> None:
 
     path = registry.get_migration_path("2.4.0", CURRENT_SCHEMA_VERSION)
 
-    assert [migration.version_to for migration in path] == ["2.5.0"]
-    assert registry.get_latest_version() == "2.5.0"
+    assert [migration.version_to for migration in path] == ["2.5.0", "2.6.0"]
+    assert registry.get_latest_version() == "2.6.0"
 
 
 @pytest.mark.unit
@@ -538,8 +538,28 @@ def test_workspace_persistence_migration_runner_is_idempotent() -> None:
     runner = MigrationRunner(store, MigrationRegistry(load_builtins=True))  # type: ignore[arg-type]
 
     with patch.object(runner, "_acquire_lock", return_value=MagicMock()), patch.object(runner, "_release_lock"):
-        assert runner.run_pending() == ["2.5.0"]
+        assert runner.run_pending() == ["2.5.0", "2.6.0"]
         assert runner.run_pending() == []
 
     ddl = [statement for statement in store.statements if statement.startswith("CREATE CONSTRAINT")]
-    assert len(ddl) == 6
+    assert len(ddl) == 13
+
+
+@pytest.mark.unit
+def test_method_graph_migration_is_additive_and_isolated_from_endpoint_and_manifest_labels() -> None:
+    """v2.6.0 owns only the dedicated method writer labels."""
+    from ontoagent.store.migrations.v2_6_0_method_graph import MethodGraphMigration
+
+    store = MagicMock()
+    migration = MethodGraphMigration()
+
+    migration.upgrade(store)
+
+    statements = [call.args[0] for call in store.query.call_args_list]
+    assert migration.version_from == "2.5.0"
+    assert migration.version_to == "2.6.0"
+    assert len(statements) == 7
+    assert all(
+        "IF NOT EXISTS" in statement and "(n.namespace, n.id) IS UNIQUE" in statement for statement in statements
+    )
+    assert all("Endpoint" not in statement and "OntoAgentServiceGraph" not in statement for statement in statements)

@@ -16,6 +16,13 @@ from .detectors.registry import DetectorRegistry
 from .detectors.spring_http import SpringHttpDetector
 from .graph_plan import GraphNode, GraphPlanBuilder, GraphRelation, GraphWritePlan
 from .graph_writer import GraphWriter, InMemoryGraphSink, WriteReceipt
+from .method_graph_writer import (
+    InMemoryMethodGraphSink,
+    MethodGraphScope,
+    MethodGraphWritePlan,
+    MethodGraphWriter,
+    MethodWriteReceipt,
+)
 from .methods import (
     METHOD_UNRESOLVED_REASONS,
     ConsumerMethodCall,
@@ -44,6 +51,7 @@ from .neo4j_manifest_repository import (
     ManifestPublicationStatus,
     Neo4jServiceGraphManifestRepository,
 )
+from .neo4j_method_graph_sink import Neo4jMethodGraphSink
 from .publish_orchestrator import (
     Neo4jServiceGraphPublishComponentFactory,
     ServiceGraphPublicationReceipt,
@@ -102,8 +110,14 @@ __all__ = [
     "MethodDetector",
     "MethodEvidence",
     "MethodFacts",
+    "MethodGraphScope",
+    "MethodGraphWritePlan",
+    "MethodGraphWriter",
+    "MethodWriteReceipt",
+    "InMemoryMethodGraphSink",
     "MethodUnresolved",
     "Neo4jGraphSink",
+    "Neo4jMethodGraphSink",
     "Neo4jServiceGraphChangeImpactAdapter",
     "Neo4jServiceGraphManifestRepository",
     "DurableServiceGraphManifest",
