@@ -220,6 +220,7 @@ class Neo4jWorkspaceServiceGraphPublishComponentFactory:
         from ..detectors.dubbo_method import DubboMethodDetector
         from ..detectors.grpc_method import GrpcMethodDetector
         from ..detectors.messaging_method import MessagingMethodDetector
+        from ..detectors.python_http_method import PythonHttpMethodDetector
         from ..detectors.spring_http_method import SpringHttpMethodDetector
         from ..neo4j_method_graph_sink import Neo4jMethodGraphSink
 
@@ -230,7 +231,13 @@ class Neo4jWorkspaceServiceGraphPublishComponentFactory:
             GraphWriter(Neo4jGraphSink(self._driver, namespace=namespace)),
             Neo4jWorkspaceRepository(self._driver),
             lambda scope: Neo4jMethodGraphSink(self._driver, scope),
-            (SpringHttpMethodDetector(), DubboMethodDetector(), MessagingMethodDetector(), GrpcMethodDetector()),
+            (
+                SpringHttpMethodDetector(),
+                PythonHttpMethodDetector(),
+                DubboMethodDetector(),
+                MessagingMethodDetector(),
+                GrpcMethodDetector(),
+            ),
         )
 
 

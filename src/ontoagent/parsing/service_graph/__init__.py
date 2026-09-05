@@ -21,6 +21,7 @@ from .detector_sdk import (
 from .detectors.dubbo_method import DubboMethodDetector
 from .detectors.grpc_method import GrpcMethodDetector
 from .detectors.messaging_method import MessagingMethodDetector
+from .detectors.python_http_method import PythonHttpMethodDetector
 from .detectors.registry import DetectorRegistry
 from .detectors.spring_http import SpringHttpDetector
 from .detectors.spring_http_method import SpringHttpMethodDetector
@@ -112,6 +113,7 @@ __all__ = [
     "DubboMethodDetector",
     "GrpcMethodDetector",
     "MessagingMethodDetector",
+    "PythonHttpMethodDetector",
     "FactBatch",
     "GraphNode",
     "GraphPlanBuilder",

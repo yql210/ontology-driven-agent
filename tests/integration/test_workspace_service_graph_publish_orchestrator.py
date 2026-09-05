@@ -17,6 +17,7 @@ from ontoagent.parsing.service_graph.detectors.dubbo_method import DubboMethodDe
 from ontoagent.parsing.service_graph.detectors.grpc_method import GrpcMethodDetector
 from ontoagent.parsing.service_graph.detectors.messaging import MessagingDetector
 from ontoagent.parsing.service_graph.detectors.messaging_method import MessagingMethodDetector
+from ontoagent.parsing.service_graph.detectors.python_http_method import PythonHttpMethodDetector
 from ontoagent.parsing.service_graph.detectors.registry import DetectorRegistry
 from ontoagent.parsing.service_graph.detectors.spring_http import SpringHttpDetector
 from ontoagent.parsing.service_graph.graph_plan import GraphPlanBuilder
@@ -54,6 +55,12 @@ pytestmark = pytest.mark.integration
 
 FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/neutral_three_repo"
 GRPC_FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/neutral_grpc_three_repo"
+PYTHON_HTTP_FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/python_http_three_repo"
+PYTHON_HTTP_REVISIONS = {
+    "provider-api": "provider-v1",
+    "consumer-client": "consumer-v1",
+    "isolated-worker": "worker-v1",
+}
 REVISIONS = {
     "provider-orders": "fixture-provider-v1",
     "consumer-checkout": "fixture-consumer-v1",
@@ -109,6 +116,8 @@ def _input(
     expected_active: str | None,
     method_facts: tuple[MethodFacts, ...] = (),
     source_root: Path = FIXTURE,
+    languages: frozenset[str] = frozenset({"java", "yaml"}),
+    revisions: dict[str, str] = REVISIONS,
 ) -> WorkspaceServiceGraphPublishInput:
     frozen = tuple(
         WorkspaceRepositorySnapshot(
@@ -118,11 +127,11 @@ def _input(
             revision,
             WorkspaceSourceDescriptor(WorkspaceSourceKind.GIT, f"https://example.test/{repo_id}.git"),
         )
-        for repo_id, revision in REVISIONS.items()
+        for repo_id, revision in revisions.items()
     )
     runtime = tuple(
-        RepositorySnapshot(repo_id, revision, source_root / repo_id, frozenset({"java", "yaml"}))
-        for repo_id, revision in REVISIONS.items()
+        RepositorySnapshot(repo_id, revision, source_root / repo_id, languages)
+        for repo_id, revision in revisions.items()
     )
     return WorkspaceServiceGraphPublishInput(
         workspace, frozen, runtime, f"request-{generation_id}", generation_id, expected_active, (), method_facts
@@ -619,6 +628,91 @@ def test_workspace_publisher_links_dubbo_consumer_method_to_exact_provider_opera
     finally:
         with driver.session() as session:
             session.run("MATCH (n { _ontoagent_namespace: $namespace }) DETACH DELETE n", namespace=namespace)
+            session.run(
+                "MATCH (n) WHERE n.workspaceId = $workspace_id "
+                "AND (n:OntoAgentWorkspace OR n:OntoAgentWorkspaceBuildTask "
+                "OR n:OntoAgentWorkspaceGeneration OR n:OntoAgentWorkspaceRepositorySnapshot "
+                "OR n:OntoAgentWorkspaceActiveBinding) DETACH DELETE n",
+                workspace_id=workspace.workspace_id,
+            )
+        driver.close()
+
+
+def test_workspace_publisher_links_exact_ordered_python_http_method_triples() -> None:
+    uri, user, password = _credentials()
+    workspace = Workspace(f"workspace-python-http-methods-{uuid4()}", "Python HTTP method graph integration")
+    generation_id = f"generation-python-http-methods-{uuid4()}"
+    namespace = WorkspaceServiceGraphPublishOrchestrator.namespace_for(workspace.workspace_id, generation_id)
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+    orchestrator = WorkspaceServiceGraphPublishOrchestrator(
+        Neo4jWorkspaceServiceGraphPublishComponentFactory(
+            driver, DetectorRegistry([SpringHttpDetector(), DubboDetector(), MessagingDetector()])
+        )
+    )
+    try:
+        assert (
+            orchestrator.publish(
+                _input(
+                    workspace,
+                    generation_id,
+                    None,
+                    source_root=PYTHON_HTTP_FIXTURE,
+                    languages=frozenset({"java", "python", "yaml"}),
+                    revisions=PYTHON_HTTP_REVISIONS,
+                )
+            ).status
+            is WorkspacePublishStatus.ACTIVE
+        )
+        facts = {
+            repo_id: PythonHttpMethodDetector().detect_methods(
+                RepositorySnapshot(repo_id, revision, PYTHON_HTTP_FIXTURE / repo_id, frozenset({"python"})),
+                MethodDetectionContext(repo_id, repo_id, repo_id, revision, generation_id),
+            )
+            for repo_id, revision in PYTHON_HTTP_REVISIONS.items()
+        }
+        plan = MethodGraphWritePlan(
+            MethodGraphScope(
+                namespace,
+                WorkspaceGeneration(
+                    workspace.workspace_id,
+                    generation_id,
+                    tuple(
+                        WorkspaceRepositorySnapshot(
+                            workspace.workspace_id,
+                            repo_id,
+                            "main",
+                            revision,
+                            WorkspaceSourceDescriptor(WorkspaceSourceKind.GIT, f"https://example.test/{repo_id}.git"),
+                        )
+                        for repo_id, revision in PYTHON_HTTP_REVISIONS.items()
+                    ),
+                ),
+            ),
+            tuple(facts.values()),
+        )
+        expected = sorted(
+            (call.caller_implementation_id, call.id, plan.operation_id_for(call.target_reference))
+            for call in facts["consumer-client"].consumer_calls
+        )
+        with driver.session() as session:
+            actual = [
+                (row["caller"], row["call"], row["operation"])
+                for row in session.run(
+                    "MATCH (caller:ImplementationMethod {namespace: $namespace})-[:CALLER_METHOD]->"
+                    "(call:ConsumerMethodCall)-[:CALLS_OPERATION]->"
+                    "(operation:ServiceOperation {namespace: $namespace}) "
+                    "WHERE caller.id IN $caller_ids "
+                    "RETURN caller.id AS caller, call.id AS call, operation.id AS operation "
+                    "ORDER BY caller, call, operation",
+                    namespace=namespace,
+                    caller_ids=[item[0] for item in expected],
+                )
+            ]
+        assert actual == expected
+    finally:
+        with driver.session() as session:
+            session.run("MATCH (n {namespace: $namespace}) DETACH DELETE n", namespace=namespace)
+            session.run("MATCH (n {_ontoagent_namespace: $namespace}) DETACH DELETE n", namespace=namespace)
             session.run(
                 "MATCH (n) WHERE n.workspaceId = $workspace_id "
                 "AND (n:OntoAgentWorkspace OR n:OntoAgentWorkspaceBuildTask "
