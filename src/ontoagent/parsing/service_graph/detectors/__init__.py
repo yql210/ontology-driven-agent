@@ -1,5 +1,6 @@
 from .base import Detector
 from .dubbo import DubboDetector
+from .dubbo_method import DubboMethodDetector
 from .messaging import MessagingDetector
 from .registry import DetectorRegistry
 from .spring_http import SpringHttpDetector
@@ -9,6 +10,7 @@ __all__ = [
     "Detector",
     "DetectorRegistry",
     "DubboDetector",
+    "DubboMethodDetector",
     "MessagingDetector",
     "SpringHttpDetector",
     "SpringHttpMethodDetector",

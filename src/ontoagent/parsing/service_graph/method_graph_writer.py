@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from .methods import (
@@ -75,8 +75,47 @@ class MethodGraphWritePlan:
             raise ValueError("method facts must match a workspace snapshot and generation")
         if len({self._fact_id(fact) for fact in self.facts}) != len(self.facts):
             raise ValueError("duplicate method facts")
-        object.__setattr__(self, "facts", tuple(sorted(self.facts, key=self._fact_id)))
+        object.__setattr__(
+            self, "facts", self._with_dubbo_resolution_unresolved(tuple(sorted(self.facts, key=self._fact_id)))
+        )
         self._validate_references()
+
+    @staticmethod
+    def _with_dubbo_resolution_unresolved(facts: tuple[MethodFacts, ...]) -> tuple[MethodFacts, ...]:
+        references: dict[str, int] = {}
+        for fact in facts:
+            for operation in fact.operations:
+                reference = (
+                    f"dubbo-operation:{operation.canonical_signature}|group={operation.group or ''}"
+                    f"|version={operation.version or ''}|alias={operation.alias or ''}"
+                )
+                references[reference] = references.get(reference, 0) + 1
+        normalized: list[MethodFacts] = []
+        for fact in facts:
+            unresolved = list(fact.unresolved)
+            existing = {(item.reason_code, item.subject) for item in unresolved}
+            for call in fact.consumer_calls:
+                if not call.target_reference.startswith("dubbo-operation:"):
+                    continue
+                candidate_count = references.get(call.target_reference, 0)
+                if candidate_count == 1:
+                    continue
+                reason = "AMBIGUOUS_TARGET" if candidate_count > 1 else "IDENTITY_MISMATCH"
+                if (reason, call.target_reference) not in existing:
+                    unresolved.append(
+                        MethodUnresolved(
+                            call.repo_id,
+                            call.module_id,
+                            call.service_id,
+                            call.source_revision,
+                            call.generation_id,
+                            reason,
+                            call.target_reference,
+                            call.evidence_ids,
+                        )
+                    )
+            normalized.append(replace(fact, unresolved=tuple(unresolved)))
+        return tuple(sorted(normalized, key=MethodGraphWritePlan._fact_id))
 
     @staticmethod
     def _fact_id(fact: MethodFacts) -> str:
@@ -99,16 +138,25 @@ class MethodGraphWritePlan:
 
     @property
     def node_count(self) -> int:
-        return sum(
-            len(fact.operations)
-            + len(fact.implementations)
-            + len(fact.consumer_calls)
-            + len(fact.bindings)
-            + len(fact.evidences)
-            + len(fact.unresolved)
-            + sum(call.target_kind == "endpoint" for call in fact.consumer_calls)
+        node_ids = {
+            item.id
             for fact in self.facts
+            for item in (
+                *fact.operations,
+                *fact.implementations,
+                *fact.consumer_calls,
+                *fact.bindings,
+                *fact.evidences,
+                *fact.unresolved,
+            )
+        }
+        node_ids.update(
+            f"endpoint-target:{call.id}"
+            for fact in self.facts
+            for call in fact.consumer_calls
+            if call.target_kind == "endpoint"
         )
+        return len(node_ids)
 
     @property
     def relation_count(self) -> int:
@@ -152,6 +200,7 @@ class MethodGraphWritePlan:
                 and call.target_reference not in operations
                 and call.target_reference not in operation_references
                 and not call.target_reference.startswith("spring-http:")
+                and not call.target_reference.startswith("dubbo-operation:")
                 for call in fact.consumer_calls
             ):
                 raise ValueError("method graph has orphan call target")
@@ -160,6 +209,17 @@ class MethodGraphWritePlan:
         operations = {item.id: item.id for fact in self.facts for item in fact.operations}
         if reference in operations:
             return reference
+        if reference.startswith("dubbo-operation:"):
+            matches = [
+                item.id
+                for fact in self.facts
+                for item in fact.operations
+                if reference
+                == f"dubbo-operation:{item.canonical_signature}|group={item.group or ''}|version={item.version or ''}|alias={item.alias or ''}"
+            ]
+            if len(matches) != 1:
+                raise ValueError("method graph has ambiguous call target")
+            return matches[0]
         matches = [
             item.id for fact in self.facts for item in fact.operations if item.declaring_interface_fqcn == reference
         ]

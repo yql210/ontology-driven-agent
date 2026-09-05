@@ -10,7 +10,9 @@ from uuid import uuid4
 import pytest
 from neo4j import GraphDatabase
 
+from ontoagent.parsing.service_graph.detector_sdk import MethodDetectionContext
 from ontoagent.parsing.service_graph.detectors.dubbo import DubboDetector
+from ontoagent.parsing.service_graph.detectors.dubbo_method import DubboMethodDetector
 from ontoagent.parsing.service_graph.detectors.messaging import MessagingDetector
 from ontoagent.parsing.service_graph.detectors.registry import DetectorRegistry
 from ontoagent.parsing.service_graph.detectors.spring_http import SpringHttpDetector
@@ -228,8 +230,8 @@ def test_workspace_orchestrator_publishes_replaces_and_blocks_stale_generation_i
                 workspace_id=workspace.workspace_id,
                 generation_id=generation_one,
             ).single()["count"]
-        # The three explicit generic facts remain alongside four Spring provider operations.
-        assert method_count == 7
+        # The three explicit generic facts remain alongside four Spring and three Dubbo provider operations.
+        assert method_count == 10
 
         second = orchestrator.publish(_input(workspace, generation_two, generation_one))
         assert second.status is WorkspacePublishStatus.ACTIVE
@@ -335,7 +337,7 @@ def test_workspace_publisher_links_spring_consumer_method_to_provider_operation(
                 "ORDER BY caller, call, operation",
                 namespace=namespace,
             ).data()
-        assert links == [
+        expected_links = [
             {
                 "caller": load_order.id,
                 "call": ConsumerMethodCall(
@@ -367,6 +369,58 @@ def test_workspace_publisher_links_spring_consumer_method_to_provider_operation(
                 "operation": create_order.id,
             },
         ]
+        assert {tuple(item.values()) for item in links} >= {tuple(item.values()) for item in expected_links}
+    finally:
+        with driver.session() as session:
+            session.run("MATCH (n { _ontoagent_namespace: $namespace }) DETACH DELETE n", namespace=namespace)
+            session.run(
+                "MATCH (n) WHERE n.workspaceId = $workspace_id "
+                "AND (n:OntoAgentWorkspace OR n:OntoAgentWorkspaceBuildTask "
+                "OR n:OntoAgentWorkspaceGeneration OR n:OntoAgentWorkspaceRepositorySnapshot "
+                "OR n:OntoAgentWorkspaceActiveBinding) DETACH DELETE n",
+                workspace_id=workspace.workspace_id,
+            )
+        driver.close()
+
+
+def test_workspace_publisher_links_dubbo_consumer_method_to_exact_provider_operation() -> None:
+    uri, user, password = _credentials()
+    workspace = Workspace(f"workspace-dubbo-methods-{uuid4()}", "Dubbo method graph integration")
+    generation_id = f"generation-dubbo-methods-{uuid4()}"
+    namespace = WorkspaceServiceGraphPublishOrchestrator.namespace_for(workspace.workspace_id, generation_id)
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+    orchestrator = WorkspaceServiceGraphPublishOrchestrator(
+        Neo4jWorkspaceServiceGraphPublishComponentFactory(
+            driver, DetectorRegistry([SpringHttpDetector(), DubboDetector(), MessagingDetector()])
+        )
+    )
+    try:
+        outcome = orchestrator.publish(_input(workspace, generation_id, None))
+
+        assert outcome.status is WorkspacePublishStatus.ACTIVE
+        snapshots = {
+            repo_id: RepositorySnapshot(repo_id, revision, FIXTURE / repo_id, frozenset({"java", "yaml"}))
+            for repo_id, revision in REVISIONS.items()
+        }
+        facts = {
+            repo_id: DubboMethodDetector().detect_methods(
+                snapshot,
+                MethodDetectionContext(repo_id, repo_id, repo_id, snapshot.source_revision, generation_id),
+            )
+            for repo_id, snapshot in snapshots.items()
+        }
+        caller = next(item for item in facts["consumer-checkout"].implementations if item.method_name == "consume")
+        call = facts["consumer-checkout"].consumer_calls[0]
+        operation = next(item for item in facts["provider-orders"].operations if item.operation_name == "getOrder")
+        with driver.session() as session:
+            links = session.run(
+                "MATCH (caller:ImplementationMethod {namespace: $namespace})-[:CALLER_METHOD]->"
+                "(call:ConsumerMethodCall)-[:CALLS_OPERATION]->"
+                "(operation:ServiceOperation {namespace: $namespace}) "
+                "RETURN caller.id AS caller, call.id AS call, operation.id AS operation",
+                namespace=namespace,
+            ).data()
+        assert {tuple(row.values()) for row in links} >= {(caller.id, call.id, operation.id)}
     finally:
         with driver.session() as session:
             session.run("MATCH (n { _ontoagent_namespace: $namespace }) DETACH DELETE n", namespace=namespace)

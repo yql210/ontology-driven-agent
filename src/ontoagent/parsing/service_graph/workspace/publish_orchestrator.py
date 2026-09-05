@@ -217,6 +217,7 @@ class Neo4jWorkspaceServiceGraphPublishComponentFactory:
         self._detector_registry = detector_registry
 
     def create(self, namespace: str) -> WorkspaceServiceGraphPublishComponents:
+        from ..detectors.dubbo_method import DubboMethodDetector
         from ..detectors.spring_http_method import SpringHttpMethodDetector
         from ..neo4j_method_graph_sink import Neo4jMethodGraphSink
 
@@ -227,7 +228,7 @@ class Neo4jWorkspaceServiceGraphPublishComponentFactory:
             GraphWriter(Neo4jGraphSink(self._driver, namespace=namespace)),
             Neo4jWorkspaceRepository(self._driver),
             lambda scope: Neo4jMethodGraphSink(self._driver, scope),
-            (SpringHttpMethodDetector(),),
+            (SpringHttpMethodDetector(), DubboMethodDetector()),
         )
 
 

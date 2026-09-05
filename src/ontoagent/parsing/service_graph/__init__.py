@@ -18,6 +18,7 @@ from .detector_sdk import (
     MethodDetectionContext,
     MethodDetector,
 )
+from .detectors.dubbo_method import DubboMethodDetector
 from .detectors.registry import DetectorRegistry
 from .detectors.spring_http import SpringHttpDetector
 from .detectors.spring_http_method import SpringHttpMethodDetector
@@ -106,6 +107,7 @@ __all__ = [
     "DetectorRegistry",
     "SpringHttpDetector",
     "SpringHttpMethodDetector",
+    "DubboMethodDetector",
     "FactBatch",
     "GraphNode",
     "GraphPlanBuilder",

@@ -163,6 +163,13 @@ class Neo4jMethodGraphSink:
     def _records(self, plan: MethodGraphWritePlan) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
         nodes: list[dict[str, object]] = []
         relations: list[dict[str, object]] = []
+        node_ids: set[str] = set()
+
+        def append_node(label: str, node_id: str, fact: MethodFacts, fact_id: str, payload: str) -> None:
+            if node_id not in node_ids:
+                nodes.append(self._node(label, node_id, fact, fact_id, payload))
+                node_ids.add(node_id)
+
         for fact in plan.facts:
             fact_id = plan._fact_id(fact)
             payload = json.dumps(fact.to_dict(), sort_keys=True, separators=(",", ":"))
@@ -176,18 +183,18 @@ class Neo4jMethodGraphSink:
             ):
                 actual_label = "MethodUnresolved" if label == "MethodUnresolved" else label
                 for item in items:
-                    nodes.append(self._node(actual_label, item.id, fact, fact_id, payload))
+                    append_node(actual_label, item.id, fact, fact_id, payload)
             for call in fact.consumer_calls:
                 if call.target_kind == "endpoint":
                     target_id = f"endpoint-target:{call.id}"
-                    nodes.append(self._node("MethodCallTarget", target_id, fact, fact_id, payload))
+                    append_node("MethodCallTarget", target_id, fact, fact_id, payload)
                     relations.append(self._relation("CALLS_ENDPOINT_TARGET", call.id, target_id, fact, fact_id))
                 else:
                     try:
                         operation_id = plan.operation_id_for(call.target_reference)
                     except ValueError:
                         target_id = f"endpoint-target:{call.id}"
-                        nodes.append(self._node("MethodCallTarget", target_id, fact, fact_id, payload))
+                        append_node("MethodCallTarget", target_id, fact, fact_id, payload)
                         relations.append(self._relation("CALLS_ENDPOINT_TARGET", call.id, target_id, fact, fact_id))
                     else:
                         relations.append(self._relation("CALLS_OPERATION", call.id, operation_id, fact, fact_id))
