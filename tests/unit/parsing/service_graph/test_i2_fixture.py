@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from ontoagent.parsing.service_graph.detector_sdk import MethodDetectionContext
 from ontoagent.parsing.service_graph.detectors.dubbo import DubboDetector
+from ontoagent.parsing.service_graph.detectors.grpc_method import GrpcMethodDetector
 from ontoagent.parsing.service_graph.detectors.messaging import MessagingDetector
 from ontoagent.parsing.service_graph.models import RepositorySnapshot
 
 FIXTURE = Path(__file__).parents[3] / "fixtures/service_graph/neutral_three_repo"
+GRPC_FIXTURE = Path(__file__).parents[3] / "fixtures/service_graph/neutral_grpc_three_repo"
 
 
 _REVISIONS = {
@@ -17,13 +20,17 @@ _REVISIONS = {
 }
 
 
-def _snapshot(repo_id: str) -> RepositorySnapshot:
+def _snapshot(repo_id: str, root: Path = FIXTURE) -> RepositorySnapshot:
     return RepositorySnapshot(
         repo_id,
         _REVISIONS[repo_id],
-        FIXTURE / repo_id,
+        root / repo_id,
         frozenset({"java"}),
     )
+
+
+def _context(repo_id: str) -> MethodDetectionContext:
+    return MethodDetectionContext(repo_id, repo_id, repo_id, _REVISIONS[repo_id], "fixture-gen-1")
 
 
 def _assert_evidence_references(facts) -> None:
@@ -125,3 +132,32 @@ def test_i2_neutral_three_repo_messaging_fixture_has_static_dynamic_and_isolated
     for facts in results.values():
         _assert_evidence_references(facts)
         assert json.dumps(facts.to_dict(), sort_keys=True) == json.dumps(facts.to_dict(), sort_keys=True)
+
+
+def test_neutral_three_repo_grpc_fixture_has_exact_provider_and_stub_calls() -> None:
+    detector = GrpcMethodDetector()
+    results = {
+        repo_id: detector.detect_methods(_snapshot(repo_id, GRPC_FIXTURE), _context(repo_id)) for repo_id in _REVISIONS
+    }
+
+    provider = results["provider-orders"]
+    consumer = results["consumer-checkout"]
+    catalog = results["isolated-catalog"]
+    signature = (
+        "example.orders.OrderServiceGrpc#GetOrder(example.orders.GetOrderRequest):example.orders.GetOrderResponse"
+    )
+
+    assert [item.canonical_signature for item in provider.operations] == [signature]
+    assert {item.method_name for item in provider.implementations} == {"getOrder"}
+    assert len(provider.bindings) == 1
+    assert {item.target_reference for item in consumer.consumer_calls} == {f"grpc-operation:{signature}"}
+    assert {item.method_name for item in consumer.implementations} >= {"blocking", "async"}
+    assert not consumer.unresolved
+    assert {item.canonical_signature for item in catalog.operations} == {
+        "example.catalog.CatalogServiceGrpc#GetOrder(example.catalog.GetOrderRequest):example.catalog.GetOrderResponse"
+    }
+    assert all(
+        item.evidence_ids
+        for facts in results.values()
+        for item in (*facts.operations, *facts.bindings, *facts.unresolved)
+    )

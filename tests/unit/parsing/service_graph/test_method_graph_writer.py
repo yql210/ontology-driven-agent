@@ -134,6 +134,45 @@ def test_method_writer_round_trips_exact_generic_protocol_facts_idempotently() -
     assert first.relation_count == plan.relation_count
 
 
+def test_method_plan_discards_empty_detector_facts_that_neo4j_cannot_read_back() -> None:
+    concrete = _facts()
+    empty = MethodFacts(
+        "grpc-method",
+        "1",
+        "isolated",
+        "revision-isolated",
+        "generation-1",
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+    )
+
+    plan = MethodGraphWritePlan(_scope(), (concrete, empty))
+    reconstructed = MethodGraphWritePlan(
+        plan.scope,
+        tuple(
+            fact
+            for fact in plan.facts
+            if any(
+                (
+                    fact.operations,
+                    fact.implementations,
+                    fact.consumer_calls,
+                    fact.bindings,
+                    fact.evidences,
+                    fact.unresolved,
+                )
+            )
+        ),
+    )
+
+    assert plan.facts == (concrete,)
+    assert reconstructed == plan
+
+
 def test_method_plan_rejects_orphans_and_scope_mismatches() -> None:
     facts = _facts()
     orphan_call = ConsumerMethodCall(

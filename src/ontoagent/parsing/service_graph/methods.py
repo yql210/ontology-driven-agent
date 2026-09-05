@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 METHOD_UNRESOLVED_REASONS = frozenset(
@@ -383,7 +383,7 @@ class MethodFacts:
             ("evidences", self.evidences),
             ("unresolved", self.unresolved),
         ):
-            object.__setattr__(self, name, tuple(sorted(items, key=lambda item: item.id)))
+            object.__setattr__(self, name, self._canonicalize_records(name, items))
         evidence_ids = {evidence.id for evidence in self.evidences}
         if len(evidence_ids) != len(self.evidences):
             raise ValueError("duplicate method evidence id")
@@ -407,6 +407,27 @@ class MethodFacts:
             for binding in self.bindings
         ):
             raise ValueError("binding references unknown implementation")
+
+    @staticmethod
+    def _canonicalize_records(name: str, items: tuple[Any, ...]) -> tuple[Any, ...]:
+        by_id: dict[str, Any] = {}
+        for item in items:
+            existing = by_id.get(item.id)
+            if existing is None:
+                by_id[item.id] = item
+                continue
+            if not hasattr(item, "evidence_ids") or not hasattr(existing, "evidence_ids"):
+                if existing != item:
+                    raise ValueError(f"conflicting duplicate method {name} id")
+                continue
+            if any(
+                getattr(existing, field_name) != getattr(item, field_name)
+                for field_name in existing.__dataclass_fields__
+                if field_name != "evidence_ids"
+            ):
+                raise ValueError(f"conflicting duplicate method {name} id")
+            by_id[item.id] = replace(existing, evidence_ids=tuple(sorted({*existing.evidence_ids, *item.evidence_ids})))
+        return tuple(sorted(by_id.values(), key=lambda item: item.id))
 
     def to_dict(self) -> dict[str, Any]:
         return {

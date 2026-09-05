@@ -218,6 +218,7 @@ class Neo4jWorkspaceServiceGraphPublishComponentFactory:
 
     def create(self, namespace: str) -> WorkspaceServiceGraphPublishComponents:
         from ..detectors.dubbo_method import DubboMethodDetector
+        from ..detectors.grpc_method import GrpcMethodDetector
         from ..detectors.messaging_method import MessagingMethodDetector
         from ..detectors.spring_http_method import SpringHttpMethodDetector
         from ..neo4j_method_graph_sink import Neo4jMethodGraphSink
@@ -229,7 +230,7 @@ class Neo4jWorkspaceServiceGraphPublishComponentFactory:
             GraphWriter(Neo4jGraphSink(self._driver, namespace=namespace)),
             Neo4jWorkspaceRepository(self._driver),
             lambda scope: Neo4jMethodGraphSink(self._driver, scope),
-            (SpringHttpMethodDetector(), DubboMethodDetector(), MessagingMethodDetector()),
+            (SpringHttpMethodDetector(), DubboMethodDetector(), MessagingMethodDetector(), GrpcMethodDetector()),
         )
 
 
@@ -314,7 +315,9 @@ class WorkspaceServiceGraphPublishOrchestrator:
                 generation,
                 WorkspacePublishReason.RESOLUTION_FAILED,
             )
-        if not _contains_all_repositories(plan, request.snapshots) or not _has_one_namespace(plan, namespace):
+        if not _contains_all_repositories(plan, request.snapshots, method_plan) or not _has_one_namespace(
+            plan, namespace
+        ):
             return self._fail(
                 components.workspace_repository,
                 request,
@@ -534,10 +537,17 @@ def _assert_p0_snapshot_boundary(snapshots: tuple[WorkspaceRepositorySnapshot, .
         raise ValueError("P0 workspace publication requires at least three unique frozen repository snapshots")
 
 
-def _contains_all_repositories(plan: GraphWritePlan, snapshots: tuple[WorkspaceRepositorySnapshot, ...]) -> bool:
-    return {snapshot.repo_id for snapshot in snapshots} <= {
+def _contains_all_repositories(
+    plan: GraphWritePlan,
+    snapshots: tuple[WorkspaceRepositorySnapshot, ...],
+    method_plan: MethodGraphWritePlan | None = None,
+) -> bool:
+    covered_repositories = {
         node.props.get("repo_id") for node in plan.nodes if isinstance(node.props.get("repo_id"), str)
     }
+    if method_plan is not None:
+        covered_repositories.update(fact.repo_id for fact in method_plan.facts)
+    return {snapshot.repo_id for snapshot in snapshots} <= covered_repositories
 
 
 def _has_one_namespace(plan: GraphWritePlan, namespace: str) -> bool:

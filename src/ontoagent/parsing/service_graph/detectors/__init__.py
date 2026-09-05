@@ -1,6 +1,7 @@
 from .base import Detector
 from .dubbo import DubboDetector
 from .dubbo_method import DubboMethodDetector
+from .grpc_method import GrpcMethodDetector
 from .messaging import MessagingDetector
 from .messaging_method import MessagingMethodDetector
 from .registry import DetectorRegistry
@@ -12,6 +13,7 @@ __all__ = [
     "DetectorRegistry",
     "DubboDetector",
     "DubboMethodDetector",
+    "GrpcMethodDetector",
     "MessagingDetector",
     "MessagingMethodDetector",
     "SpringHttpDetector",

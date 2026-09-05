@@ -73,12 +73,24 @@ class MethodGraphWritePlan:
             for fact in self.facts
         ):
             raise ValueError("method facts must match a workspace snapshot and generation")
-        if len({self._fact_id(fact) for fact in self.facts}) != len(self.facts):
+        facts = tuple(fact for fact in self.facts if self._has_records(fact))
+        if len({self._fact_id(fact) for fact in facts}) != len(facts):
             raise ValueError("duplicate method facts")
-        object.__setattr__(
-            self, "facts", self._with_resolution_unresolved(tuple(sorted(self.facts, key=self._fact_id)))
-        )
+        object.__setattr__(self, "facts", self._with_resolution_unresolved(tuple(sorted(facts, key=self._fact_id))))
         self._validate_references()
+
+    @staticmethod
+    def _has_records(fact: MethodFacts) -> bool:
+        return any(
+            (
+                fact.operations,
+                fact.implementations,
+                fact.consumer_calls,
+                fact.bindings,
+                fact.evidences,
+                fact.unresolved,
+            )
+        )
 
     @staticmethod
     def _with_resolution_unresolved(facts: tuple[MethodFacts, ...]) -> tuple[MethodFacts, ...]:
@@ -90,6 +102,9 @@ class MethodGraphWritePlan:
                     f"|version={operation.version or ''}|alias={operation.alias or ''}"
                 )
                 references[reference] = references.get(reference, 0) + 1
+                if fact.detector_id == "grpc-method":
+                    grpc_reference = f"grpc-operation:{operation.canonical_signature}"
+                    references[grpc_reference] = references.get(grpc_reference, 0) + 1
         normalized: list[MethodFacts] = []
         for fact in facts:
             unresolved = list(fact.unresolved)
@@ -100,7 +115,7 @@ class MethodGraphWritePlan:
                     candidate_count = len(matches)
                     if candidate_count:
                         continue
-                elif call.target_reference.startswith("dubbo-operation:"):
+                elif call.target_reference.startswith(("dubbo-operation:", "grpc-operation:")):
                     candidate_count = references.get(call.target_reference, 0)
                 else:
                     continue
@@ -207,6 +222,7 @@ class MethodGraphWritePlan:
                 and call.target_reference not in operation_references
                 and not call.target_reference.startswith("spring-http:")
                 and not call.target_reference.startswith("dubbo-operation:")
+                and not call.target_reference.startswith("grpc-operation:")
                 and not call.target_reference.startswith("messaging-operation:")
                 for call in fact.consumer_calls
             ):
@@ -223,6 +239,17 @@ class MethodGraphWritePlan:
                 for item in fact.operations
                 if reference
                 == f"dubbo-operation:{item.canonical_signature}|group={item.group or ''}|version={item.version or ''}|alias={item.alias or ''}"
+            ]
+            if len(matches) != 1:
+                raise ValueError("method graph has ambiguous call target")
+            return matches[0]
+        if reference.startswith("grpc-operation:"):
+            matches = [
+                item.id
+                for fact in self.facts
+                if fact.detector_id == "grpc-method"
+                for item in fact.operations
+                if reference == f"grpc-operation:{item.canonical_signature}"
             ]
             if len(matches) != 1:
                 raise ValueError("method graph has ambiguous call target")
