@@ -88,7 +88,7 @@ def test_i2_neutral_three_repo_messaging_fixture_has_static_dynamic_and_isolated
         for endpoint in provider.message_endpoints
     } >= {
         ("kafka", "producer", "order-events"),
-        ("rabbitmq", "producer", "order.exchange"),
+        ("rabbitmq", "producer", "order.queue"),
     }
 
     consumer = results["consumer-checkout"]

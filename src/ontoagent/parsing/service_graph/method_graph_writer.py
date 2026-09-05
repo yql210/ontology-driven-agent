@@ -76,12 +76,12 @@ class MethodGraphWritePlan:
         if len({self._fact_id(fact) for fact in self.facts}) != len(self.facts):
             raise ValueError("duplicate method facts")
         object.__setattr__(
-            self, "facts", self._with_dubbo_resolution_unresolved(tuple(sorted(self.facts, key=self._fact_id)))
+            self, "facts", self._with_resolution_unresolved(tuple(sorted(self.facts, key=self._fact_id)))
         )
         self._validate_references()
 
     @staticmethod
-    def _with_dubbo_resolution_unresolved(facts: tuple[MethodFacts, ...]) -> tuple[MethodFacts, ...]:
+    def _with_resolution_unresolved(facts: tuple[MethodFacts, ...]) -> tuple[MethodFacts, ...]:
         references: dict[str, int] = {}
         for fact in facts:
             for operation in fact.operations:
@@ -95,9 +95,15 @@ class MethodGraphWritePlan:
             unresolved = list(fact.unresolved)
             existing = {(item.reason_code, item.subject) for item in unresolved}
             for call in fact.consumer_calls:
-                if not call.target_reference.startswith("dubbo-operation:"):
+                if call.target_reference.startswith("messaging-operation:"):
+                    matches = MethodGraphWritePlan._messaging_operation_ids(call.target_reference, facts)
+                    candidate_count = len(matches)
+                    if candidate_count:
+                        continue
+                elif call.target_reference.startswith("dubbo-operation:"):
+                    candidate_count = references.get(call.target_reference, 0)
+                else:
                     continue
-                candidate_count = references.get(call.target_reference, 0)
                 if candidate_count == 1:
                     continue
                 reason = "AMBIGUOUS_TARGET" if candidate_count > 1 else "IDENTITY_MISMATCH"
@@ -201,6 +207,7 @@ class MethodGraphWritePlan:
                 and call.target_reference not in operation_references
                 and not call.target_reference.startswith("spring-http:")
                 and not call.target_reference.startswith("dubbo-operation:")
+                and not call.target_reference.startswith("messaging-operation:")
                 for call in fact.consumer_calls
             ):
                 raise ValueError("method graph has orphan call target")
@@ -220,12 +227,36 @@ class MethodGraphWritePlan:
             if len(matches) != 1:
                 raise ValueError("method graph has ambiguous call target")
             return matches[0]
+        if reference.startswith("messaging-operation:"):
+            matches = self.operation_ids_for(reference)
+            if len(matches) != 1:
+                raise ValueError("method graph has ambiguous call target")
+            return matches[0]
         matches = [
             item.id for fact in self.facts for item in fact.operations if item.declaring_interface_fqcn == reference
         ]
         if len(matches) != 1:
             raise ValueError("method graph has ambiguous call target")
         return matches[0]
+
+    def operation_ids_for(self, reference: str) -> tuple[str, ...]:
+        """Return every explicit exact operation target for a method call reference."""
+        if reference.startswith("messaging-operation:"):
+            return self._messaging_operation_ids(reference, self.facts)
+        try:
+            return (self.operation_id_for(reference),)
+        except ValueError:
+            return ()
+
+    @staticmethod
+    def _messaging_operation_ids(reference: str, facts: tuple[MethodFacts, ...]) -> tuple[str, ...]:
+        operations = [item for fact in facts for item in fact.operations]
+        if "|group=" in reference:
+            return tuple(sorted(item.id for item in operations if item.declaring_interface_fqcn == reference))
+        prefix = f"{reference}|group="
+        matches = [item for item in operations if item.declaring_interface_fqcn.startswith(prefix)]
+        groups = {item.declaring_interface_fqcn.rsplit("|group=", 1)[1] for item in matches}
+        return tuple(sorted(item.id for item in matches)) if len(groups) == 1 else ()
 
 
 class MethodGraphSink(Protocol):

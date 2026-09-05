@@ -12,7 +12,7 @@ public class OrderDubboService implements OrderApi {
     @Override
     public String getOrder(String id) {
         kafkaTemplate.send("order-events", id);
-        rabbitTemplate.convertAndSend("order.exchange", "order.created", id);
+        rabbitTemplate.convertAndSend("order.queue", "order.created", id);
         return id;
     }
 

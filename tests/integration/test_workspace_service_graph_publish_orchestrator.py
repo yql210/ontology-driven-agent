@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import replace
 from pathlib import Path
@@ -14,10 +15,12 @@ from ontoagent.parsing.service_graph.detector_sdk import MethodDetectionContext
 from ontoagent.parsing.service_graph.detectors.dubbo import DubboDetector
 from ontoagent.parsing.service_graph.detectors.dubbo_method import DubboMethodDetector
 from ontoagent.parsing.service_graph.detectors.messaging import MessagingDetector
+from ontoagent.parsing.service_graph.detectors.messaging_method import MessagingMethodDetector
 from ontoagent.parsing.service_graph.detectors.registry import DetectorRegistry
 from ontoagent.parsing.service_graph.detectors.spring_http import SpringHttpDetector
 from ontoagent.parsing.service_graph.graph_plan import GraphPlanBuilder
 from ontoagent.parsing.service_graph.graph_writer import GraphWriter, WriteReceipt
+from ontoagent.parsing.service_graph.method_graph_writer import MethodGraphScope, MethodGraphWritePlan
 from ontoagent.parsing.service_graph.methods import (
     ConsumerMethodCall,
     ImplementationMethod,
@@ -31,6 +34,7 @@ from ontoagent.parsing.service_graph.neo4j_graph_sink import Neo4jGraphSink
 from ontoagent.parsing.service_graph.resolver import ServiceGraphResolver
 from ontoagent.parsing.service_graph.workspace.models import (
     Workspace,
+    WorkspaceGeneration,
     WorkspaceGenerationState,
     WorkspaceRepositorySnapshot,
     WorkspaceSourceDescriptor,
@@ -211,7 +215,8 @@ def test_workspace_orchestrator_publishes_replaces_and_blocks_stale_generation_i
         for generation in (generation_one, generation_two, generation_three)
     )
     try:
-        first = orchestrator.publish(_input(workspace, generation_one, None, _method_facts(generation_one)))
+        explicit_method_facts = _method_facts(generation_one)
+        first = orchestrator.publish(_input(workspace, generation_one, None, explicit_method_facts))
         assert first.status is WorkspacePublishStatus.ACTIVE
         assert first.candidate_namespace == namespaces[0]
 
@@ -222,16 +227,203 @@ def test_workspace_orchestrator_publishes_replaces_and_blocks_stale_generation_i
                 "MATCH (n { _ontoagent_namespace: $namespace }) RETURN count(n) AS count", namespace=namespaces[0]
             ).single()["count"]
         assert count > 0
+        expected_operations_by_protocol = {
+            "explicit": tuple(operation for fact in explicit_method_facts for operation in fact.operations),
+            "spring": (
+                ServiceOperation(
+                    "provider-orders",
+                    "provider-orders",
+                    "provider-orders",
+                    REVISIONS["provider-orders"],
+                    generation_one,
+                    "provider",
+                    "spring-http:GET:/orders/{id}",
+                    "get",
+                    "example.orders.OrderApi#get(java.lang.String):example.orders.OrderDto",
+                    ("expected-evidence",),
+                ),
+                ServiceOperation(
+                    "provider-orders",
+                    "provider-orders",
+                    "provider-orders",
+                    REVISIONS["provider-orders"],
+                    generation_one,
+                    "provider",
+                    "spring-http:POST:/orders",
+                    "create",
+                    "example.orders.OrderApi#create():example.orders.OrderDto",
+                    ("expected-evidence",),
+                ),
+                ServiceOperation(
+                    "provider-orders",
+                    "provider-orders",
+                    "provider-orders",
+                    REVISIONS["provider-orders"],
+                    generation_one,
+                    "provider",
+                    "spring-http:GET:/orders/lookup/by-key",
+                    "lookup",
+                    "example.orders.OrderApi#lookup(java.lang.String):example.orders.OrderDto",
+                    ("expected-evidence",),
+                ),
+                ServiceOperation(
+                    "provider-orders",
+                    "provider-orders",
+                    "provider-orders",
+                    REVISIONS["provider-orders"],
+                    generation_one,
+                    "provider",
+                    "spring-http:GET:/orders/lookup/by-number",
+                    "lookup",
+                    "example.orders.OrderApi#lookup(long):example.orders.OrderDto",
+                    ("expected-evidence",),
+                ),
+            ),
+            "dubbo": (
+                ServiceOperation(
+                    "provider-orders",
+                    "provider-orders",
+                    "provider-orders",
+                    REVISIONS["provider-orders"],
+                    generation_one,
+                    "provider",
+                    "example.orders.OrderApi",
+                    "getOrder",
+                    "example.orders.OrderApi#getOrder(java.lang.String):java.lang.String",
+                    ("expected-evidence",),
+                    group="orders",
+                    version="1.0",
+                ),
+                ServiceOperation(
+                    "provider-orders",
+                    "provider-orders",
+                    "provider-orders",
+                    REVISIONS["provider-orders"],
+                    generation_one,
+                    "provider",
+                    "example.orders.OrderApi",
+                    "cancelOrder",
+                    "example.orders.OrderApi#cancelOrder(java.lang.String):void",
+                    ("expected-evidence",),
+                    group="orders",
+                    version="1.0",
+                ),
+                ServiceOperation(
+                    "isolated-catalog",
+                    "isolated-catalog",
+                    "isolated-catalog",
+                    REVISIONS["isolated-catalog"],
+                    generation_one,
+                    "provider",
+                    "example.catalog.CatalogApi",
+                    "lookup",
+                    "example.catalog.CatalogApi#lookup(java.lang.String):java.lang.String",
+                    ("expected-evidence",),
+                    group="catalog",
+                    version="9.0",
+                ),
+            ),
+            "messaging": (
+                ServiceOperation(
+                    "consumer-checkout",
+                    "consumer-checkout",
+                    "consumer-checkout",
+                    REVISIONS["consumer-checkout"],
+                    generation_one,
+                    "provider",
+                    "messaging-operation:kafka|destination=order-events|group=checkout",
+                    "consume",
+                    "example.checkout.CheckoutService#consume():void",
+                    ("expected-evidence",),
+                    group="checkout",
+                ),
+                ServiceOperation(
+                    "consumer-checkout",
+                    "consumer-checkout",
+                    "consumer-checkout",
+                    REVISIONS["consumer-checkout"],
+                    generation_one,
+                    "provider",
+                    "messaging-operation:kafka|destination=payments|group=checkout",
+                    "consume",
+                    "example.checkout.CheckoutService#consume():void",
+                    ("expected-evidence",),
+                    group="checkout",
+                ),
+                ServiceOperation(
+                    "consumer-checkout",
+                    "consumer-checkout",
+                    "consumer-checkout",
+                    REVISIONS["consumer-checkout"],
+                    generation_one,
+                    "provider",
+                    "messaging-operation:rabbitmq|destination=order.queue|group=checkout-workers",
+                    "run",
+                    "example.checkout.CheckoutService#run(java.lang.String):void",
+                    ("expected-evidence",),
+                    group="checkout-workers",
+                ),
+                ServiceOperation(
+                    "consumer-checkout",
+                    "consumer-checkout",
+                    "consumer-checkout",
+                    REVISIONS["consumer-checkout"],
+                    generation_one,
+                    "provider",
+                    "messaging-operation:rabbitmq|destination=audit.queue|group=checkout-workers",
+                    "run",
+                    "example.checkout.CheckoutService#run(java.lang.String):void",
+                    ("expected-evidence",),
+                    group="checkout-workers",
+                ),
+            ),
+        }
+        assert {protocol: len(operations) for protocol, operations in expected_operations_by_protocol.items()} == {
+            "explicit": 3,
+            "spring": 4,
+            "dubbo": 3,
+            "messaging": 4,
+        }
+        expected_operations = tuple(
+            operation for operations in expected_operations_by_protocol.values() for operation in operations
+        )
         with driver.session() as session:
-            method_count = session.run(
+            actual_operations = session.run(
                 "MATCH (n:ServiceOperation {namespace: $namespace, workspaceId: $workspace_id, "
-                "generationId: $generation_id}) RETURN count(n) AS count",
+                "generationId: $generation_id}) "
+                "RETURN n.id AS id, labels(n) AS labels, n.factPayload AS fact_payload ORDER BY n.id",
                 namespace=namespaces[0],
                 workspace_id=workspace.workspace_id,
                 generation_id=generation_one,
-            ).single()["count"]
-        # The three explicit generic facts remain alongside four Spring and three Dubbo provider operations.
-        assert method_count == 10
+            ).data()
+        expected_rows = sorted(
+            (
+                operation.id,
+                ["ServiceOperation"],
+                operation.declaring_interface_fqcn,
+                operation.operation_name,
+                operation.canonical_signature,
+                operation.group,
+                operation.version,
+            )
+            for operation in expected_operations
+        )
+        actual_rows = []
+        for row in actual_operations:
+            payload = json.loads(row["fact_payload"])
+            operation = next(item for item in payload["operations"] if item["id"] == row["id"])
+            actual_rows.append(
+                (
+                    row["id"],
+                    row["labels"],
+                    operation["declaring_interface_fqcn"],
+                    operation["operation_name"],
+                    operation["canonical_signature"],
+                    operation["group"],
+                    operation["version"],
+                )
+            )
+        assert actual_rows == expected_rows
 
         second = orchestrator.publish(_input(workspace, generation_two, generation_one))
         assert second.status is WorkspacePublishStatus.ACTIVE
@@ -424,6 +616,85 @@ def test_workspace_publisher_links_dubbo_consumer_method_to_exact_provider_opera
     finally:
         with driver.session() as session:
             session.run("MATCH (n { _ontoagent_namespace: $namespace }) DETACH DELETE n", namespace=namespace)
+            session.run(
+                "MATCH (n) WHERE n.workspaceId = $workspace_id "
+                "AND (n:OntoAgentWorkspace OR n:OntoAgentWorkspaceBuildTask "
+                "OR n:OntoAgentWorkspaceGeneration OR n:OntoAgentWorkspaceRepositorySnapshot "
+                "OR n:OntoAgentWorkspaceActiveBinding) DETACH DELETE n",
+                workspace_id=workspace.workspace_id,
+            )
+        driver.close()
+
+
+def test_workspace_publisher_links_messaging_methods_to_exact_listener_operations() -> None:
+    uri, user, password = _credentials()
+    workspace = Workspace(f"workspace-messaging-methods-{uuid4()}", "Messaging method graph integration")
+    generation_id = f"generation-messaging-methods-{uuid4()}"
+    namespace = WorkspaceServiceGraphPublishOrchestrator.namespace_for(workspace.workspace_id, generation_id)
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+    orchestrator = WorkspaceServiceGraphPublishOrchestrator(
+        Neo4jWorkspaceServiceGraphPublishComponentFactory(
+            driver, DetectorRegistry([SpringHttpDetector(), DubboDetector(), MessagingDetector()])
+        )
+    )
+    try:
+        assert orchestrator.publish(_input(workspace, generation_id, None)).status is WorkspacePublishStatus.ACTIVE
+        facts = {
+            repo_id: MessagingMethodDetector().detect_methods(
+                RepositorySnapshot(repo_id, revision, FIXTURE / repo_id, frozenset({"java", "yaml"})),
+                MethodDetectionContext(repo_id, repo_id, repo_id, revision, generation_id),
+            )
+            for repo_id, revision in REVISIONS.items()
+        }
+        provider = facts["provider-orders"]
+        expected = sorted(
+            {
+                (
+                    next(item.id for item in provider.implementations if item.method_name == "getOrder"),
+                    call.id,
+                    MethodGraphWritePlan(
+                        MethodGraphScope(
+                            namespace,
+                            WorkspaceGeneration(
+                                workspace.workspace_id,
+                                generation_id,
+                                tuple(
+                                    WorkspaceRepositorySnapshot(
+                                        workspace.workspace_id,
+                                        repo_id,
+                                        "main",
+                                        revision,
+                                        WorkspaceSourceDescriptor(
+                                            WorkspaceSourceKind.GIT, f"https://example.test/{repo_id}.git"
+                                        ),
+                                    )
+                                    for repo_id, revision in REVISIONS.items()
+                                ),
+                            ),
+                        ),
+                        tuple(facts.values()),
+                    ).operation_id_for(call.target_reference),
+                )
+                for call in provider.consumer_calls
+            }
+        )
+        with driver.session() as session:
+            actual = [
+                (row["caller"], row["call"], row["operation"])
+                for row in session.run(
+                    "MATCH (caller:ImplementationMethod {namespace: $namespace, repoId: 'provider-orders'}) "
+                    "-[:CALLER_METHOD]->(call:ConsumerMethodCall)-[:CALLS_OPERATION]->"
+                    "(operation:ServiceOperation {namespace: $namespace, repoId: 'consumer-checkout'}) "
+                    "RETURN caller.id AS caller, call.id AS call, operation.id AS operation "
+                    "ORDER BY caller, call, operation",
+                    namespace=namespace,
+                )
+            ]
+        assert actual == expected
+    finally:
+        with driver.session() as session:
+            session.run("MATCH (n {namespace: $namespace}) DETACH DELETE n", namespace=namespace)
+            session.run("MATCH (n {_ontoagent_namespace: $namespace}) DETACH DELETE n", namespace=namespace)
             session.run(
                 "MATCH (n) WHERE n.workspaceId = $workspace_id "
                 "AND (n:OntoAgentWorkspace OR n:OntoAgentWorkspaceBuildTask "
