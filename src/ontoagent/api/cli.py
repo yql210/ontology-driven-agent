@@ -12,6 +12,8 @@ from types import ModuleType
 import click
 
 from ontoagent.config import OntoAgentConfig
+from ontoagent.parsing.service_graph.workspace.build_application_service import create_workspace_build_service
+from ontoagent.parsing.service_graph.workspace.publish_orchestrator import WorkspacePublishStatus
 from ontoagent.pipeline.builder import OntoAgentBuilder
 from ontoagent.pipeline.incremental_updater import IncrementalUpdater
 from ontoagent.store.factory import create_graph_store
@@ -75,6 +77,22 @@ def build(
                 f"{result.entities_created} entities created, "
                 f"{result.relations_created} relations created"
             )
+
+
+@main.command(name="workspace-build")
+@click.argument("manifest", type=click.Path(exists=True, dir_okay=False, readable=True, path_type=Path))
+def workspace_build(manifest: Path) -> None:
+    """Build and atomically publish one local multi-repository workspace manifest."""
+    service = create_workspace_build_service(OntoAgentConfig.from_env())
+    try:
+        result = service.build(manifest)
+    except ValueError as error:
+        raise click.ClickException(str(error)) from error
+    finally:
+        service.close()
+    click.echo(json.dumps(result.to_dict(), ensure_ascii=False, sort_keys=True))
+    if result.outcome.status is not WorkspacePublishStatus.ACTIVE:
+        raise click.exceptions.Exit(2)
 
 
 @main.command()
