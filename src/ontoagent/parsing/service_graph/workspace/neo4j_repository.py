@@ -11,6 +11,8 @@ from .models import (
     WorkspaceActiveBinding,
     WorkspaceGeneration,
     WorkspaceGenerationState,
+    WorkspacePublishResult,
+    WorkspacePublishStatus,
     WorkspaceRepositorySnapshot,
     WorkspaceSourceDescriptor,
     WorkspaceSourceKind,
@@ -81,6 +83,52 @@ class Neo4jWorkspaceRepository:
         "MATCH (binding:OntoAgentWorkspaceActiveBinding {workspaceId: $workspace_id}) "
         "RETURN binding.workspaceId AS workspace_id, binding.generationId AS generation_id"
     )
+    ADVANCE_GENERATION_STATE_QUERY = (
+        "MATCH (generation:OntoAgentWorkspaceGeneration {workspaceId: $workspace_id, generationId: $generation_id}) "
+        "WHERE generation.state = $expected_state "
+        "SET generation.state = $target_state "
+        "RETURN generation.generationId AS generation_id"
+    )
+    PUBLISH_GENERATION_QUERY = (
+        "MERGE (binding:OntoAgentWorkspaceActiveBinding {workspaceId: $workspace_id}) "
+        "ON CREATE SET binding._ontoagentCreatedForCas = true "
+        "WITH binding, coalesce(binding._ontoagentCreatedForCas, false) AS created_for_cas "
+        "WITH binding, created_for_cas, ((created_for_cas AND $expected_active_generation_id IS NULL) "
+        "OR (NOT created_for_cas AND binding.generationId = $expected_active_generation_id)) AS expected_matches "
+        "OPTIONAL MATCH (candidate:OntoAgentWorkspaceGeneration "
+        "{workspaceId: $workspace_id, generationId: $candidate_generation_id}) "
+        "OPTIONAL MATCH (candidate)-[:HAS_FROZEN_SNAPSHOT]->(snapshot:OntoAgentWorkspaceRepositorySnapshot) "
+        "WITH binding, created_for_cas, expected_matches, candidate, collect(snapshot) AS frozen_snapshots, "
+        "collect(DISTINCT snapshot.repoId) AS frozen_repo_ids "
+        "WITH binding, created_for_cas, expected_matches, candidate, "
+        "[snapshot IN frozen_snapshots WHERE snapshot IS NOT NULL] AS persisted_snapshots, frozen_repo_ids "
+        "WITH binding, created_for_cas, expected_matches, candidate, "
+        "(candidate IS NOT NULL) AS candidate_exists, "
+        "(candidate IS NOT NULL AND candidate.state = 'verifying') AS candidate_verifying, "
+        "(candidate IS NOT NULL AND candidate.state = 'verifying' "
+        "AND candidate.snapshotFingerprint IS NOT NULL "
+        "AND size(persisted_snapshots) > 0 "
+        "AND size(persisted_snapshots) = size(frozen_repo_ids) "
+        "AND size(persisted_snapshots) = size([snapshot IN persisted_snapshots "
+        "WHERE snapshot.workspaceId = $workspace_id "
+        "AND snapshot.generationId = $candidate_generation_id "
+        "AND snapshot.repoId IS NOT NULL AND snapshot.branch IS NOT NULL "
+        "AND snapshot.sourceRevision IS NOT NULL AND snapshot.sourceKind IS NOT NULL "
+        "AND snapshot.sourceDescriptor IS NOT NULL])) AS candidate_ready "
+        "OPTIONAL MATCH (prior:OntoAgentWorkspaceGeneration "
+        "{workspaceId: $workspace_id, generationId: binding.generationId}) "
+        "WITH binding, created_for_cas, expected_matches, candidate, candidate_exists, candidate_verifying, candidate_ready, prior "
+        "FOREACH (_ IN CASE WHEN expected_matches AND candidate_ready THEN [1] ELSE [] END | "
+        "SET candidate.state = 'active', binding.generationId = $candidate_generation_id, "
+        "binding._ontoagentCreatedForCas = null, prior.state = CASE WHEN prior.state = 'active' THEN 'superseded' ELSE prior.state END) "
+        "FOREACH (_ IN CASE WHEN NOT expected_matches AND candidate_ready THEN [1] ELSE [] END | "
+        "SET candidate.state = 'blocked') "
+        "FOREACH (_ IN CASE WHEN created_for_cas AND (NOT expected_matches OR NOT candidate_ready) THEN [1] ELSE [] END | "
+        "DELETE binding) "
+        "RETURN CASE WHEN created_for_cas AND (NOT expected_matches OR NOT candidate_ready) THEN null "
+        "ELSE binding.generationId END AS active_generation_id, expected_matches, candidate_exists, candidate_verifying, "
+        "candidate_ready"
+    )
 
     def __init__(self, driver: Neo4jDriver) -> None:
         self._driver = driver
@@ -129,6 +177,67 @@ class Neo4jWorkspaceRepository:
         return self._optional(
             self.GET_ACTIVE_BINDING_QUERY, {"workspace_id": workspace_id}, self._active_binding_from_row
         )
+
+    def advance_generation_state(
+        self, generation: WorkspaceGeneration, target: WorkspaceGenerationState
+    ) -> WorkspaceGeneration:
+        """Persist one valid state-machine transition only if the stored source state still matches."""
+        _require_exact(generation, WorkspaceGeneration, "generation")
+        advanced = generation.transition_to(target)
+        self._one(
+            self.ADVANCE_GENERATION_STATE_QUERY,
+            {
+                "workspace_id": generation.workspace_id,
+                "generation_id": generation.generation_id,
+                "expected_state": generation.state.value,
+                "target_state": target.value,
+            },
+            _generation_id_from_row,
+        )
+        return advanced
+
+    def publish_generation(
+        self, workspace_id: str, expected_active_generation_id: str | None, candidate_generation_id: str
+    ) -> WorkspacePublishResult:
+        """Atomically publish a complete VERIFYING workspace generation through its sole binding."""
+        _require_nonblank(workspace_id, "workspace_id")
+        _require_nonblank(candidate_generation_id, "candidate_generation_id")
+        if expected_active_generation_id is not None:
+            _require_nonblank(expected_active_generation_id, "expected_active_generation_id")
+        row = self._one(
+            self.PUBLISH_GENERATION_QUERY,
+            {
+                "workspace_id": workspace_id,
+                "expected_active_generation_id": expected_active_generation_id,
+                "candidate_generation_id": candidate_generation_id,
+            },
+            _mapping,
+        )
+        active_generation_id = row.get("active_generation_id")
+        if active_generation_id is not None and not isinstance(active_generation_id, str):
+            raise RuntimeError("Neo4j workspace CAS publication returned a malformed active generation")
+        candidate_exists = row.get("candidate_exists")
+        candidate_verifying = row.get("candidate_verifying")
+        candidate_ready = row.get("candidate_ready")
+        expected_matches = row.get("expected_matches")
+        if (
+            type(candidate_exists) is not bool
+            or type(candidate_verifying) is not bool
+            or type(candidate_ready) is not bool
+            or type(expected_matches) is not bool
+        ):
+            raise RuntimeError("Neo4j workspace CAS publication returned a malformed result")
+        if not candidate_exists:
+            status = WorkspacePublishStatus.CANDIDATE_INVALID
+        elif not candidate_verifying:
+            status = WorkspacePublishStatus.CANDIDATE_NOT_READY
+        elif not candidate_ready:
+            status = WorkspacePublishStatus.CANDIDATE_INVALID
+        elif not expected_matches:
+            status = WorkspacePublishStatus.STALE_ACTIVE
+        else:
+            status = WorkspacePublishStatus.PUBLISHED
+        return WorkspacePublishResult(status, active_generation_id)
 
     def _one(self, query: str, params: dict[str, object], decoder: Callable[[object], T]) -> T:
         result = self._optional(query, params, decoder)

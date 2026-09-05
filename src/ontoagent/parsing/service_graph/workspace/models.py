@@ -23,6 +23,13 @@ class WorkspaceGenerationState(StrEnum):
     SUPERSEDED = "superseded"
 
 
+class WorkspacePublishStatus(StrEnum):
+    PUBLISHED = "published"
+    STALE_ACTIVE = "stale_active"
+    CANDIDATE_NOT_READY = "candidate_not_ready"
+    CANDIDATE_INVALID = "candidate_invalid"
+
+
 _TRANSITIONS: dict[WorkspaceGenerationState, frozenset[WorkspaceGenerationState]] = {
     WorkspaceGenerationState.PENDING: frozenset(
         {WorkspaceGenerationState.EXTRACTING, WorkspaceGenerationState.FAILED, WorkspaceGenerationState.BLOCKED}
@@ -141,6 +148,18 @@ class WorkspaceActiveBinding:
     def __post_init__(self) -> None:
         _require_nonblank(self.workspace_id, "workspace_id")
         _require_nonblank(self.generation_id, "generation_id")
+
+
+@dataclass(frozen=True)
+class WorkspacePublishResult:
+    status: WorkspacePublishStatus
+    active_generation_id: str | None
+
+    def __post_init__(self) -> None:
+        if type(self.status) is not WorkspacePublishStatus:
+            raise ValueError("status must be a WorkspacePublishStatus")
+        if self.active_generation_id is not None:
+            _require_nonblank(self.active_generation_id, "active_generation_id")
 
 
 def _require_nonblank(value: object, field_name: str) -> None:
