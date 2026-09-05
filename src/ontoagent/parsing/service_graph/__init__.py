@@ -32,6 +32,16 @@ from .neo4j_manifest_repository import (
     ManifestPublicationStatus,
     Neo4jServiceGraphManifestRepository,
 )
+from .publish_orchestrator import (
+    Neo4jServiceGraphPublishComponentFactory,
+    ServiceGraphPublicationReceipt,
+    ServiceGraphPublishComponents,
+    ServiceGraphPublishInput,
+    ServiceGraphPublishOrchestrator,
+    ServiceGraphPublishOutcome,
+    ServiceGraphPublishReason,
+    ServiceGraphPublishStatus,
+)
 from .query import (
     ServiceGraphNodeResult,
     ServiceGraphQuery,
@@ -76,6 +86,14 @@ __all__ = [
     "DurableServiceGraphManifest",
     "ManifestPublicationResult",
     "ManifestPublicationStatus",
+    "Neo4jServiceGraphPublishComponentFactory",
+    "ServiceGraphPublicationReceipt",
+    "ServiceGraphPublishComponents",
+    "ServiceGraphPublishInput",
+    "ServiceGraphPublishOrchestrator",
+    "ServiceGraphPublishOutcome",
+    "ServiceGraphPublishReason",
+    "ServiceGraphPublishStatus",
     "ServiceGraphNodeResult",
     "ServiceGraphQuery",
     "ServiceGraphQueryBlockReason",
