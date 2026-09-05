@@ -10,6 +10,11 @@ from fastapi.testclient import TestClient
 
 from ontoagent.api.web.app import create_app
 from ontoagent.api.web.router import service_graph
+from ontoagent.parsing.service_graph.change_analysis import (
+    ServiceGraphChangeAnalysisBlockReason,
+    ServiceGraphChangeAnalysisResult,
+    ServiceGraphChangeAnalysisStatus,
+)
 from ontoagent.parsing.service_graph.query import (
     ServiceGraphQueryBlockReason,
     ServiceGraphQueryResult,
@@ -45,6 +50,40 @@ def factory(adapter: MagicMock) -> MagicMock:
     def create(namespace: str):
         assert namespace == "test-namespace"
         yield adapter
+
+    mock.create.side_effect = create
+    return mock
+
+
+@pytest.fixture
+def change_adapter() -> MagicMock:
+    """Provide a durable historical adapter double with a JSON-safe READY envelope."""
+    result = ServiceGraphChangeAnalysisResult(
+        ServiceGraphChangeAnalysisStatus.READY,
+        "repo-1",
+        "generation-1",
+        "generation-2",
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+    )
+    mock = MagicMock()
+    mock.analyze.return_value = result
+    return mock
+
+
+@pytest.fixture
+def change_factory(change_adapter: MagicMock) -> MagicMock:
+    """Provide an injectable historical adapter factory without opening Neo4j."""
+    mock = MagicMock()
+
+    @contextmanager
+    def create(namespace: str):
+        assert namespace == "test-namespace"
+        yield change_adapter
 
     mock.create.side_effect = create
     return mock
@@ -200,3 +239,157 @@ def test_service_graph_routes_do_not_use_generic_graph_store(factory: MagicMock)
 
     assert response.status_code == 200
     create_graph_store.assert_not_called()
+
+
+@pytest.mark.unit
+def test_service_graph_changes_is_registered(client: TestClient) -> None:
+    """The durable historical analysis endpoint is publicly exposed."""
+    assert "/api/service-graph/changes" in client.get("/openapi.json").json()["paths"]
+
+
+@pytest.mark.unit
+def test_service_graph_changes_delegates_to_durable_historical_adapter(
+    client: TestClient, change_factory: MagicMock, change_adapter: MagicMock
+) -> None:
+    """The route preserves the adapter's argument ordering and JSON-safe envelope."""
+    with patch.object(service_graph, "service_graph_change_impact_adapter_factory", change_factory):
+        response = client.get(
+            "/api/service-graph/changes",
+            params={
+                "repo_id": "repo-1",
+                "from_generation": "generation-1",
+                "to_generation": "generation-2",
+                "namespace": "test-namespace",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "repo_id": "repo-1",
+        "from_generation": "generation-1",
+        "to_generation": "generation-2",
+        "reasons": [],
+        "endpoint_additions": [],
+        "endpoint_deletions": [],
+        "contract_changes": [],
+        "fact_revisions": [],
+        "direct_impacts": [],
+    }
+    change_adapter.analyze.assert_called_once_with("repo-1", "generation-1", "generation-2")
+    change_factory.create.assert_called_once_with("test-namespace")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"from_generation": "generation-1", "to_generation": "generation-2", "namespace": "test-namespace"},
+        {"repo_id": "repo-1", "to_generation": "generation-2", "namespace": "test-namespace"},
+        {"repo_id": "repo-1", "from_generation": "generation-1", "namespace": "test-namespace"},
+        {"repo_id": "repo-1", "from_generation": "generation-1", "to_generation": "generation-2"},
+    ],
+)
+def test_service_graph_changes_requires_all_query_identifiers(client: TestClient, params: dict[str, str]) -> None:
+    """Every durable history identity is required before an adapter is created."""
+    assert client.get("/api/service-graph/changes", params=params).status_code == 422
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "reason",
+    [
+        ServiceGraphChangeAnalysisBlockReason.MISSING_DURABLE_MANIFEST,
+        ServiceGraphChangeAnalysisBlockReason.NODE_PROVENANCE_MISMATCH,
+        ServiceGraphChangeAnalysisBlockReason.MALFORMED_GRAPH,
+    ],
+)
+def test_service_graph_changes_maps_durable_and_provenance_blocks_to_conflict(
+    client: TestClient,
+    change_factory: MagicMock,
+    change_adapter: MagicMock,
+    reason: ServiceGraphChangeAnalysisBlockReason,
+) -> None:
+    """History and provenance failures are conflicts rather than backend errors."""
+    change_adapter.analyze.return_value = ServiceGraphChangeAnalysisResult(
+        ServiceGraphChangeAnalysisStatus.BLOCKED, "unknown", None, None, (reason,), (), (), (), (), ()
+    )
+    with patch.object(service_graph, "service_graph_change_impact_adapter_factory", change_factory):
+        response = client.get(
+            "/api/service-graph/changes",
+            params={
+                "repo_id": "repo-1",
+                "from_generation": "generation-1",
+                "to_generation": "generation-2",
+                "namespace": "test-namespace",
+            },
+        )
+
+    assert response.status_code == 409
+    assert response.json()["reasons"] == [reason.value]
+
+
+@pytest.mark.unit
+def test_service_graph_changes_maps_adapter_malformed_request_to_validation_error(
+    client: TestClient, change_factory: MagicMock, change_adapter: MagicMock
+) -> None:
+    """Adapter-declared malformed requests retain validation semantics."""
+    change_adapter.analyze.return_value = ServiceGraphChangeAnalysisResult(
+        ServiceGraphChangeAnalysisStatus.BLOCKED,
+        "unknown",
+        None,
+        None,
+        (ServiceGraphChangeAnalysisBlockReason.MALFORMED_REQUEST,),
+        (),
+        (),
+        (),
+        (),
+        (),
+    )
+    with patch.object(service_graph, "service_graph_change_impact_adapter_factory", change_factory):
+        response = client.get(
+            "/api/service-graph/changes",
+            params={
+                "repo_id": "repo-1",
+                "from_generation": "generation-1",
+                "to_generation": "generation-2",
+                "namespace": "test-namespace",
+            },
+        )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.unit
+def test_service_graph_changes_do_not_use_generic_graph_store(change_factory: MagicMock) -> None:
+    """Historical analysis constructs no generic graph backend helper."""
+    with (
+        patch("ontoagent.api.web.app.create_graph_store") as create_graph_store,
+        patch.object(service_graph, "service_graph_change_impact_adapter_factory", change_factory),
+    ):
+        response = TestClient(create_app()).get(
+            "/api/service-graph/changes",
+            params={
+                "repo_id": "repo-1",
+                "from_generation": "generation-1",
+                "to_generation": "generation-2",
+                "namespace": "test-namespace",
+            },
+        )
+
+    assert response.status_code == 200
+    create_graph_store.assert_not_called()
+
+
+@pytest.mark.unit
+def test_service_graph_change_impact_factory_closes_its_neo4j_driver() -> None:
+    """The historical adapter owns and closes one request-scoped official driver."""
+    driver = MagicMock()
+    with (
+        patch.object(service_graph.OntoAgentConfig, "from_env"),
+        patch.object(service_graph.GraphDatabase, "driver", return_value=driver),
+        service_graph.ServiceGraphChangeImpactAdapterFactory().create("test-namespace") as adapter,
+    ):
+        assert type(adapter).__name__ == "Neo4jServiceGraphChangeImpactAdapter"
+
+    driver.close.assert_called_once_with()
