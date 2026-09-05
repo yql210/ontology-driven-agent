@@ -25,6 +25,7 @@ from .models import (
     ServiceDefinition,
     UnresolvedFact,
 )
+from .neo4j_change_impact_adapter import Neo4jServiceGraphChangeImpactAdapter
 from .neo4j_graph_sink import Neo4jGraphSink
 from .neo4j_manifest_repository import (
     DurableServiceGraphManifest,
@@ -82,6 +83,7 @@ __all__ = [
     "GraphWriter",
     "InMemoryGraphSink",
     "Neo4jGraphSink",
+    "Neo4jServiceGraphChangeImpactAdapter",
     "Neo4jServiceGraphManifestRepository",
     "DurableServiceGraphManifest",
     "ManifestPublicationResult",

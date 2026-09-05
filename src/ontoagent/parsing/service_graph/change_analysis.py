@@ -27,6 +27,11 @@ class ServiceGraphChangeAnalysisBlockReason(StrEnum):
     EVIDENCE_NOT_FOUND = "evidence_not_found"
     REPO_MISMATCH = "repo_mismatch"
     GENERATION_MISMATCH = "generation_mismatch"
+    MISSING_DURABLE_MANIFEST = "missing_durable_manifest"
+    DURABLE_MANIFEST_MISMATCH = "durable_manifest_mismatch"
+    DURABLE_MANIFEST_NOT_READY = "durable_manifest_not_ready"
+    DURABLE_RECEIPT_UNCONFIRMED = "durable_receipt_unconfirmed"
+    DURABLE_RECEIPT_MISMATCH = "durable_receipt_mismatch"
 
 
 @dataclass(frozen=True)
