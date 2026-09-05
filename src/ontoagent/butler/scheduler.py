@@ -17,6 +17,7 @@ class HandlerResult:
     result_data: dict
     error: str | None
     attempts: int = 1
+    events: list[ButlerEvent] | None = None
 
 
 @dataclass
@@ -82,6 +83,7 @@ class Scheduler:
                 result_data = getattr(result, "data", None) or getattr(result, "result_data", None) or {}
                 handler_success = getattr(result, "success", True)
                 handler_error = getattr(result, "error", None) if not handler_success else None
+                emitted_events = getattr(result, "events", None)
 
                 status = self._status[spec.handler_id]
                 status.total_invocations += 1
@@ -97,6 +99,7 @@ class Scheduler:
                     result_data=result_data,
                     error=handler_error,
                     attempts=attempt,
+                    events=emitted_events,
                 )
             except TimeoutError:
                 last_error = "Handler timeout"

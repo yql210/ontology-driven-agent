@@ -115,6 +115,12 @@ class ButlerEngine:
         if self._ctx and self._ctx._graph_store:
             self._ctx._graph_store.close()
 
+        # Dedicated handlers may own narrow infrastructure outside HandlerContext.
+        for handler in self._handlers.values():
+            close_fn = getattr(handler, "close", None)
+            if callable(close_fn):
+                close_fn()
+
         # 关闭 SkillStore（如果有 close 方法）
         if self._skill_store and hasattr(self._skill_store, "close"):
             close_fn = self._skill_store.close
@@ -169,6 +175,8 @@ class ButlerEngine:
 
         # 发布 completion/failed 事件并级联 dispatch（触发 ReflectionHandler 等）
         for result in results:
+            for emitted_event in result.events or []:
+                await self._bus.publish(emitted_event)
             if result.success:
                 completion_event = ButlerEvent(
                     event_type="handler.completed",
@@ -270,6 +278,8 @@ class ButlerEngine:
 
         # 发布 completion/failed 事件到 EventBus（供外部订阅者监听）
         for result in results:
+            for emitted_event in result.events or []:
+                await self._bus.publish(emitted_event)
             if result.success:
                 completion = ButlerEvent(
                     event_type="handler.completed",

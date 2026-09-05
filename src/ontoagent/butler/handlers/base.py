@@ -38,6 +38,7 @@ class HandlerResult:
     success: bool
     data: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
+    events: list[ButlerEvent] = field(default_factory=list)
 
 
 class BaseHandler(ABC):
