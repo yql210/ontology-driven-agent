@@ -218,6 +218,7 @@ class Neo4jWorkspaceServiceGraphPublishComponentFactory:
 
     def create(self, namespace: str) -> WorkspaceServiceGraphPublishComponents:
         from ..detectors.dubbo_method import DubboMethodDetector
+        from ..detectors.feign_method import FeignMethodDetector
         from ..detectors.grpc_method import GrpcMethodDetector
         from ..detectors.messaging_method import MessagingMethodDetector
         from ..detectors.python_http_method import PythonHttpMethodDetector
@@ -233,6 +234,7 @@ class Neo4jWorkspaceServiceGraphPublishComponentFactory:
             lambda scope: Neo4jMethodGraphSink(self._driver, scope),
             (
                 SpringHttpMethodDetector(),
+                FeignMethodDetector(),
                 PythonHttpMethodDetector(),
                 DubboMethodDetector(),
                 MessagingMethodDetector(),

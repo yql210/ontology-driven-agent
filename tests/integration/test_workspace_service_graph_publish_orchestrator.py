@@ -14,12 +14,14 @@ from neo4j import GraphDatabase
 from ontoagent.parsing.service_graph.detector_sdk import MethodDetectionContext
 from ontoagent.parsing.service_graph.detectors.dubbo import DubboDetector
 from ontoagent.parsing.service_graph.detectors.dubbo_method import DubboMethodDetector
+from ontoagent.parsing.service_graph.detectors.feign_method import FeignMethodDetector
 from ontoagent.parsing.service_graph.detectors.grpc_method import GrpcMethodDetector
 from ontoagent.parsing.service_graph.detectors.messaging import MessagingDetector
 from ontoagent.parsing.service_graph.detectors.messaging_method import MessagingMethodDetector
 from ontoagent.parsing.service_graph.detectors.python_http_method import PythonHttpMethodDetector
 from ontoagent.parsing.service_graph.detectors.registry import DetectorRegistry
 from ontoagent.parsing.service_graph.detectors.spring_http import SpringHttpDetector
+from ontoagent.parsing.service_graph.detectors.spring_http_method import SpringHttpMethodDetector
 from ontoagent.parsing.service_graph.graph_plan import GraphPlanBuilder
 from ontoagent.parsing.service_graph.graph_writer import GraphWriter, WriteReceipt
 from ontoagent.parsing.service_graph.method_graph_writer import MethodGraphScope, MethodGraphWritePlan
@@ -239,8 +241,29 @@ def test_workspace_orchestrator_publishes_replaces_and_blocks_stale_generation_i
                 "MATCH (n { _ontoagent_namespace: $namespace }) RETURN count(n) AS count", namespace=namespaces[0]
             ).single()["count"]
         assert count > 0
+        feign_snapshot = RepositorySnapshot(
+            "consumer-checkout",
+            REVISIONS["consumer-checkout"],
+            FIXTURE / "consumer-checkout",
+            frozenset({"java", "yaml"}),
+        )
+        feign_operations = (
+            FeignMethodDetector()
+            .detect_methods(
+                feign_snapshot,
+                MethodDetectionContext(
+                    "consumer-checkout",
+                    "consumer-checkout",
+                    "consumer-checkout",
+                    feign_snapshot.source_revision,
+                    generation_one,
+                ),
+            )
+            .operations
+        )
         expected_operations_by_protocol = {
             "explicit": tuple(operation for fact in explicit_method_facts for operation in fact.operations),
+            "feign": feign_operations,
             "spring": (
                 ServiceOperation(
                     "provider-orders",
@@ -392,6 +415,7 @@ def test_workspace_orchestrator_publishes_replaces_and_blocks_stale_generation_i
         }
         assert {protocol: len(operations) for protocol, operations in expected_operations_by_protocol.items()} == {
             "explicit": 3,
+            "feign": 5,
             "spring": 4,
             "dubbo": 3,
             "messaging": 4,
@@ -577,6 +601,102 @@ def test_workspace_publisher_links_spring_consumer_method_to_provider_operation(
     finally:
         with driver.session() as session:
             session.run("MATCH (n { _ontoagent_namespace: $namespace }) DETACH DELETE n", namespace=namespace)
+            session.run(
+                "MATCH (n) WHERE n.workspaceId = $workspace_id "
+                "AND (n:OntoAgentWorkspace OR n:OntoAgentWorkspaceBuildTask "
+                "OR n:OntoAgentWorkspaceGeneration OR n:OntoAgentWorkspaceRepositorySnapshot "
+                "OR n:OntoAgentWorkspaceActiveBinding) DETACH DELETE n",
+                workspace_id=workspace.workspace_id,
+            )
+        driver.close()
+
+
+def test_workspace_publisher_links_exact_ordered_feign_method_triples() -> None:
+    uri, user, password = _credentials()
+    workspace = Workspace(f"workspace-feign-methods-{uuid4()}", "Feign method graph integration")
+    generation_id = f"generation-feign-methods-{uuid4()}"
+    namespace = WorkspaceServiceGraphPublishOrchestrator.namespace_for(workspace.workspace_id, generation_id)
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+    orchestrator = WorkspaceServiceGraphPublishOrchestrator(
+        Neo4jWorkspaceServiceGraphPublishComponentFactory(
+            driver, DetectorRegistry([SpringHttpDetector(), DubboDetector(), MessagingDetector()])
+        )
+    )
+    try:
+        assert orchestrator.publish(_input(workspace, generation_id, None)).status is WorkspacePublishStatus.ACTIVE
+        provider_snapshot = RepositorySnapshot(
+            "provider-orders", REVISIONS["provider-orders"], FIXTURE / "provider-orders", frozenset({"java", "yaml"})
+        )
+        provider = SpringHttpMethodDetector().detect_methods(
+            provider_snapshot,
+            MethodDetectionContext(
+                "provider-orders",
+                "provider-orders",
+                "provider-orders",
+                provider_snapshot.source_revision,
+                generation_id,
+            ),
+        )
+        consumer_snapshot = RepositorySnapshot(
+            "consumer-checkout",
+            REVISIONS["consumer-checkout"],
+            FIXTURE / "consumer-checkout",
+            frozenset({"java", "yaml"}),
+        )
+        consumer = FeignMethodDetector().detect_methods(
+            consumer_snapshot,
+            MethodDetectionContext(
+                "consumer-checkout",
+                "consumer-checkout",
+                "consumer-checkout",
+                consumer_snapshot.source_revision,
+                generation_id,
+            ),
+        )
+        plan = MethodGraphWritePlan(
+            MethodGraphScope(
+                namespace,
+                WorkspaceGeneration(
+                    workspace.workspace_id,
+                    generation_id,
+                    tuple(
+                        WorkspaceRepositorySnapshot(
+                            workspace.workspace_id,
+                            repo_id,
+                            "main",
+                            revision,
+                            WorkspaceSourceDescriptor(WorkspaceSourceKind.GIT, f"https://example.test/{repo_id}.git"),
+                        )
+                        for repo_id, revision in REVISIONS.items()
+                    ),
+                ),
+            ),
+            (provider, consumer),
+        )
+        expected = sorted(
+            (call.caller_implementation_id, call.id, plan.operation_id_for(call.target_reference))
+            for call in consumer.consumer_calls
+            if plan.operation_ids_for(call.target_reference)
+        )
+        with driver.session() as session:
+            actual = [
+                (row["caller"], row["call"], row["operation"])
+                for row in session.run(
+                    "MATCH (caller:ImplementationMethod {namespace: $namespace})-[:CALLER_METHOD]->"
+                    "(call:ConsumerMethodCall)-[:CALLS_OPERATION]->"
+                    "(operation:ServiceOperation {namespace: $namespace, repoId: 'provider-orders'}) "
+                    "WHERE caller.id IN $caller_ids "
+                    "RETURN caller.id AS caller, call.id AS call, operation.id AS operation "
+                    "ORDER BY caller, call, operation",
+                    namespace=namespace,
+                    caller_ids=[item[0] for item in expected],
+                )
+            ]
+        assert actual == expected
+    finally:
+        with driver.session() as session:
+            session.run("MATCH (n {namespace: $namespace}) DETACH DELETE n", namespace=namespace)
+            session.run("MATCH (n {_ontoagent_namespace: $namespace}) DETACH DELETE n", namespace=namespace)
             session.run(
                 "MATCH (n) WHERE n.workspaceId = $workspace_id "
                 "AND (n:OntoAgentWorkspace OR n:OntoAgentWorkspaceBuildTask "

@@ -19,6 +19,7 @@ from .detector_sdk import (
     MethodDetector,
 )
 from .detectors.dubbo_method import DubboMethodDetector
+from .detectors.feign_method import FeignMethodDetector
 from .detectors.grpc_method import GrpcMethodDetector
 from .detectors.messaging_method import MessagingMethodDetector
 from .detectors.python_http_method import PythonHttpMethodDetector
@@ -111,6 +112,7 @@ __all__ = [
     "SpringHttpDetector",
     "SpringHttpMethodDetector",
     "DubboMethodDetector",
+    "FeignMethodDetector",
     "GrpcMethodDetector",
     "MessagingMethodDetector",
     "PythonHttpMethodDetector",

@@ -117,6 +117,13 @@ class MethodGraphWritePlan:
                         continue
                 elif call.target_reference.startswith(("dubbo-operation:", "grpc-operation:")):
                     candidate_count = references.get(call.target_reference, 0)
+                elif call.target_reference.startswith("feign-http:"):
+                    endpoint = call.target_reference.removeprefix("feign-http:")
+                    candidate_count = sum(
+                        operation.declaring_interface_fqcn == f"spring-http:{endpoint}"
+                        for candidate in facts
+                        for operation in candidate.operations
+                    )
                 else:
                     continue
                 if candidate_count == 1:
@@ -220,7 +227,7 @@ class MethodGraphWritePlan:
                 call.target_kind == "operation"
                 and call.target_reference not in operations
                 and call.target_reference not in operation_references
-                and not call.target_reference.startswith("spring-http:")
+                and not call.target_reference.startswith(("spring-http:", "feign-http:"))
                 and not call.target_reference.startswith("dubbo-operation:")
                 and not call.target_reference.startswith("grpc-operation:")
                 and not call.target_reference.startswith("messaging-operation:")
@@ -256,6 +263,14 @@ class MethodGraphWritePlan:
             return matches[0]
         if reference.startswith("messaging-operation:"):
             matches = self.operation_ids_for(reference)
+            if len(matches) != 1:
+                raise ValueError("method graph has ambiguous call target")
+            return matches[0]
+        if reference.startswith("feign-http:"):
+            endpoint = f"spring-http:{reference.removeprefix('feign-http:')}"
+            matches = [
+                item.id for fact in self.facts for item in fact.operations if item.declaring_interface_fqcn == endpoint
+            ]
             if len(matches) != 1:
                 raise ValueError("method graph has ambiguous call target")
             return matches[0]
