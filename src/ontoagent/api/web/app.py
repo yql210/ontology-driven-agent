@@ -32,10 +32,35 @@ logger = logging.getLogger(__name__)
 _trace_collector = TraceCollector()
 
 
+class _LazyGraphStore:
+    """Initialize the legacy generic graph backend only for routes that use it."""
+
+    def __init__(self, config: OntoAgentConfig) -> None:
+        self._config = config
+        self._store: object | None = None
+
+    @property
+    def is_nebula(self) -> bool:
+        """Expose backend selection without opening the deferred connection."""
+        return self._config.graph_backend == "nebula"
+
+    def _get_store(self) -> object:
+        if self._store is None:
+            self._store = create_graph_store(self._config)
+        return self._store
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._get_store(), name)
+
+    def close(self) -> None:
+        if self._store is not None:
+            self._store.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     config = OntoAgentConfig.from_env()
-    store = create_graph_store(config)
+    store = _LazyGraphStore(config)
     app.state.graph_store = store
     # 后台构建任务状态：task_id -> BuildStatusResponse（内存级，重启丢失）
     app.state.build_tasks = {}
@@ -171,9 +196,11 @@ def create_app() -> FastAPI:
     # 挂载 build / repo router
     from ontoagent.api.web.router import build as build_router
     from ontoagent.api.web.router import repo as repo_router
+    from ontoagent.api.web.router import workspace_build as workspace_build_router
 
     app.include_router(build_router.router, prefix="/api")
     app.include_router(repo_router.router, prefix="/api")
+    app.include_router(workspace_build_router.router, prefix="/api")
 
     @app.get("/health")
     async def health(request: Request):

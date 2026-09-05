@@ -16,7 +16,7 @@ router = APIRouter(tags=["graph"])
 
 def _is_nebula(store: object) -> bool:
     """检测 store 是否为 NebulaGraphStore。"""
-    return type(store).__name__ == "NebulaGraphStore"
+    return type(store).__name__ == "NebulaGraphStore" or getattr(store, "is_nebula", False) is True
 
 
 def _label_expr(store: object, var: str, idx: int = 0) -> str:

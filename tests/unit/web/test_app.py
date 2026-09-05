@@ -114,7 +114,7 @@ async def test_lifespan_shutdown_closes_store_and_acl():
         patch("ontoagent.api.web.app.RepoAccessControl", return_value=mock_acl),
     ):
         async with app_module.lifespan(app):
-            pass
+            app.state.graph_store.query("RETURN 1")
 
     mock_store.close.assert_called_once()
     mock_acl.close.assert_called_once()
@@ -133,7 +133,7 @@ async def test_lifespan_shutdown_store_close_error_still_closes_acl(caplog):
         patch("ontoagent.api.web.app.RepoAccessControl", return_value=mock_acl),
     ):
         async with app_module.lifespan(app):  # 不应抛异常
-            pass
+            app.state.graph_store.query("RETURN 1")
 
     mock_acl.close.assert_called_once()
     assert any("graph store close failed" in r.message for r in caplog.records)
@@ -152,7 +152,7 @@ async def test_lifespan_shutdown_acl_close_error_does_not_raise(caplog):
         patch("ontoagent.api.web.app.RepoAccessControl", return_value=mock_acl),
     ):
         async with app_module.lifespan(app):  # 不应抛异常
-            pass
+            app.state.graph_store.query("RETURN 1")
 
     mock_store.close.assert_called_once()
     assert any("acl close failed" in r.message for r in caplog.records)

@@ -155,6 +155,8 @@ class WorkspaceRepositoryPort(Protocol):
 
     def create_build_task(self, task: BuildTask) -> BuildTask: ...
 
+    def get_build_task(self, task_id: str) -> BuildTask | None: ...
+
     def create_generation(self, generation: WorkspaceGeneration) -> WorkspaceGeneration: ...
 
     def advance_generation_state(
@@ -222,6 +224,7 @@ class WorkspaceServiceGraphPublishOrchestrator:
                     _task_id(request.workspace.workspace_id, request.task_idempotency_key),
                     request.workspace.workspace_id,
                     request.task_idempotency_key,
+                    request.generation_id,
                 )
             )
             generation = components.workspace_repository.create_generation(generation)

@@ -106,10 +106,13 @@ class BuildTask:
     task_id: str
     workspace_id: str
     idempotency_key: str
+    generation_id: str | None = None
 
     def __post_init__(self) -> None:
         for field_name in ("task_id", "workspace_id", "idempotency_key"):
             _require_nonblank(getattr(self, field_name), field_name)
+        if self.generation_id is not None:
+            _require_nonblank(self.generation_id, "generation_id")
 
 
 @dataclass(frozen=True)

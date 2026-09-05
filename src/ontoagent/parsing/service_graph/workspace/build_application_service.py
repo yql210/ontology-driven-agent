@@ -18,7 +18,16 @@ from ontoagent.parsing.service_graph.detectors.registry import DetectorRegistry
 from ontoagent.parsing.service_graph.detectors.spring_http import SpringHttpDetector
 from ontoagent.parsing.service_graph.models import RepositorySnapshot
 
-from .models import Workspace, WorkspaceRepositorySnapshot, WorkspaceSourceDescriptor, WorkspaceSourceKind
+from .models import (
+    BuildTask,
+    Workspace,
+    WorkspaceGeneration,
+    WorkspaceGenerationState,
+    WorkspaceRepositorySnapshot,
+    WorkspaceSourceDescriptor,
+    WorkspaceSourceKind,
+)
+from .neo4j_repository import Neo4jWorkspaceRepository
 from .publish_orchestrator import (
     Neo4jWorkspaceServiceGraphPublishComponentFactory,
     WorkspacePublishOutcome,
@@ -35,6 +44,18 @@ class Closable(Protocol):
     def close(self) -> None: ...
 
 
+class WorkspaceBuildRepository(Protocol):
+    def create_workspace(self, workspace: Workspace) -> Workspace: ...
+
+    def create_build_task(self, task: BuildTask) -> BuildTask: ...
+
+    def get_build_task(self, task_id: str) -> BuildTask | None: ...
+
+    def create_generation(self, generation: WorkspaceGeneration) -> WorkspaceGeneration: ...
+
+    def get_generation(self, workspace_id: str, generation_id: str) -> WorkspaceGeneration | None: ...
+
+
 @dataclass(frozen=True)
 class WorkspaceBuildResult:
     task_id: str
@@ -49,6 +70,25 @@ class WorkspaceBuildResult:
         }
 
 
+@dataclass(frozen=True)
+class WorkspaceBuildSubmission:
+    """A validated, durably accepted build request ready for asynchronous execution."""
+
+    task_id: str
+    workspace_id: str
+    generation_id: str
+    scheduled: bool
+    request: WorkspaceServiceGraphPublishInput | None
+
+
+@dataclass(frozen=True)
+class WorkspaceBuildTaskStatus:
+    task_id: str
+    workspace_id: str
+    generation_id: str
+    state: WorkspaceGenerationState
+
+
 class WorkspaceBuildApplicationService:
     """Validate a local workspace manifest, freeze Git state, then publish one generation."""
 
@@ -58,20 +98,23 @@ class WorkspaceBuildApplicationService:
         *,
         id_factory: Callable[[], str] | None = None,
         closeable: Closable | None = None,
+        repository: WorkspaceBuildRepository | None = None,
     ) -> None:
         self._publisher = publisher
         self._id_factory = id_factory or (lambda: str(uuid4()))
         self._closeable = closeable
+        self._repository = repository
 
     @classmethod
     def from_config(cls, config: OntoAgentConfig) -> WorkspaceBuildApplicationService:
         """Create the production service without any LLM or embedding dependencies."""
         driver = GraphDatabase.driver(config.neo4j_uri, auth=(config.neo4j_user, config.neo4j_password))
         registry = DetectorRegistry([SpringHttpDetector(), DubboDetector(), MessagingDetector()])
+        repository = Neo4jWorkspaceRepository(driver)
         orchestrator = WorkspaceServiceGraphPublishOrchestrator(
             Neo4jWorkspaceServiceGraphPublishComponentFactory(driver, registry)
         )
-        return cls(orchestrator.publish, closeable=driver)
+        return cls(orchestrator.publish, closeable=driver, repository=repository)
 
     @staticmethod
     def task_id_for(workspace_id: str, idempotency_key: str) -> str:
@@ -84,23 +127,96 @@ class WorkspaceBuildApplicationService:
 
     def build(self, manifest_path: Path) -> WorkspaceBuildResult:
         manifest = _load_manifest(manifest_path)
-        workspace = Workspace(_required_string(manifest, "workspace_id"), _required_string(manifest, "name"))
-        repositories = _repositories(manifest)
         task_idempotency_key = self._id_factory()
         generation_id = self._id_factory()
-        snapshots, runtime_snapshots = _freeze_repositories(workspace.workspace_id, repositories, manifest_path.parent)
-        request = WorkspaceServiceGraphPublishInput(
-            workspace,
-            snapshots,
-            runtime_snapshots,
+        request = self.prepare(
+            {key: value for key, value in manifest.items() if key != "expected_active_generation_id"},
+            manifest_path.parent,
             task_idempotency_key,
             generation_id,
             _optional_string(manifest, "expected_active_generation_id"),
         )
         outcome = self._publisher(request)
         return WorkspaceBuildResult(
-            self.task_id_for(workspace.workspace_id, task_idempotency_key), generation_id, outcome
+            self.task_id_for(request.workspace.workspace_id, task_idempotency_key), generation_id, outcome
         )
+
+    def prepare(
+        self,
+        manifest: Mapping[str, object],
+        manifest_dir: Path,
+        idempotency_key: str,
+        generation_id: str,
+        expected_active_generation_id: str | None = None,
+    ) -> WorkspaceServiceGraphPublishInput:
+        """Validate and freeze a local-only manifest before any durable work is scheduled."""
+        _reject_unknown_fields(manifest, {"workspace_id", "name", "repositories"}, "manifest")
+        workspace = Workspace(_required_string(manifest, "workspace_id"), _required_string(manifest, "name"))
+        repositories = _repositories(manifest)
+        _require_nonblank(idempotency_key, "idempotency_key")
+        _require_nonblank(generation_id, "generation_id")
+        if expected_active_generation_id is not None:
+            _require_nonblank(expected_active_generation_id, "expected_active_generation_id")
+        snapshots, runtime_snapshots = _freeze_repositories(workspace.workspace_id, repositories, manifest_dir)
+        return WorkspaceServiceGraphPublishInput(
+            workspace, snapshots, runtime_snapshots, idempotency_key, generation_id, expected_active_generation_id
+        )
+
+    def submit(
+        self,
+        manifest: Mapping[str, object],
+        manifest_dir: Path,
+        idempotency_key: str,
+        generation_id: str,
+        expected_active_generation_id: str | None = None,
+    ) -> WorkspaceBuildSubmission:
+        """Persist a pending task only after the full local manifest preflight has succeeded."""
+        if self._repository is None:
+            raise RuntimeError("workspace build submission requires a workspace repository")
+        request = self.prepare(manifest, manifest_dir, idempotency_key, generation_id, expected_active_generation_id)
+        task_id = self.task_id_for(request.workspace.workspace_id, idempotency_key)
+        existing = self._repository.get_build_task(task_id)
+        if existing is not None:
+            if existing.workspace_id != request.workspace.workspace_id or existing.generation_id != generation_id:
+                raise ValueError("idempotency_key is already bound to a different workspace generation")
+            return WorkspaceBuildSubmission(task_id, existing.workspace_id, existing.generation_id, False, None)
+        self._repository.create_workspace(request.workspace)
+        task = self._repository.create_build_task(
+            BuildTask(task_id, request.workspace.workspace_id, idempotency_key, generation_id)
+        )
+        if task.generation_id != generation_id:
+            raise ValueError("idempotency_key is already bound to a different workspace generation")
+        self._repository.create_generation(
+            WorkspaceGeneration(request.workspace.workspace_id, generation_id, request.snapshots)
+        )
+        return WorkspaceBuildSubmission(task.task_id, task.workspace_id, task.generation_id, True, request)
+
+    def run(self, request: WorkspaceServiceGraphPublishInput) -> WorkspaceBuildResult:
+        """Execute a submission previously accepted by :meth:`submit`."""
+        outcome = self._publisher(request)
+        return WorkspaceBuildResult(
+            self.task_id_for(request.workspace.workspace_id, request.task_idempotency_key),
+            request.generation_id,
+            outcome,
+        )
+
+    def get_task_status(self, workspace_id: str, task_id: str) -> WorkspaceBuildTaskStatus | None:
+        """Read a task's persisted generation state without generic graph infrastructure."""
+        if self._repository is None:
+            raise RuntimeError("workspace build task lookup requires a workspace repository")
+        _require_nonblank(workspace_id, "workspace_id")
+        _require_nonblank(task_id, "task_id")
+        task = self._repository.get_build_task(task_id)
+        if task is None:
+            return None
+        if task.workspace_id != workspace_id:
+            raise ValueError("task does not belong to workspace")
+        if task.generation_id is None:
+            raise ValueError("task generation is missing")
+        generation = self._repository.get_generation(workspace_id, task.generation_id)
+        if generation is None:
+            raise ValueError("task generation is missing")
+        return WorkspaceBuildTaskStatus(task.task_id, workspace_id, generation.generation_id, generation.state)
 
 
 def create_workspace_build_service(config: OntoAgentConfig) -> WorkspaceBuildApplicationService:
@@ -210,6 +326,11 @@ def _required_string(mapping: Mapping[str, object], field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a nonblank string")
     return value.strip()
+
+
+def _require_nonblank(value: object, field_name: str) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field_name} must be nonblank")
 
 
 def _optional_string(mapping: Mapping[str, object], field_name: str) -> str | None:

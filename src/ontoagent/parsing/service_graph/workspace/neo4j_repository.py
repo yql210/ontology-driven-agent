@@ -58,6 +58,18 @@ class Neo4jWorkspaceRepository:
         "ON CREATE SET task.taskId = $task_id "
         "RETURN task.taskId AS task_id, task.workspaceId AS workspace_id, task.idempotencyKey AS idempotency_key"
     )
+    CREATE_GENERATION_TASK_QUERY = (
+        "MATCH (:OntoAgentWorkspace {workspaceId: $workspace_id}) "
+        "MERGE (task:OntoAgentWorkspaceBuildTask {workspaceId: $workspace_id, idempotencyKey: $idempotency_key}) "
+        "ON CREATE SET task.taskId = $task_id, task.generationId = $generation_id "
+        "RETURN task.taskId AS task_id, task.workspaceId AS workspace_id, task.idempotencyKey AS idempotency_key, "
+        "task.generationId AS generation_id"
+    )
+    GET_TASK_QUERY = (
+        "MATCH (task:OntoAgentWorkspaceBuildTask {taskId: $task_id}) "
+        "RETURN task.taskId AS task_id, task.workspaceId AS workspace_id, task.idempotencyKey AS idempotency_key, "
+        "task.generationId AS generation_id"
+    )
     CREATE_GENERATION_QUERY = (
         "MATCH (:OntoAgentWorkspace {workspaceId: $workspace_id}) "
         "MERGE (generation:OntoAgentWorkspaceGeneration {workspaceId: $workspace_id, generationId: $generation_id}) "
@@ -149,7 +161,12 @@ class Neo4jWorkspaceRepository:
 
     def create_build_task(self, task: BuildTask) -> BuildTask:
         _require_exact(task, BuildTask, "task")
-        return self._one(self.CREATE_TASK_QUERY, self._task_params(task), self._task_from_row)
+        query = self.CREATE_GENERATION_TASK_QUERY if task.generation_id is not None else self.CREATE_TASK_QUERY
+        return self._one(query, self._task_params(task), self._task_from_row)
+
+    def get_build_task(self, task_id: str) -> BuildTask | None:
+        _require_nonblank(task_id, "task_id")
+        return self._optional(self.GET_TASK_QUERY, {"task_id": task_id}, self._task_from_row)
 
     def create_generation(self, generation: WorkspaceGeneration) -> WorkspaceGeneration:
         _require_exact(generation, WorkspaceGeneration, "generation")
@@ -256,7 +273,14 @@ class Neo4jWorkspaceRepository:
 
     @staticmethod
     def _task_params(task: BuildTask) -> dict[str, object]:
-        return {"task_id": task.task_id, "workspace_id": task.workspace_id, "idempotency_key": task.idempotency_key}
+        params: dict[str, object] = {
+            "task_id": task.task_id,
+            "workspace_id": task.workspace_id,
+            "idempotency_key": task.idempotency_key,
+        }
+        if task.generation_id is not None:
+            params["generation_id"] = task.generation_id
+        return params
 
     @staticmethod
     def _workspace_from_row(row: object) -> Workspace:
@@ -267,7 +291,10 @@ class Neo4jWorkspaceRepository:
     def _task_from_row(row: object) -> BuildTask:
         values = _mapping(row)
         return BuildTask(
-            _string(values, "task_id"), _string(values, "workspace_id"), _string(values, "idempotency_key")
+            _string(values, "task_id"),
+            _string(values, "workspace_id"),
+            _string(values, "idempotency_key"),
+            _optional_nonblank_string(values, "generation_id"),
         )
 
     @staticmethod
@@ -336,6 +363,14 @@ def _mapping(row: object) -> Mapping[str, object]:
 
 def _string(values: Mapping[str, object], key: str) -> str:
     value = values.get(key)
+    _require_nonblank(value, key)
+    return value
+
+
+def _optional_nonblank_string(values: Mapping[str, object], key: str) -> str | None:
+    value = values.get(key)
+    if value is None:
+        return None
     _require_nonblank(value, key)
     return value
 
