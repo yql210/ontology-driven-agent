@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from ipaddress import ip_address
 from pathlib import PurePosixPath
 from urllib.parse import urlparse
 
@@ -80,10 +81,26 @@ class WorkspaceSourceDescriptor:
                 raise ValueError("local source descriptor must be a relative path")
             return
         parsed = urlparse(self.value)
-        if parsed.scheme not in {"https", "ssh"} or not parsed.netloc:
+        if parsed.scheme not in {"https", "ssh"} or not parsed.netloc or not parsed.hostname or not parsed.path:
             raise ValueError("git source descriptor must be an absolute https or ssh URL")
-        if parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
+        if parsed.password is not None or parsed.query or parsed.fragment:
             raise ValueError("git source descriptor must not contain credentials, query, or fragment")
+        if parsed.scheme == "https" and parsed.username is not None:
+            raise ValueError("git source descriptor must not contain credentials, query, or fragment")
+        try:
+            port = parsed.port
+        except ValueError as error:
+            raise ValueError("git source descriptor must not contain a nonstandard transport") from error
+        if port not in {None, 443 if parsed.scheme == "https" else 22}:
+            raise ValueError("git source descriptor must not contain a nonstandard transport")
+        if parsed.hostname == "localhost":
+            raise ValueError("git source descriptor must not refer to a local host")
+        try:
+            if ip_address(parsed.hostname).is_loopback:
+                raise ValueError("git source descriptor must not refer to a local host")
+        except ValueError as error:
+            if str(error).startswith("git source descriptor"):
+                raise
 
 
 @dataclass(frozen=True)

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ontoagent.config import OntoAgentConfig
 from ontoagent.parsing.service_graph.workspace.build_application_service import WorkspaceBuildApplicationService
@@ -27,10 +27,17 @@ class WorkspaceRepositoryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     repo_id: str = Field(min_length=1, pattern=r".*\S.*")
-    path: str = Field(min_length=1, pattern=r".*\S.*")
+    path: str | None = Field(default=None, min_length=1, pattern=r".*\S.*")
+    git_url: str | None = Field(default=None, min_length=1, pattern=r".*\S.*")
     branch: str = Field(min_length=1, pattern=r".*\S.*")
     source_revision: str = Field(min_length=1, pattern=r".*\S.*")
     languages: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_source(self) -> WorkspaceRepositoryRequest:
+        if (self.path is None) == (self.git_url is None):
+            raise ValueError("repository must declare exactly one of path or git_url")
+        return self
 
 
 class WorkspaceManifestRequest(BaseModel):

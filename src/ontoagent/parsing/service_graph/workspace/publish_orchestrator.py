@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import Protocol
 
 from ..detectors.registry import DetectorRegistry
@@ -54,6 +55,7 @@ class WorkspaceServiceGraphPublishInput:
     task_idempotency_key: str
     generation_id: str
     expected_active_generation_id: str | None
+    owned_work_dirs: tuple[Path, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.workspace) is not Workspace:
@@ -62,6 +64,8 @@ class WorkspaceServiceGraphPublishInput:
             raise ValueError("snapshots must be an immutable tuple of at least three repositories")
         if type(self.repository_snapshots) is not tuple:
             raise ValueError("repository_snapshots must be an immutable tuple")
+        if type(self.owned_work_dirs) is not tuple or any(not isinstance(path, Path) for path in self.owned_work_dirs):
+            raise ValueError("owned_work_dirs must be an immutable tuple of paths")
         if any(type(snapshot) is not WorkspaceRepositorySnapshot for snapshot in self.snapshots):
             raise ValueError("snapshots must contain WorkspaceRepositorySnapshot values")
         if any(type(snapshot) is not RepositorySnapshot for snapshot in self.repository_snapshots):
@@ -214,6 +218,7 @@ class WorkspaceServiceGraphPublishOrchestrator:
     def publish(self, request: WorkspaceServiceGraphPublishInput) -> WorkspacePublishOutcome:
         if type(request) is not WorkspaceServiceGraphPublishInput:
             raise ValueError("request must be a WorkspaceServiceGraphPublishInput")
+        _assert_p0_snapshot_boundary(request.snapshots)
         namespace = self.namespace_for(request.workspace.workspace_id, request.generation_id)
         components = self._component_factory.create(namespace)
         generation = WorkspaceGeneration(request.workspace.workspace_id, request.generation_id, request.snapshots)
@@ -430,6 +435,12 @@ def _namespace_plan(plan: GraphWritePlan, namespace: str) -> GraphWritePlan:
             for relation in plan.relations
         ),
     )
+
+
+def _assert_p0_snapshot_boundary(snapshots: tuple[WorkspaceRepositorySnapshot, ...]) -> None:
+    """Defend the P0 publication boundary even if a request was deserialized unsafely."""
+    if len(snapshots) < 3 or len({snapshot.repo_id for snapshot in snapshots}) != len(snapshots):
+        raise ValueError("P0 workspace publication requires at least three unique frozen repository snapshots")
 
 
 def _contains_all_repositories(plan: GraphWritePlan, snapshots: tuple[WorkspaceRepositorySnapshot, ...]) -> bool:

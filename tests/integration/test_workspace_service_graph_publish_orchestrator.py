@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -13,7 +14,11 @@ from ontoagent.parsing.service_graph.detectors.dubbo import DubboDetector
 from ontoagent.parsing.service_graph.detectors.messaging import MessagingDetector
 from ontoagent.parsing.service_graph.detectors.registry import DetectorRegistry
 from ontoagent.parsing.service_graph.detectors.spring_http import SpringHttpDetector
+from ontoagent.parsing.service_graph.graph_plan import GraphPlanBuilder
+from ontoagent.parsing.service_graph.graph_writer import GraphWriter, WriteReceipt
 from ontoagent.parsing.service_graph.models import RepositorySnapshot
+from ontoagent.parsing.service_graph.neo4j_graph_sink import Neo4jGraphSink
+from ontoagent.parsing.service_graph.resolver import ServiceGraphResolver
 from ontoagent.parsing.service_graph.workspace.models import (
     Workspace,
     WorkspaceGenerationState,
@@ -25,6 +30,7 @@ from ontoagent.parsing.service_graph.workspace.neo4j_repository import Neo4jWork
 from ontoagent.parsing.service_graph.workspace.publish_orchestrator import (
     Neo4jWorkspaceServiceGraphPublishComponentFactory,
     WorkspacePublishStatus,
+    WorkspaceServiceGraphPublishComponents,
     WorkspaceServiceGraphPublishInput,
     WorkspaceServiceGraphPublishOrchestrator,
 )
@@ -37,6 +43,39 @@ REVISIONS = {
     "consumer-checkout": "fixture-consumer-v1",
     "isolated-catalog": "fixture-isolated-v1",
 }
+
+
+class _FailingDetectorRegistry:
+    ids = ("deterministic-failure",)
+
+    def detect(self, snapshot: RepositorySnapshot, detector_id: str | None = None) -> object:
+        raise RuntimeError("deterministic detector failure")
+
+
+class _UnconfirmedWriter:
+    def __init__(self, writer: GraphWriter) -> None:
+        self._writer = writer
+
+    def write(self, plan: object) -> WriteReceipt:
+        receipt = self._writer.write(plan)  # type: ignore[arg-type]
+        return replace(receipt, confirmed=False)
+
+
+class _InjectedFactory:
+    def __init__(self, driver: object, registry: object, *, unconfirmed: bool = False) -> None:
+        self._driver = driver
+        self._registry = registry
+        self._unconfirmed = unconfirmed
+
+    def create(self, namespace: str) -> WorkspaceServiceGraphPublishComponents:
+        writer = GraphWriter(Neo4jGraphSink(self._driver, namespace=namespace))  # type: ignore[arg-type]
+        return WorkspaceServiceGraphPublishComponents(
+            self._registry,  # type: ignore[arg-type]
+            ServiceGraphResolver(),
+            GraphPlanBuilder(),
+            _UnconfirmedWriter(writer) if self._unconfirmed else writer,
+            Neo4jWorkspaceRepository(self._driver),  # type: ignore[arg-type]
+        )
 
 
 def _credentials() -> tuple[str, str, str]:
@@ -112,6 +151,66 @@ def test_workspace_orchestrator_publishes_replaces_and_blocks_stale_generation_i
             repository.get_generation(workspace.workspace_id, generation_three).state
             is WorkspaceGenerationState.BLOCKED
         )  # type: ignore[union-attr]
+    finally:
+        with driver.session() as session:
+            session.run(
+                "MATCH (n) WHERE n._ontoagent_namespace IN $namespaces DETACH DELETE n", namespaces=list(namespaces)
+            )
+            session.run(
+                "MATCH (n) WHERE n.workspaceId = $workspace_id "
+                "AND (n:OntoAgentWorkspace OR n:OntoAgentWorkspaceBuildTask "
+                "OR n:OntoAgentWorkspaceGeneration OR n:OntoAgentWorkspaceRepositorySnapshot "
+                "OR n:OntoAgentWorkspaceActiveBinding) DETACH DELETE n",
+                workspace_id=workspace.workspace_id,
+            )
+        driver.close()
+
+
+def test_remote_failures_preserve_exact_prior_active_workspace_binding() -> None:
+    uri, user, password = _credentials()
+    workspace = Workspace(f"workspace-preservation-{uuid4()}", "Workspace graph integration")
+    active_generation = f"generation-active-{uuid4()}"
+    detector_generation = f"generation-detector-failure-{uuid4()}"
+    readback_generation = f"generation-readback-failure-{uuid4()}"
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+    namespaces = tuple(
+        WorkspaceServiceGraphPublishOrchestrator.namespace_for(workspace.workspace_id, generation)
+        for generation in (active_generation, detector_generation, readback_generation)
+    )
+    try:
+        active = WorkspaceServiceGraphPublishOrchestrator(
+            Neo4jWorkspaceServiceGraphPublishComponentFactory(
+                driver, DetectorRegistry([SpringHttpDetector(), DubboDetector(), MessagingDetector()])
+            )
+        ).publish(_input(workspace, active_generation, None))
+        assert active.status is WorkspacePublishStatus.ACTIVE
+
+        repository = Neo4jWorkspaceRepository(driver)
+        assert repository.get_active_binding(workspace.workspace_id).generation_id == active_generation  # type: ignore[union-attr]
+
+        detector_failure = WorkspaceServiceGraphPublishOrchestrator(
+            _InjectedFactory(driver, _FailingDetectorRegistry())
+        ).publish(_input(workspace, detector_generation, active_generation))
+        assert detector_failure.status is WorkspacePublishStatus.FAILED
+        assert (
+            repository.get_generation(workspace.workspace_id, detector_generation).state
+            is WorkspaceGenerationState.FAILED
+        )  # type: ignore[union-attr]
+        assert repository.get_active_binding(workspace.workspace_id).generation_id == active_generation  # type: ignore[union-attr]
+
+        unconfirmed = WorkspaceServiceGraphPublishOrchestrator(
+            _InjectedFactory(
+                driver,
+                DetectorRegistry([SpringHttpDetector(), DubboDetector(), MessagingDetector()]),
+                unconfirmed=True,
+            )
+        ).publish(_input(workspace, readback_generation, active_generation))
+        assert unconfirmed.status is WorkspacePublishStatus.FAILED
+        assert (
+            repository.get_generation(workspace.workspace_id, readback_generation).state
+            is WorkspaceGenerationState.FAILED
+        )  # type: ignore[union-attr]
+        assert repository.get_active_binding(workspace.workspace_id).generation_id == active_generation  # type: ignore[union-attr]
     finally:
         with driver.session() as session:
             session.run(

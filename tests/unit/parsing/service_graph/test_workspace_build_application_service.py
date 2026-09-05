@@ -135,3 +135,125 @@ def test_build_rejects_branch_mismatch_before_publishing(tmp_path: Path) -> None
     with pytest.raises(ValueError, match="branch mismatch"):
         service.build(_manifest(tmp_path, repositories))
     assert published == []
+
+
+@pytest.mark.parametrize(
+    "git_url",
+    [
+        "file:///tmp/repository.git",
+        "/tmp/repository.git",
+        "https://token@example.test/org/repository.git",
+        "https://example.test:8443/org/repository.git",
+        "git@example.test:org/repository.git",
+    ],
+)
+def test_prepare_rejects_unsafe_git_urls_before_clone(tmp_path: Path, git_url: str) -> None:
+    repositories = _repositories(tmp_path)
+    repositories[0] = {key: value for key, value in repositories[0].items() if key != "path"}
+    repositories[0]["git_url"] = git_url
+    calls: list[tuple[list[str], Path | None]] = []
+    service = WorkspaceBuildApplicationService(
+        lambda _: None,
+        git_runner=lambda args, cwd: calls.append((args, cwd)) or "",
+    )
+
+    with pytest.raises(ValueError, match="git_url"):
+        service.prepare(
+            {"workspace_id": "workspace-1", "name": "Workspace", "repositories": repositories},
+            tmp_path,
+            "request-1",
+            "generation-1",
+        )
+
+    assert calls == []
+
+
+def test_prepare_rejects_repository_with_both_path_and_git_url(tmp_path: Path) -> None:
+    repositories = _repositories(tmp_path)
+    repositories[0]["git_url"] = "https://example.test/org/repository.git"
+    service = WorkspaceBuildApplicationService(lambda _: None)
+
+    with pytest.raises(ValueError, match="exactly one"):
+        service.prepare(
+            {"workspace_id": "workspace-1", "name": "Workspace", "repositories": repositories},
+            tmp_path,
+            "request-1",
+            "generation-1",
+        )
+
+
+def test_prepare_clones_allowed_git_url_freezes_commit_and_sanitizes_source(tmp_path: Path) -> None:
+    revision = "0123456789abcdef0123456789abcdef01234567"
+    commands: list[tuple[list[str], Path | None]] = []
+
+    def git_runner(args: list[str], cwd: Path | None) -> str:
+        commands.append((args, cwd))
+        if args[1:] == ["branch", "--show-current"]:
+            return "main"
+        if args[1:] == ["rev-parse", "HEAD"]:
+            return revision
+        return ""
+
+    repositories = [
+        {
+            "repo_id": repo_id,
+            "git_url": f"https://example.test/org/{repo_id}.git",
+            "branch": "main",
+            "source_revision": revision,
+            "languages": ["java"],
+        }
+        for repo_id in ("repo-a", "repo-b", "repo-c")
+    ]
+    service = WorkspaceBuildApplicationService(lambda _: None, git_runner=git_runner)
+
+    request = service.prepare(
+        {"workspace_id": "workspace-1", "name": "Workspace", "repositories": repositories},
+        tmp_path,
+        "request-1",
+        "generation-1",
+    )
+
+    assert commands[0][0][:7] == ["git", "clone", "--depth", "1", "--single-branch", "--no-tags", "--branch"]
+    assert all("--recurse-submodules" not in args for args, _ in commands)
+    assert all(snapshot.source.value.startswith("https://example.test/") for snapshot in request.snapshots)
+    assert all(snapshot.source_revision == revision for snapshot in request.snapshots)
+    assert all(path.exists() for path in request.owned_work_dirs)
+    service.cleanup(request)
+    assert all(not path.exists() for path in request.owned_work_dirs)
+
+
+def test_run_cleans_cloned_directories_when_publisher_fails(tmp_path: Path) -> None:
+    revision = "0123456789abcdef0123456789abcdef01234567"
+
+    def git_runner(args: list[str], cwd: Path | None) -> str:
+        if args[1:] == ["branch", "--show-current"]:
+            return "main"
+        if args[1:] == ["rev-parse", "HEAD"]:
+            return revision
+        return ""
+
+    repositories = [
+        {
+            "repo_id": repo_id,
+            "git_url": f"ssh://git@example.test/org/{repo_id}.git",
+            "branch": "main",
+            "source_revision": revision,
+            "languages": ["java"],
+        }
+        for repo_id in ("repo-a", "repo-b", "repo-c")
+    ]
+    service = WorkspaceBuildApplicationService(
+        lambda _: (_ for _ in ()).throw(RuntimeError("detector failure")), git_runner=git_runner
+    )
+    request = service.prepare(
+        {"workspace_id": "workspace-1", "name": "Workspace", "repositories": repositories},
+        tmp_path,
+        "request-1",
+        "generation-1",
+    )
+    owned_work_dirs = request.owned_work_dirs
+
+    with pytest.raises(RuntimeError, match="detector failure"):
+        service.run(request)
+
+    assert all(not path.exists() for path in owned_work_dirs)

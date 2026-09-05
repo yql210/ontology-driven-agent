@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import subprocess
+import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -99,11 +101,13 @@ class WorkspaceBuildApplicationService:
         id_factory: Callable[[], str] | None = None,
         closeable: Closable | None = None,
         repository: WorkspaceBuildRepository | None = None,
+        git_runner: Callable[[list[str], Path | None], str] | None = None,
     ) -> None:
         self._publisher = publisher
         self._id_factory = id_factory or (lambda: str(uuid4()))
         self._closeable = closeable
         self._repository = repository
+        self._git_runner = git_runner or _run_git
 
     @classmethod
     def from_config(cls, config: OntoAgentConfig) -> WorkspaceBuildApplicationService:
@@ -136,10 +140,13 @@ class WorkspaceBuildApplicationService:
             generation_id,
             _optional_string(manifest, "expected_active_generation_id"),
         )
-        outcome = self._publisher(request)
-        return WorkspaceBuildResult(
-            self.task_id_for(request.workspace.workspace_id, task_idempotency_key), generation_id, outcome
-        )
+        try:
+            outcome = self._publisher(request)
+            return WorkspaceBuildResult(
+                self.task_id_for(request.workspace.workspace_id, task_idempotency_key), generation_id, outcome
+            )
+        finally:
+            self.cleanup(request)
 
     def prepare(
         self,
@@ -157,9 +164,17 @@ class WorkspaceBuildApplicationService:
         _require_nonblank(generation_id, "generation_id")
         if expected_active_generation_id is not None:
             _require_nonblank(expected_active_generation_id, "expected_active_generation_id")
-        snapshots, runtime_snapshots = _freeze_repositories(workspace.workspace_id, repositories, manifest_dir)
+        snapshots, runtime_snapshots, owned_work_dirs = _freeze_repositories(
+            workspace.workspace_id, repositories, manifest_dir, self._git_runner
+        )
         return WorkspaceServiceGraphPublishInput(
-            workspace, snapshots, runtime_snapshots, idempotency_key, generation_id, expected_active_generation_id
+            workspace,
+            snapshots,
+            runtime_snapshots,
+            idempotency_key,
+            generation_id,
+            expected_active_generation_id,
+            owned_work_dirs,
         )
 
     def submit(
@@ -178,27 +193,41 @@ class WorkspaceBuildApplicationService:
         existing = self._repository.get_build_task(task_id)
         if existing is not None:
             if existing.workspace_id != request.workspace.workspace_id or existing.generation_id != generation_id:
+                self.cleanup(request)
                 raise ValueError("idempotency_key is already bound to a different workspace generation")
+            self.cleanup(request)
             return WorkspaceBuildSubmission(task_id, existing.workspace_id, existing.generation_id, False, None)
-        self._repository.create_workspace(request.workspace)
-        task = self._repository.create_build_task(
-            BuildTask(task_id, request.workspace.workspace_id, idempotency_key, generation_id)
-        )
-        if task.generation_id != generation_id:
-            raise ValueError("idempotency_key is already bound to a different workspace generation")
-        self._repository.create_generation(
-            WorkspaceGeneration(request.workspace.workspace_id, generation_id, request.snapshots)
-        )
+        try:
+            self._repository.create_workspace(request.workspace)
+            task = self._repository.create_build_task(
+                BuildTask(task_id, request.workspace.workspace_id, idempotency_key, generation_id)
+            )
+            if task.generation_id != generation_id:
+                raise ValueError("idempotency_key is already bound to a different workspace generation")
+            self._repository.create_generation(
+                WorkspaceGeneration(request.workspace.workspace_id, generation_id, request.snapshots)
+            )
+        except Exception:
+            self.cleanup(request)
+            raise
         return WorkspaceBuildSubmission(task.task_id, task.workspace_id, task.generation_id, True, request)
 
     def run(self, request: WorkspaceServiceGraphPublishInput) -> WorkspaceBuildResult:
         """Execute a submission previously accepted by :meth:`submit`."""
-        outcome = self._publisher(request)
-        return WorkspaceBuildResult(
-            self.task_id_for(request.workspace.workspace_id, request.task_idempotency_key),
-            request.generation_id,
-            outcome,
-        )
+        try:
+            outcome = self._publisher(request)
+            return WorkspaceBuildResult(
+                self.task_id_for(request.workspace.workspace_id, request.task_idempotency_key),
+                request.generation_id,
+                outcome,
+            )
+        finally:
+            self.cleanup(request)
+
+    def cleanup(self, request: WorkspaceServiceGraphPublishInput) -> None:
+        """Remove work directories created while resolving Git URL sources."""
+        for work_dir in request.owned_work_dirs:
+            shutil.rmtree(work_dir, ignore_errors=True)
 
     def get_task_status(self, workspace_id: str, task_id: str) -> WorkspaceBuildTaskStatus | None:
         """Read a task's persisted generation state without generic graph infrastructure."""
@@ -246,10 +275,18 @@ def _repositories(manifest: Mapping[str, object]) -> tuple[Mapping[str, object],
         if not isinstance(item, dict):
             raise ValueError(f"repository {index} must be an object")
         _reject_unknown_fields(
-            item, {"repo_id", "path", "branch", "source_revision", "languages"}, f"repository {index}"
+            item, {"repo_id", "path", "git_url", "branch", "source_revision", "languages"}, f"repository {index}"
         )
-        for field_name in ("repo_id", "path", "branch", "source_revision"):
+        for field_name in ("repo_id", "branch", "source_revision"):
             _required_string(item, field_name)
+        has_path = "path" in item
+        has_git_url = "git_url" in item
+        if has_path == has_git_url:
+            raise ValueError(f"repository {index} must declare exactly one of path or git_url")
+        if has_path:
+            _required_string(item, "path")
+        else:
+            _validate_git_url(_required_string(item, "git_url"))
         languages = item.get("languages")
         if (
             not isinstance(languages, list)
@@ -264,36 +301,60 @@ def _repositories(manifest: Mapping[str, object]) -> tuple[Mapping[str, object],
 
 
 def _freeze_repositories(
-    workspace_id: str, repositories: tuple[Mapping[str, object], ...], manifest_dir: Path
-) -> tuple[tuple[WorkspaceRepositorySnapshot, ...], tuple[RepositorySnapshot, ...]]:
+    workspace_id: str,
+    repositories: tuple[Mapping[str, object], ...],
+    manifest_dir: Path,
+    git_runner: Callable[[list[str], Path | None], str],
+) -> tuple[tuple[WorkspaceRepositorySnapshot, ...], tuple[RepositorySnapshot, ...], tuple[Path, ...]]:
     frozen: list[WorkspaceRepositorySnapshot] = []
     runtime: list[RepositorySnapshot] = []
-    for repository in repositories:
-        repo_id = _required_string(repository, "repo_id")
-        root_path = _repository_path(_required_string(repository, "path"), manifest_dir, repo_id)
-        branch = _required_string(repository, "branch")
-        revision = _required_string(repository, "source_revision")
-        actual_branch = _git_value(root_path, "branch", "--show-current")
-        if actual_branch != branch:
-            raise ValueError(f"repository {repo_id} branch mismatch: manifest={branch}, HEAD={actual_branch}")
-        actual_revision = _git_value(root_path, "rev-parse", "HEAD")
-        if actual_revision != revision:
-            raise ValueError(f"repository {repo_id} revision mismatch: manifest={revision}, HEAD={actual_revision}")
-        language_values = repository.get("languages")
-        if not isinstance(language_values, list):
-            raise ValueError(f"repository {repo_id} languages must be a list")
-        languages = frozenset(value.strip().lower() for value in language_values if isinstance(value, str))
-        frozen.append(
-            WorkspaceRepositorySnapshot(
-                workspace_id,
-                repo_id,
-                branch,
-                actual_revision,
-                WorkspaceSourceDescriptor(WorkspaceSourceKind.LOCAL, repo_id),
-            )
-        )
-        runtime.append(RepositorySnapshot(repo_id, actual_revision, root_path, languages))
-    return tuple(frozen), tuple(runtime)
+    owned_work_dirs: list[Path] = []
+    try:
+        for repository in repositories:
+            repo_id = _required_string(repository, "repo_id")
+            branch = _required_string(repository, "branch")
+            revision = _required_string(repository, "source_revision")
+            if "path" in repository:
+                root_path = _repository_path(_required_string(repository, "path"), manifest_dir, repo_id)
+                source = WorkspaceSourceDescriptor(WorkspaceSourceKind.LOCAL, repo_id)
+            else:
+                git_url = _required_string(repository, "git_url")
+                work_dir = Path(tempfile.mkdtemp(prefix="ontoagent-workspace-"))
+                owned_work_dirs.append(work_dir)
+                root_path = work_dir / repo_id
+                git_runner(
+                    [
+                        "git",
+                        "clone",
+                        "--depth",
+                        "1",
+                        "--single-branch",
+                        "--no-tags",
+                        "--branch",
+                        branch,
+                        git_url,
+                        str(root_path),
+                    ],
+                    None,
+                )
+                source = WorkspaceSourceDescriptor(WorkspaceSourceKind.GIT, git_url)
+            actual_branch = _git_value(root_path, "branch", "--show-current", git_runner=git_runner)
+            if actual_branch != branch:
+                raise ValueError(f"repository {repo_id} branch mismatch: manifest={branch}, HEAD={actual_branch}")
+            actual_revision = _git_value(root_path, "rev-parse", "HEAD", git_runner=git_runner)
+            if actual_revision != revision:
+                raise ValueError(f"repository {repo_id} revision mismatch: manifest={revision}, HEAD={actual_revision}")
+            language_values = repository.get("languages")
+            if not isinstance(language_values, list):
+                raise ValueError(f"repository {repo_id} languages must be a list")
+            languages = frozenset(value.strip().lower() for value in language_values if isinstance(value, str))
+            frozen.append(WorkspaceRepositorySnapshot(workspace_id, repo_id, branch, actual_revision, source))
+            runtime.append(RepositorySnapshot(repo_id, actual_revision, root_path, languages))
+    except Exception:
+        for work_dir in owned_work_dirs:
+            shutil.rmtree(work_dir, ignore_errors=True)
+        raise
+    return tuple(frozen), tuple(runtime), tuple(owned_work_dirs)
 
 
 def _repository_path(value: str, manifest_dir: Path, repo_id: str) -> Path:
@@ -308,17 +369,26 @@ def _repository_path(value: str, manifest_dir: Path, repo_id: str) -> Path:
     return root_path
 
 
-def _git_value(root_path: Path, *args: str) -> str:
+def _git_value(root_path: Path, *args: str, git_runner: Callable[[list[str], Path | None], str] | None = None) -> str:
     try:
-        completed = subprocess.run(
-            ["git", *args], cwd=root_path, check=True, capture_output=True, text=True, timeout=10
-        )
+        value = (git_runner or _run_git)(["git", *args], root_path).strip()
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
         raise ValueError(f"repository path is not a usable Git repository: {root_path}") from error
-    value = completed.stdout.strip()
     if not value:
         raise ValueError(f"repository Git command returned an empty value: {root_path}")
     return value
+
+
+def _run_git(args: list[str], cwd: Path | None) -> str:
+    completed = subprocess.run(args, cwd=cwd, check=True, capture_output=True, text=True, timeout=10)
+    return completed.stdout
+
+
+def _validate_git_url(value: str) -> None:
+    try:
+        WorkspaceSourceDescriptor(WorkspaceSourceKind.GIT, value)
+    except ValueError as error:
+        raise ValueError(f"git_url is unsafe: {error}") from error
 
 
 def _required_string(mapping: Mapping[str, object], field_name: str) -> str:

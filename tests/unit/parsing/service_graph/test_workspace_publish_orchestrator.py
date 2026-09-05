@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from ontoagent.parsing.service_graph.graph_plan import GraphNode, GraphWritePlan
 from ontoagent.parsing.service_graph.graph_writer import WriteReceipt
 from ontoagent.parsing.service_graph.models import DetectorFacts, RepositorySnapshot
@@ -240,3 +242,26 @@ def test_publish_missing_frozen_repository_from_plan_fails_before_write_and_cas(
     assert outcome.generation_state is WorkspaceGenerationState.FAILED
     assert "write" not in calls
     assert not any(call.startswith("cas:") for call in calls)
+
+
+def test_publish_defensively_rejects_less_than_three_frozen_repositories_before_factory_or_write() -> None:
+    calls: list[str] = []
+    orchestrator, factory, _, _ = _orchestrator(calls)
+    valid = _input()
+    malformed = object.__new__(WorkspaceServiceGraphPublishInput)
+    for field_name, value in (
+        ("workspace", valid.workspace),
+        ("snapshots", valid.snapshots[:2]),
+        ("repository_snapshots", valid.repository_snapshots[:2]),
+        ("task_idempotency_key", valid.task_idempotency_key),
+        ("generation_id", valid.generation_id),
+        ("expected_active_generation_id", valid.expected_active_generation_id),
+        ("owned_work_dirs", ()),
+    ):
+        object.__setattr__(malformed, field_name, value)
+
+    with pytest.raises(ValueError, match="at least three unique"):
+        orchestrator.publish(malformed)
+
+    assert factory.namespaces == []
+    assert calls == []
