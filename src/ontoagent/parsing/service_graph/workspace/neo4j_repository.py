@@ -5,6 +5,9 @@ import json
 from collections.abc import Callable, Mapping
 from typing import Protocol, TypeVar
 
+from ..graph_plan import GraphWritePlan
+from ..graph_writer import WriteReceipt
+from ..neo4j_manifest_repository import Neo4jServiceGraphManifestRepository
 from .models import (
     BuildTask,
     Workspace,
@@ -69,6 +72,12 @@ class Neo4jWorkspaceRepository:
         "MATCH (task:OntoAgentWorkspaceBuildTask {taskId: $task_id}) "
         "RETURN task.taskId AS task_id, task.workspaceId AS workspace_id, task.idempotencyKey AS idempotency_key, "
         "task.generationId AS generation_id"
+    )
+    UPSERT_SERVICE_GRAPH_RECEIPT_QUERY = (
+        "MERGE (receipt:OntoAgentWorkspaceServiceGraphReceipt {workspaceId: $workspace_id, generationId: $generation_id}) "
+        "SET receipt.namespace = $namespace, receipt.confirmed = $confirmed, receipt.nodeCount = $node_count, "
+        "receipt.relationCount = $relation_count, receipt.fingerprint = $fingerprint "
+        "RETURN receipt.generationId AS generation_id"
     )
     CREATE_GENERATION_QUERY = (
         "MATCH (:OntoAgentWorkspace {workspaceId: $workspace_id}) "
@@ -167,6 +176,36 @@ class Neo4jWorkspaceRepository:
     def get_build_task(self, task_id: str) -> BuildTask | None:
         _require_nonblank(task_id, "task_id")
         return self._optional(self.GET_TASK_QUERY, {"task_id": task_id}, self._task_from_row)
+
+    def persist_service_graph_receipt(
+        self, workspace_id: str, generation_id: str, namespace: str, plan: GraphWritePlan, receipt: WriteReceipt
+    ) -> None:
+        """Persist the exact confirmed graph readback before the generation becomes ACTIVE."""
+        for name, value in (("workspace_id", workspace_id), ("generation_id", generation_id), ("namespace", namespace)):
+            _require_nonblank(value, name)
+        if type(plan) is not GraphWritePlan or type(receipt) is not WriteReceipt:
+            raise ValueError("plan and receipt have invalid types")
+        if (
+            not receipt.confirmed
+            or receipt.readback != plan
+            or receipt.node_count != len(plan.nodes)
+            or receipt.relation_count != len(plan.relations)
+            or receipt.graph_namespace != namespace
+        ):
+            raise ValueError("service graph receipt is not confirmed exact readback")
+        self._one(
+            self.UPSERT_SERVICE_GRAPH_RECEIPT_QUERY,
+            {
+                "workspace_id": workspace_id,
+                "generation_id": generation_id,
+                "namespace": namespace,
+                "confirmed": True,
+                "node_count": receipt.node_count,
+                "relation_count": receipt.relation_count,
+                "fingerprint": Neo4jServiceGraphManifestRepository.receipt_fingerprint(receipt.readback),
+            },
+            _generation_id_from_row,
+        )
 
     def create_generation(self, generation: WorkspaceGeneration) -> WorkspaceGeneration:
         _require_exact(generation, WorkspaceGeneration, "generation")
@@ -364,6 +403,7 @@ def _mapping(row: object) -> Mapping[str, object]:
 def _string(values: Mapping[str, object], key: str) -> str:
     value = values.get(key)
     _require_nonblank(value, key)
+    assert isinstance(value, str)
     return value
 
 
@@ -372,6 +412,7 @@ def _optional_nonblank_string(values: Mapping[str, object], key: str) -> str | N
     if value is None:
         return None
     _require_nonblank(value, key)
+    assert isinstance(value, str)
     return value
 
 

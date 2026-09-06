@@ -215,6 +215,7 @@ class Neo4jWorkspaceServiceGraphPublishComponentFactory:
     def __init__(self, driver: Neo4jDriver, detector_registry: DetectorRegistry) -> None:
         self._driver = driver
         self._detector_registry = detector_registry
+        self._workspace_repository: Neo4jWorkspaceRepository | None = None
 
     def create(self, namespace: str) -> WorkspaceServiceGraphPublishComponents:
         from ..detectors.dubbo_method import DubboMethodDetector
@@ -225,12 +226,14 @@ class Neo4jWorkspaceServiceGraphPublishComponentFactory:
         from ..detectors.spring_http_method import SpringHttpMethodDetector
         from ..neo4j_method_graph_sink import Neo4jMethodGraphSink
 
+        if self._workspace_repository is None:
+            self._workspace_repository = Neo4jWorkspaceRepository(self._driver)
         return WorkspaceServiceGraphPublishComponents(
             self._detector_registry,
             ServiceGraphResolver(),
             GraphPlanBuilder(),
             GraphWriter(Neo4jGraphSink(self._driver, namespace=namespace)),
-            Neo4jWorkspaceRepository(self._driver),
+            self._workspace_repository,
             lambda scope: Neo4jMethodGraphSink(self._driver, scope),
             (
                 SpringHttpMethodDetector(),
@@ -355,6 +358,18 @@ class WorkspaceServiceGraphPublishOrchestrator:
                 generation,
                 WorkspacePublishReason.GRAPH_WRITE_UNCONFIRMED,
             )
+        persist_receipt = getattr(components.workspace_repository, "persist_service_graph_receipt", None)
+        if callable(persist_receipt):
+            try:
+                persist_receipt(request.workspace.workspace_id, request.generation_id, namespace, plan, receipt)
+            except Exception:
+                return self._fail(
+                    components.workspace_repository,
+                    request,
+                    namespace,
+                    generation,
+                    WorkspacePublishReason.PERSISTENCE_FAILED,
+                )
         if method_plan is not None:
             from ..method_graph_writer import MethodGraphWriter
 

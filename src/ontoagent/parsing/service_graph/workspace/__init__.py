@@ -10,6 +10,7 @@ from .models import (
     WorkspaceSourceDescriptor,
     WorkspaceSourceKind,
 )
+from .neo4j_query_repository import Neo4jWorkspaceServiceGraphQueryRepository, WorkspaceServiceGraphGateError
 from .neo4j_repository import Neo4jWorkspaceRepository
 from .publish_orchestrator import (
     Neo4jWorkspaceServiceGraphPublishComponentFactory,
@@ -26,6 +27,7 @@ from .publish_orchestrator import (
 __all__ = [
     "BuildTask",
     "Neo4jWorkspaceRepository",
+    "Neo4jWorkspaceServiceGraphQueryRepository",
     "Neo4jWorkspaceServiceGraphPublishComponentFactory",
     "Workspace",
     "WorkspaceActiveBinding",
@@ -36,6 +38,7 @@ __all__ = [
     "WorkspacePublishReason",
     "WorkspacePublishStatus",
     "WorkspaceServiceGraphPublishStatus",
+    "WorkspaceServiceGraphGateError",
     "WorkspaceRepositorySnapshot",
     "WorkspaceSourceDescriptor",
     "WorkspaceSourceKind",

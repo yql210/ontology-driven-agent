@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from ontoagent.parsing.service_graph.graph_plan import GraphNode, GraphWritePlan
+from ontoagent.parsing.service_graph.graph_writer import WriteReceipt
 from ontoagent.parsing.service_graph.workspace.models import (
     BuildTask,
     WorkspaceGeneration,
@@ -100,6 +102,24 @@ def test_create_generation_serializes_frozen_snapshot_set_with_parameterized_cyp
         },
     ]
     assert persisted == generation
+
+
+def test_persist_service_graph_receipt_accepts_an_exact_confirmed_readback() -> None:
+    driver = _Driver([[{"generation_id": "generation-1"}]])
+    repository = _repository(driver)
+    plan = GraphWritePlan((GraphNode("endpoint-1", "Endpoint", {"id": "endpoint-1"}),), ())
+    receipt = WriteReceipt(True, 1, 0, plan, "workspace-generation-1")
+
+    repository.persist_service_graph_receipt("workspace-1", "generation-1", "workspace-generation-1", plan, receipt)
+
+    query, params = driver.calls[-1]
+    assert "OntoAgentWorkspaceServiceGraphReceipt" in query
+    assert "generationId: $generation_id" in query
+    assert "RETURN receipt.generationId AS generation_id" in query
+    assert params["workspace_id"] == "workspace-1"
+    assert params["generation_id"] == "generation-1"
+    assert params["confirmed"] is True
+    assert params["node_count"] == 1 and params["relation_count"] == 0
 
 
 def test_read_generation_and_active_binding_decode_persisted_records() -> None:
