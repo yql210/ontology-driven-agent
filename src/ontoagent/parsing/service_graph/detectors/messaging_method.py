@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
 
 from ontoagent.parsing.service_graph.detector_sdk import DetectorCapability, DetectorMetadata, MethodDetectionContext
 from ontoagent.parsing.service_graph.methods import (
@@ -35,6 +38,135 @@ class _Class:
     methods: tuple[_Method, ...]
 
 
+@dataclass(frozen=True)
+class _ConfigValue:
+    value: str
+    path: str
+    line: int
+
+
+@dataclass(frozen=True)
+class _ConfigResolution:
+    value: str | None
+    values: tuple[_ConfigValue, ...]
+    reason: str | None = None
+
+
+class _LocalConfigResolver:
+    """Resolve only static placeholders from application files in one repository."""
+
+    _PLACEHOLDER = re.compile(r"^\$\{(?P<key>[A-Za-z0-9_.\-\[\]]+)\}$")
+    _PROPERTY_SOURCE = re.compile(r'@PropertySource\s*\(\s*"(?:classpath:)?(?P<path>[^"${}]+)"\s*\)')
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+        self._values: dict[str, list[_ConfigValue]] = {}
+        self._unsupported: dict[str, list[_ConfigValue]] = {}
+        for path in self._paths():
+            self._read(path)
+
+    def resolve(self, expression: str) -> _ConfigResolution:
+        if "#{" in expression:
+            return _ConfigResolution(None, (), "DYNAMIC_TARGET")
+        match = self._PLACEHOLDER.fullmatch(expression)
+        if match is None:
+            return _ConfigResolution(None, (), "DYNAMIC_TARGET")
+        return self._resolve_key(match.group("key"), ())
+
+    def _resolve_key(self, key: str, stack: tuple[str, ...]) -> _ConfigResolution:
+        values = tuple(self._values.get(key, ()))
+        if not values:
+            return _ConfigResolution(None, tuple(self._unsupported.get(key, ())), "DYNAMIC_TARGET")
+        if key in stack:
+            return _ConfigResolution(None, values, "DYNAMIC_TARGET")
+        resolved: list[_ConfigValue] = []
+        for value in values:
+            if "#{" in value.value:
+                return _ConfigResolution(None, values, "DYNAMIC_TARGET")
+            match = self._PLACEHOLDER.fullmatch(value.value)
+            if match is None:
+                if "${" in value.value or not value.value.strip():
+                    return _ConfigResolution(None, values, "DYNAMIC_TARGET")
+                resolved.append(value)
+                continue
+            nested = self._resolve_key(match.group("key"), (*stack, key))
+            if nested.value is None:
+                return _ConfigResolution(None, (*values, *nested.values), nested.reason)
+            resolved.extend(_ConfigValue(nested.value, item.path, item.line) for item in nested.values)
+        unique = {item.value for item in resolved}
+        if len(unique) != 1:
+            return _ConfigResolution(None, tuple(resolved), "AMBIGUOUS_TARGET")
+        return _ConfigResolution(next(iter(unique)), tuple(resolved))
+
+    def _paths(self) -> tuple[Path, ...]:
+        application = {
+            path.resolve()
+            for path in self._root.rglob("application.*")
+            if path.name in {"application.properties", "application.yml", "application.yaml"}
+        }
+        referenced: set[Path] = set()
+        for java in self._root.rglob("*.java"):
+            for raw in self._PROPERTY_SOURCE.findall(java.read_text(encoding="utf-8")):
+                for base in (self._root, self._root / "src/main/resources"):
+                    candidate = (base / raw.lstrip("/")).resolve()
+                    if (
+                        candidate.is_file()
+                        and candidate.is_relative_to(self._root.resolve())
+                        and candidate.suffix
+                        in {
+                            ".properties",
+                            ".yml",
+                            ".yaml",
+                        }
+                    ):
+                        referenced.add(candidate)
+        return tuple(sorted((*application, *referenced), key=lambda item: item.as_posix()))
+
+    def _read(self, path: Path) -> None:
+        relative = path.relative_to(self._root).as_posix()
+        text = path.read_text(encoding="utf-8")
+        if path.suffix == ".properties":
+            for line, raw in enumerate(text.splitlines(), 1):
+                stripped = raw.strip()
+                if not stripped or stripped.startswith(("#", "!")):
+                    continue
+                match = re.match(r"(?P<key>[^:=\s]+)\s*(?:[:=]|\s)\s*(?P<value>.*)$", raw)
+                if match is not None:
+                    self._add(match.group("key"), match.group("value").strip(), relative, line)
+            return
+        try:
+            node = yaml.compose(text, Loader=yaml.SafeLoader)
+        except yaml.YAMLError:
+            return
+        if node is not None:
+            self._yaml(node, "", relative)
+
+    def _yaml(self, node: yaml.Node, prefix: str, path: str) -> None:
+        if isinstance(node, yaml.MappingNode):
+            for key, value in node.value:
+                if not isinstance(key, yaml.ScalarNode):
+                    continue
+                name = f"{prefix}.{key.value}" if prefix else key.value
+                self._yaml(value, name, path)
+        elif isinstance(node, yaml.SequenceNode):
+            for index, value in enumerate(node.value):
+                if not isinstance(value, yaml.ScalarNode):
+                    self._unsupported.setdefault(prefix + f"[{index}]", []).append(
+                        _ConfigValue("<unsupported yaml structure>", path, value.start_mark.line + 1)
+                    )
+                self._yaml(value, f"{prefix}[{index}]", path)
+        elif isinstance(node, yaml.ScalarNode) and node.tag == "tag:yaml.org,2002:str":
+            self._add(prefix, node.value, path, node.start_mark.line + 1)
+        else:
+            self._unsupported.setdefault(prefix, []).append(
+                _ConfigValue("<nonliteral config value>", path, node.start_mark.line + 1)
+            )
+
+    def _add(self, key: str, value: str, path: str, line: int) -> None:
+        if key:
+            self._values.setdefault(key, []).append(_ConfigValue(value, path, line))
+
+
 class MessagingMethodDetector:
     """Extract literal Kafka/Rabbit producers and listener implementation methods."""
 
@@ -64,6 +196,7 @@ class MessagingMethodDetector:
         calls: list[ConsumerMethodCall] = []
         bindings: list[OperationBinding] = []
         unresolved: list[MethodUnresolved] = []
+        config = _LocalConfigResolver(snapshot.root_path)
         for path in sorted(snapshot.root_path.rglob("*.java")):
             relative = path.relative_to(snapshot.root_path).as_posix()
             text = path.read_text(encoding="utf-8")
@@ -84,8 +217,11 @@ class MessagingMethodDetector:
                         operations,
                         bindings,
                         unresolved,
+                        config,
                     )
-                    self._calls(context, relative, method, implementation, declarations, evidences, calls, unresolved)
+                    self._calls(
+                        context, relative, method, implementation, declarations, evidences, calls, unresolved, config
+                    )
             self._orphan_calls(context, relative, text, ranges, declarations, evidences, unresolved)
         return MethodFacts(
             self.metadata.detector_id,
@@ -112,29 +248,49 @@ class MessagingMethodDetector:
         operations: list[ServiceOperation],
         bindings: list[OperationBinding],
         unresolved: list[MethodUnresolved],
+        config: _LocalConfigResolver,
     ) -> None:
         for match in self._LISTENER.finditer(method.annotations):
             broker = "kafka" if match.group("kind") == "KafkaListener" else "rabbitmq"
             destination_name, group_name = ("topics", "groupId") if broker == "kafka" else ("queues", "group")
             destination_expression = self._named(match.group("args"), destination_name)
-            destinations = self._literal_values(destination_expression)
+            destinations, destination_config, reason = self._values(destination_expression, config)
             line = method.start + method.annotations.count("\n", 0, match.start())
             if not destinations:
-                reason = (
-                    "DYNAMIC_TARGET"
-                    if destination_expression is not None and destination_expression.strip() not in {"", "{}"}
-                    else "UNSUPPORTED_TARGET_SHAPE"
+                self._unresolved(
+                    context,
+                    path,
+                    line,
+                    match.group(0),
+                    reason
+                    or (
+                        "DYNAMIC_TARGET"
+                        if destination_expression is not None and destination_expression.strip() not in {"", "{}"}
+                        else "UNSUPPORTED_TARGET_SHAPE"
+                    ),
+                    evidences,
+                    unresolved,
+                    destination_config,
                 )
-                self._unresolved(context, path, line, match.group(0), reason, evidences, unresolved)
                 continue
-            groups = self._literal_values(self._named(match.group("args"), group_name))
+            groups, group_config, group_reason = self._values(self._named(match.group("args"), group_name), config)
             if len(groups) > 1:
-                self._unresolved(context, path, line, match.group(0), "UNSUPPORTED_TARGET_SHAPE", evidences, unresolved)
+                self._unresolved(
+                    context,
+                    path,
+                    line,
+                    match.group(0),
+                    group_reason or "UNSUPPORTED_TARGET_SHAPE",
+                    evidences,
+                    unresolved,
+                    group_config,
+                )
                 continue
             group = groups[0] if groups else "-"
             for destination in destinations:
                 reference = self._reference(broker, destination, group)
                 evidence = self._evidence(context, path, line, "listener_declaration", reference, evidences)
+                config_evidence = self._config_evidences(context, destination_config + group_config, evidences)
                 operation = ServiceOperation(
                     context.repo_id,
                     context.module_id,
@@ -145,7 +301,7 @@ class MessagingMethodDetector:
                     reference,
                     method.name,
                     self._signature(fqcn, method),
-                    (evidence.id,),
+                    (evidence.id, *(item.id for item in config_evidence)),
                     group=group,
                 )
                 operations.append(operation)
@@ -159,7 +315,7 @@ class MessagingMethodDetector:
                         reference,
                         operation.id,
                         implementation.id,
-                        (evidence.id,),
+                        (evidence.id, *(item.id for item in config_evidence)),
                     )
                 )
 
@@ -173,17 +329,30 @@ class MessagingMethodDetector:
         evidences: list[MethodEvidence],
         calls: list[ConsumerMethodCall],
         unresolved: list[MethodUnresolved],
+        config: _LocalConfigResolver,
     ) -> None:
         for match in self._CALL.finditer(method.body):
             broker = self._broker(declarations.get(match.group("receiver")), match.group("method"))
             if broker is None:
                 continue
             line = method.start + method.body.count("\n", 0, match.start())
-            destination = self._destination(broker, self._split_args(match.group("args")))
+            destination, config_values, reason = self._destination(
+                broker, self._split_args(match.group("args")), config
+            )
             if destination is None:
-                self._unresolved(context, path, line, match.group(0), "DYNAMIC_TARGET", evidences, unresolved)
+                self._unresolved(
+                    context,
+                    path,
+                    line,
+                    match.group(0),
+                    reason or "DYNAMIC_TARGET",
+                    evidences,
+                    unresolved,
+                    config_values,
+                )
                 continue
             evidence = self._evidence(context, path, line, "producer_method_call", destination, evidences)
+            config_evidence = self._config_evidences(context, config_values, evidences)
             calls.append(
                 ConsumerMethodCall(
                     context.repo_id,
@@ -194,7 +363,7 @@ class MessagingMethodDetector:
                     implementation.id,
                     self._reference(broker, destination),
                     "operation",
-                    (evidence.id,),
+                    (evidence.id, *(item.id for item in config_evidence)),
                 )
             )
 
@@ -279,11 +448,19 @@ class MessagingMethodDetector:
         }
 
     @classmethod
-    def _destination(cls, broker: str, args: list[str]) -> str | None:
+    def _destination(
+        cls, broker: str, args: list[str], config: _LocalConfigResolver
+    ) -> tuple[str | None, tuple[_ConfigValue, ...], str | None]:
         expected = 2 if broker == "kafka" else 3
         if len(args) != expected or (broker == "rabbitmq" and cls._literal(args[1]) is None):
-            return None
-        return cls._literal(args[0])
+            return None, (), "DYNAMIC_TARGET"
+        literal = cls._literal(args[0])
+        if literal is None:
+            return None, (), "DYNAMIC_TARGET"
+        if not cls._dynamic(literal):
+            return literal, (), None
+        resolution = config.resolve(literal)
+        return resolution.value, resolution.values, resolution.reason
 
     @staticmethod
     def _broker(declaration: str | None, method: str) -> str | None:
@@ -295,8 +472,21 @@ class MessagingMethodDetector:
 
     @classmethod
     def _named(cls, args: str, name: str) -> str | None:
-        match = re.search(rf"\b{name}\s*=\s*(?P<value>\{{[^}}]*\}}|{cls._STRING}|[^,]+)", args)
-        return match.group("value").strip() if match else None
+        match = re.search(rf"\b{name}\s*=", args)
+        if match is None:
+            return None
+        start, depth, quoted = match.end(), 0, False
+        for index in range(start, len(args)):
+            char = args[index]
+            if char == '"' and (index == 0 or args[index - 1] != "\\"):
+                quoted = not quoted
+            elif not quoted and char in "{[(":
+                depth += 1
+            elif not quoted and char in "}])":
+                depth -= 1
+            elif not quoted and char == "," and depth == 0:
+                return args[start:index].strip()
+        return args[start:].strip()
 
     @classmethod
     def _literal_values(cls, expression: str | None) -> list[str]:
@@ -308,6 +498,32 @@ class MessagingMethodDetector:
         if re.fullmatch(r"\s*\{\s*(?:\"[^\"]*\"\s*,?\s*)+\}\s*", expression):
             return [value for value in re.findall(cls._STRING, expression) if not cls._dynamic(value)]
         return []
+
+    @classmethod
+    def _values(
+        cls, expression: str | None, config: _LocalConfigResolver
+    ) -> tuple[list[str], tuple[_ConfigValue, ...], str | None]:
+        if expression is not None and re.fullmatch(r"\s*\{\s*(?:\"[^\"]*\"\s*,?\s*)+\}\s*", expression):
+            values: list[str] = []
+            config_values: list[_ConfigValue] = []
+            for item in re.findall(cls._STRING, expression):
+                if not cls._dynamic(item):
+                    values.append(item)
+                    continue
+                resolution = config.resolve(item)
+                config_values.extend(resolution.values)
+                if resolution.value is None:
+                    return [], tuple(config_values), resolution.reason
+                values.append(resolution.value)
+            return values, tuple(config_values), None
+        values = cls._literal_values(expression)
+        if values:
+            return values, (), None
+        literal = cls._literal(expression) if expression is not None else None
+        if literal is None or not cls._dynamic(literal):
+            return [], (), None
+        resolution = config.resolve(literal)
+        return ([resolution.value] if resolution.value is not None else []), resolution.values, resolution.reason
 
     @staticmethod
     def _dynamic(value: str) -> bool:
@@ -394,8 +610,10 @@ class MessagingMethodDetector:
         reason: str,
         evidences: list[MethodEvidence],
         unresolved: list[MethodUnresolved],
+        config_values: tuple[_ConfigValue, ...] = (),
     ) -> None:
         evidence = self._evidence(context, path, line, "unresolved_method_target", subject, evidences)
+        config_evidence = self._config_evidences(context, config_values, evidences)
         unresolved.append(
             MethodUnresolved(
                 context.repo_id,
@@ -405,8 +623,16 @@ class MessagingMethodDetector:
                 context.generation_id,
                 reason,
                 subject,
-                (evidence.id,),
+                (evidence.id, *(item.id for item in config_evidence)),
             )
+        )
+
+    def _config_evidences(
+        self, context: MethodDetectionContext, values: tuple[_ConfigValue, ...], items: list[MethodEvidence]
+    ) -> tuple[MethodEvidence, ...]:
+        return tuple(
+            self._evidence(context, value.path, value.line, "configuration_value", value.value, items)
+            for value in sorted(set(values), key=lambda item: (item.path, item.line, item.value))
         )
 
     @staticmethod

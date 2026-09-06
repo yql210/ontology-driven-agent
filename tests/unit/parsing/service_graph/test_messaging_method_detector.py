@@ -13,6 +13,7 @@ from ontoagent.parsing.service_graph.workspace.models import (
 )
 
 FIXTURE = Path(__file__).parents[3] / "fixtures/service_graph/neutral_three_repo"
+CONFIGURED_FIXTURE = Path(__file__).parents[3] / "fixtures/service_graph/configured_messaging_three_repo"
 
 
 def _detect(tmp_path: Path, repo_id: str, source: str):
@@ -25,6 +26,12 @@ def _detect(tmp_path: Path, repo_id: str, source: str):
     return MessagingMethodDetector().detect_methods(
         snapshot, MethodDetectionContext(repo_id, repo_id, repo_id, snapshot.source_revision, "gen-1")
     )
+
+
+def _config(root: Path, name: str, content: str) -> None:
+    path = root / "src/main/resources" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
 
 
 def _plan(*facts):
@@ -78,15 +85,15 @@ def test_messaging_method_detector_links_kafka_and_rabbit_producers_to_listener_
     }
 
 
-def test_messaging_method_detector_links_kafka_and_rabbit_across_neutral_three_repo_fixture() -> None:
+def test_messaging_method_detector_links_configured_kafka_and_rabbit_across_repository_fixture() -> None:
     from ontoagent.parsing.service_graph.detectors.messaging_method import MessagingMethodDetector
 
     detector = MessagingMethodDetector()
     provider_snapshot = RepositorySnapshot(
-        "provider-orders", "fixture-provider-v1", FIXTURE / "provider-orders", frozenset({"java"})
+        "provider-orders", "fixture-provider-v1", CONFIGURED_FIXTURE / "provider-orders", frozenset({"java"})
     )
     consumer_snapshot = RepositorySnapshot(
-        "consumer-checkout", "fixture-consumer-v1", FIXTURE / "consumer-checkout", frozenset({"java"})
+        "consumer-checkout", "fixture-consumer-v1", CONFIGURED_FIXTURE / "consumer-checkout", frozenset({"java"})
     )
     provider = detector.detect_methods(
         provider_snapshot,
@@ -101,14 +108,21 @@ def test_messaging_method_detector_links_kafka_and_rabbit_across_neutral_three_r
     plan = _plan(provider, consumer)
 
     assert {call.target_reference for call in provider.consumer_calls} == {
-        "messaging-operation:kafka|destination=order-events",
-        "messaging-operation:rabbitmq|destination=order.queue",
+        "messaging-operation:kafka|destination=configured-order-events",
+        "messaging-operation:rabbitmq|destination=configured-order.queue",
     }
     assert {plan.operation_id_for(call.target_reference) for call in provider.consumer_calls} == {
         item.id
         for item in consumer.operations
-        if item.declaring_interface_fqcn.endswith(("order-events|group=checkout", "order.queue|group=checkout-workers"))
+        if item.declaring_interface_fqcn.endswith(
+            (
+                "configured-order-events|group=configured-checkout",
+                "configured-order.queue|group=configured-checkout-workers",
+            )
+        )
     }
+    assert any(item.file_path.endswith("application.properties") for item in provider.evidences)
+    assert any(item.file_path.endswith("application.yml") for item in consumer.evidences)
 
 
 def test_messaging_method_detector_expands_literals_and_marks_dynamic_or_orphan_shapes_unresolved(
@@ -138,6 +152,102 @@ def test_messaging_method_detector_expands_literals_and_marks_dynamic_or_orphan_
     }
     helper = next(item for item in facts.implementations if item.method_name == "helper")
     assert all(call.caller_implementation_id != helper.id for call in facts.consumer_calls)
+
+
+def test_messaging_method_detector_resolves_properties_and_yaml_placeholders_with_config_evidence(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "configured"
+    _config(
+        root,
+        "application.properties",
+        "messaging.kafka.topic=${external.kafka.topic}\nmessaging.kafka.group=orders-worker\n",
+    )
+    _config(root, "config/messaging.properties", "external.kafka.topic=order-events\n")
+    _config(
+        root,
+        "application.yaml",
+        "messaging:\n  rabbit:\n    queues:\n      - order.queue\n    group: checkout-workers\n",
+    )
+    facts = _detect(
+        root,
+        "configured",
+        """package example;
+        @PropertySource("classpath:config/messaging.properties")
+        class Messages { KafkaTemplate<String, Object> kafka; RabbitTemplate rabbit;
+          @KafkaListener(topics = "${messaging.kafka.topic}", groupId = "${messaging.kafka.group}") void consume() {}
+          @RabbitListener(queues = "${messaging.rabbit.queues[0]}", group = "${messaging.rabbit.group}") void receive() {}
+          void publish() { kafka.send("${messaging.kafka.topic}", "x"); rabbit.convertAndSend("${messaging.rabbit.queues[0]}", "created", "x"); }
+        }""",
+    )
+
+    assert {item.declaring_interface_fqcn for item in facts.operations} == {
+        "messaging-operation:kafka|destination=order-events|group=orders-worker",
+        "messaging-operation:rabbitmq|destination=order.queue|group=checkout-workers",
+    }
+    assert {item.target_reference for item in facts.consumer_calls} == {
+        "messaging-operation:kafka|destination=order-events",
+        "messaging-operation:rabbitmq|destination=order.queue",
+    }
+    assert {item.file_path for item in facts.evidences} >= {
+        "src/main/java/example/Messages.java",
+        "src/main/resources/application.properties",
+        "src/main/resources/config/messaging.properties",
+        "src/main/resources/application.yaml",
+    }
+
+
+def test_messaging_method_detector_fails_closed_for_missing_conflicting_cycle_and_spel_placeholders(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "unresolved"
+    _config(
+        root,
+        "application.properties",
+        "conflict.topic=one\ncycle.one=${cycle.two}\ncycle.two=${cycle.one}\nspel.topic=#{systemProperties['topic']}\n",
+    )
+    _config(root, "application.yml", "conflict:\n  topic: two\n")
+    facts = _detect(
+        root,
+        "unresolved",
+        """package example;
+        class Messages { KafkaTemplate<String, Object> kafka;
+          @KafkaListener(topics = "${missing.topic}") void missing() {}
+          @KafkaListener(topics = "${conflict.topic}") void conflict() {}
+          @KafkaListener(topics = "${cycle.one}") void cycle() {}
+          @KafkaListener(topics = "#{systemProperties['topic']}") void spel() {}
+          void publish() { kafka.send("${missing.topic}", "x"); }
+        }""",
+    )
+
+    assert not facts.operations
+    assert not facts.consumer_calls
+    assert {item.reason_code for item in facts.unresolved} >= {"AMBIGUOUS_TARGET", "DYNAMIC_TARGET"}
+    assert {item.file_path for item in facts.evidences} >= {
+        "src/main/java/example/Messages.java",
+        "src/main/resources/application.properties",
+        "src/main/resources/application.yml",
+    }
+
+
+def test_messaging_method_detector_rejects_nonliteral_and_unsupported_yaml_placeholder_values(tmp_path: Path) -> None:
+    root = tmp_path / "unsupported"
+    _config(
+        root, "application.yml", "messaging:\n  destinations:\n    - name: orders\n  computed: '${dynamic.value}'\n"
+    )
+    facts = _detect(
+        root,
+        "unsupported",
+        """package example;
+        class Messages {
+          @KafkaListener(topics = "${messaging.destinations[0]}") void unsupported() {}
+          @KafkaListener(topics = "${messaging.computed}") void nonliteral() {}
+        }""",
+    )
+
+    assert not facts.operations
+    assert {item.reason_code for item in facts.unresolved} == {"DYNAMIC_TARGET"}
+    assert any(item.file_path == "src/main/resources/application.yml" for item in facts.evidences)
 
 
 def test_messaging_method_plan_rejects_group_mismatch_and_only_fans_out_exact_listener_group(tmp_path: Path) -> None:

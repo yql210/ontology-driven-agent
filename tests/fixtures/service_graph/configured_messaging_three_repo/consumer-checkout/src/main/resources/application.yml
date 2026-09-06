@@ -1,0 +1,7 @@
+configured:
+  kafka:
+    consumer-topic: configured-order-events
+    consumer-group: configured-checkout
+  rabbit:
+    consumer-queue: configured-order.queue
+    consumer-group: configured-checkout-workers

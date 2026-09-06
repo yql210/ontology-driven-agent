@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from ontoagent.parsing.service_graph.detectors.messaging import MessagingDetector
 from ontoagent.parsing.service_graph.models import RepositorySnapshot
+
+CONFIGURED_FIXTURE = Path(__file__).parents[3] / "fixtures/service_graph/configured_messaging_three_repo"
 
 
 def test_messaging_detector_expands_annotations_and_static_producers(tmp_path):
@@ -48,3 +52,20 @@ class Messages {
     facts = MessagingDetector().detect(RepositorySnapshot("repo", "rev", tmp_path, frozenset({"java"})))
     assert len(facts.unresolved) == 3
     assert {x.reason_code for x in facts.unresolved} == {"UNSUPPORTED_CALL_SHAPE", "DYNAMIC_URL"}
+
+
+def test_messaging_detector_covers_every_configured_workspace_snapshot() -> None:
+    revisions = {
+        "provider-orders": "fixture-provider-v1",
+        "consumer-checkout": "fixture-consumer-v1",
+        "isolated-catalog": "fixture-isolated-v1",
+    }
+
+    facts = {
+        repo_id: MessagingDetector().detect(
+            RepositorySnapshot(repo_id, revision, CONFIGURED_FIXTURE / repo_id, frozenset({"java", "yaml"}))
+        )
+        for repo_id, revision in revisions.items()
+    }
+
+    assert {repo_id for repo_id, fact in facts.items() if fact.message_endpoints} == set(revisions)

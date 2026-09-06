@@ -35,7 +35,7 @@ from ontoagent.parsing.service_graph.methods import (
 )
 from ontoagent.parsing.service_graph.models import RepositorySnapshot
 from ontoagent.parsing.service_graph.neo4j_graph_sink import Neo4jGraphSink
-from ontoagent.parsing.service_graph.resolver import ServiceGraphResolver
+from ontoagent.parsing.service_graph.resolver import FactBatch, ServiceGraphResolver
 from ontoagent.parsing.service_graph.workspace.models import (
     Workspace,
     WorkspaceGeneration,
@@ -56,6 +56,7 @@ from ontoagent.parsing.service_graph.workspace.publish_orchestrator import (
 pytestmark = pytest.mark.integration
 
 FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/neutral_three_repo"
+CONFIGURED_MESSAGING_FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/configured_messaging_three_repo"
 GRPC_FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/neutral_grpc_three_repo"
 PYTHON_HTTP_FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/python_http_three_repo"
 XML_DUBBO_FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/xml_dubbo_three_repo"
@@ -999,7 +1000,7 @@ def test_workspace_publisher_links_exact_ordered_grpc_method_triples() -> None:
         driver.close()
 
 
-def test_workspace_publisher_links_messaging_methods_to_exact_listener_operations() -> None:
+def test_workspace_publisher_links_configured_messaging_methods_to_exact_listener_operations() -> None:
     uri, user, password = _credentials()
     workspace = Workspace(f"workspace-messaging-methods-{uuid4()}", "Messaging method graph integration")
     generation_id = f"generation-messaging-methods-{uuid4()}"
@@ -1011,10 +1012,17 @@ def test_workspace_publisher_links_messaging_methods_to_exact_listener_operation
         )
     )
     try:
-        assert orchestrator.publish(_input(workspace, generation_id, None)).status is WorkspacePublishStatus.ACTIVE
+        assert (
+            orchestrator.publish(
+                _input(workspace, generation_id, None, source_root=CONFIGURED_MESSAGING_FIXTURE)
+            ).status
+            is WorkspacePublishStatus.ACTIVE
+        )
         facts = {
             repo_id: MessagingMethodDetector().detect_methods(
-                RepositorySnapshot(repo_id, revision, FIXTURE / repo_id, frozenset({"java", "yaml"})),
+                RepositorySnapshot(
+                    repo_id, revision, CONFIGURED_MESSAGING_FIXTURE / repo_id, frozenset({"java", "yaml"})
+                ),
                 MethodDetectionContext(repo_id, repo_id, repo_id, revision, generation_id),
             )
             for repo_id, revision in REVISIONS.items()
@@ -1023,7 +1031,7 @@ def test_workspace_publisher_links_messaging_methods_to_exact_listener_operation
         expected = sorted(
             {
                 (
-                    next(item.id for item in provider.implementations if item.method_name == "getOrder"),
+                    next(item.id for item in provider.implementations if item.method_name == "publish"),
                     call.id,
                     MethodGraphWritePlan(
                         MethodGraphScope(
@@ -1076,6 +1084,31 @@ def test_workspace_publisher_links_messaging_methods_to_exact_listener_operation
                 workspace_id=workspace.workspace_id,
             )
         driver.close()
+
+
+def test_configured_messaging_fixture_builds_endpoint_plan_for_all_frozen_snapshots() -> None:
+    workspace = Workspace("workspace-configured-messaging-plan", "Configured messaging endpoint plan")
+    generation_id = "generation-configured-messaging-plan"
+    request = _input(workspace, generation_id, None, source_root=CONFIGURED_MESSAGING_FIXTURE)
+    frozen_by_repo = {snapshot.repo_id: snapshot for snapshot in request.snapshots}
+    batches = tuple(
+        FactBatch(
+            snapshot.repo_id,
+            snapshot.source_revision,
+            generation_id,
+            frozen_by_repo[snapshot.repo_id].branch,
+            (MessagingDetector().detect(snapshot),),
+        )
+        for snapshot in request.repository_snapshots
+    )
+
+    plan = GraphPlanBuilder().build(ServiceGraphResolver().resolve(batches))
+
+    assert {node.props.get("repo_id") for node in plan.nodes} >= {
+        "provider-orders",
+        "consumer-checkout",
+        "isolated-catalog",
+    }
 
 
 def test_remote_failures_preserve_exact_prior_active_workspace_binding() -> None:
