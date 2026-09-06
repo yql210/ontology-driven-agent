@@ -97,10 +97,7 @@ class MethodGraphWritePlan:
         references: dict[str, int] = {}
         for fact in facts:
             for operation in fact.operations:
-                reference = (
-                    f"dubbo-operation:{operation.canonical_signature}|group={operation.group or ''}"
-                    f"|version={operation.version or ''}|alias={operation.alias or ''}"
-                )
+                reference = MethodGraphWritePlan._dubbo_operation_reference(operation, fact)
                 references[reference] = references.get(reference, 0) + 1
                 if fact.detector_id == "grpc-method":
                     grpc_reference = f"grpc-operation:{operation.canonical_signature}"
@@ -116,7 +113,9 @@ class MethodGraphWritePlan:
                     if candidate_count:
                         continue
                 elif call.target_reference.startswith(("dubbo-operation:", "grpc-operation:")):
-                    candidate_count = references.get(call.target_reference, 0)
+                    candidate_count = references.get(
+                        MethodGraphWritePlan._dubbo_call_reference(call.target_reference), 0
+                    )
                 elif call.target_reference.startswith("feign-http:"):
                     endpoint = call.target_reference.removeprefix("feign-http:")
                     candidate_count = sum(
@@ -240,12 +239,12 @@ class MethodGraphWritePlan:
         if reference in operations:
             return reference
         if reference.startswith("dubbo-operation:"):
+            reference = self._dubbo_call_reference(reference)
             matches = [
                 item.id
                 for fact in self.facts
                 for item in fact.operations
-                if reference
-                == f"dubbo-operation:{item.canonical_signature}|group={item.group or ''}|version={item.version or ''}|alias={item.alias or ''}"
+                if reference == self._dubbo_operation_reference(item, fact)
             ]
             if len(matches) != 1:
                 raise ValueError("method graph has ambiguous call target")
@@ -299,6 +298,22 @@ class MethodGraphWritePlan:
         matches = [item for item in operations if item.declaring_interface_fqcn.startswith(prefix)]
         groups = {item.declaring_interface_fqcn.rsplit("|group=", 1)[1] for item in matches}
         return tuple(sorted(item.id for item in matches)) if len(groups) == 1 else ()
+
+    @staticmethod
+    def _dubbo_operation_reference(operation: ServiceOperation, fact: MethodFacts) -> str:
+        reference = (
+            f"dubbo-operation:{operation.canonical_signature}|group={operation.group or ''}"
+            f"|version={operation.version or ''}|alias={operation.alias or ''}"
+        )
+        is_xml = any(
+            evidence.id in operation.evidence_ids and evidence.evidence_type == "dubbo_xml_service"
+            for evidence in fact.evidences
+        )
+        return f"{reference}|origin=xml" if is_xml else reference
+
+    @staticmethod
+    def _dubbo_call_reference(reference: str) -> str:
+        return reference.split("|xml-reference-id=", 1)[0]
 
 
 class MethodGraphSink(Protocol):

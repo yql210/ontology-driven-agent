@@ -58,6 +58,7 @@ pytestmark = pytest.mark.integration
 FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/neutral_three_repo"
 GRPC_FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/neutral_grpc_three_repo"
 PYTHON_HTTP_FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/python_http_three_repo"
+XML_DUBBO_FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/xml_dubbo_three_repo"
 PYTHON_HTTP_REVISIONS = {
     "provider-api": "provider-v1",
     "consumer-client": "consumer-v1",
@@ -67,6 +68,11 @@ REVISIONS = {
     "provider-orders": "fixture-provider-v1",
     "consumer-checkout": "fixture-consumer-v1",
     "isolated-catalog": "fixture-isolated-v1",
+}
+XML_DUBBO_REVISIONS = {
+    "provider-orders": "xml-provider-v1",
+    "consumer-checkout": "xml-consumer-v1",
+    "isolated-catalog": "xml-isolated-v1",
 }
 
 
@@ -748,6 +754,76 @@ def test_workspace_publisher_links_dubbo_consumer_method_to_exact_provider_opera
     finally:
         with driver.session() as session:
             session.run("MATCH (n { _ontoagent_namespace: $namespace }) DETACH DELETE n", namespace=namespace)
+            session.run(
+                "MATCH (n) WHERE n.workspaceId = $workspace_id "
+                "AND (n:OntoAgentWorkspace OR n:OntoAgentWorkspaceBuildTask "
+                "OR n:OntoAgentWorkspaceGeneration OR n:OntoAgentWorkspaceRepositorySnapshot "
+                "OR n:OntoAgentWorkspaceActiveBinding) DETACH DELETE n",
+                workspace_id=workspace.workspace_id,
+            )
+        driver.close()
+
+
+def test_workspace_publisher_links_xml_dubbo_caller_call_and_provider_operation() -> None:
+    uri, user, password = _credentials()
+    workspace = Workspace(f"workspace-xml-dubbo-methods-{uuid4()}", "XML Dubbo method graph integration")
+    generation_id = f"generation-xml-dubbo-methods-{uuid4()}"
+    namespace = WorkspaceServiceGraphPublishOrchestrator.namespace_for(workspace.workspace_id, generation_id)
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+    orchestrator = WorkspaceServiceGraphPublishOrchestrator(
+        Neo4jWorkspaceServiceGraphPublishComponentFactory(
+            driver, DetectorRegistry([SpringHttpDetector(), DubboDetector(), MessagingDetector()])
+        )
+    )
+    try:
+        outcome = orchestrator.publish(
+            _input(
+                workspace,
+                generation_id,
+                None,
+                source_root=XML_DUBBO_FIXTURE,
+                languages=frozenset({"java", "xml"}),
+                revisions=XML_DUBBO_REVISIONS,
+            )
+        )
+
+        assert outcome.status is WorkspacePublishStatus.ACTIVE
+        snapshots = {
+            repo_id: RepositorySnapshot(repo_id, revision, XML_DUBBO_FIXTURE / repo_id, frozenset({"java", "xml"}))
+            for repo_id, revision in XML_DUBBO_REVISIONS.items()
+        }
+        facts = {
+            repo_id: DubboMethodDetector().detect_methods(
+                snapshot,
+                MethodDetectionContext(repo_id, repo_id, repo_id, snapshot.source_revision, generation_id),
+            )
+            for repo_id, snapshot in snapshots.items()
+        }
+        caller = next(item for item in facts["consumer-checkout"].implementations if item.method_name == "load")
+        call = next(
+            item
+            for item in facts["consumer-checkout"].consumer_calls
+            if "#find(java.lang.String)" in item.target_reference
+        )
+        operation = next(
+            item
+            for item in facts["provider-orders"].operations
+            if item.canonical_signature == "example.orders.OrderApi#find(java.lang.String):java.lang.String"
+        )
+        with driver.session() as session:
+            links = session.run(
+                "MATCH (caller:ImplementationMethod {namespace: $namespace})-[:CALLER_METHOD]->"
+                "(call:ConsumerMethodCall)-[:CALLS_OPERATION]->"
+                "(operation:ServiceOperation {namespace: $namespace}) "
+                "RETURN caller.id AS caller, call.id AS call, operation.id AS operation",
+                namespace=namespace,
+            ).data()
+        targets = {row["operation"] for row in links if row["caller"] == caller.id and row["call"] == call.id}
+        assert targets == {operation.id}
+    finally:
+        with driver.session() as session:
+            session.run("MATCH (n {namespace: $namespace}) DETACH DELETE n", namespace=namespace)
+            session.run("MATCH (n {_ontoagent_namespace: $namespace}) DETACH DELETE n", namespace=namespace)
             session.run(
                 "MATCH (n) WHERE n.workspaceId = $workspace_id "
                 "AND (n:OntoAgentWorkspace OR n:OntoAgentWorkspaceBuildTask "

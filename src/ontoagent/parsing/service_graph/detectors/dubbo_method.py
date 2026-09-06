@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from xml.etree import ElementTree
 
 from ontoagent.parsing.service_graph.detector_sdk import (
     DetectorCapability,
@@ -51,6 +52,22 @@ class _Proxy:
     version: str | None
     alias: str | None
     dynamic: bool
+    evidence_ids: tuple[str, ...] = ()
+    xml_reference_id: str | None = None
+
+
+@dataclass(frozen=True)
+class _XmlDeclaration:
+    kind: str
+    interface: str | None
+    target: str | None
+    group: str | None
+    version: str | None
+    alias: str | None
+    dynamic: bool
+    path: str
+    line: int
+    evidence_id: str
 
 
 class DubboMethodDetector:
@@ -59,7 +76,7 @@ class DubboMethodDetector:
     metadata = DetectorMetadata(
         detector_id="dubbo-method",
         detector_version="1",
-        supported_languages=frozenset({"java"}),
+        supported_languages=frozenset({"java", "xml"}),
         capabilities=(DetectorCapability("dubbo-methods", "1"),),
     )
 
@@ -82,6 +99,12 @@ class DubboMethodDetector:
         r"(?:(?:public|protected|private|final|static)\s+)*(?P<type>[\w.$<>]+)\s+(?P<name>\w+)\b"
     )
     _CALL = re.compile(r"\b(?P<receiver>[A-Za-z_]\w*)\s*\.\s*(?P<method>[A-Za-z_]\w*)\s*\((?P<args>[^)]*)\)")
+    _FIELD = re.compile(
+        r"(?:public|protected|private)?\s*(?:final\s+)?(?P<type>[\w.$<>]+)\s+(?P<name>\w+)\s*(?:=[^;]*)?;"
+    )
+    _XML_DUBBO = re.compile(r"<dubbo:(?P<kind>service|reference)\b(?P<attrs>[^>]*)/?>", re.DOTALL)
+    _XML_BEAN = re.compile(r"<bean\b(?P<attrs>[^>]*)/?>", re.DOTALL)
+    _XML_ATTRIBUTE = re.compile(r"\b(?P<key>[\w:-]+)\s*=\s*(['\"])(?P<value>.*?)\2", re.DOTALL)
 
     def detect_methods(self, snapshot: RepositorySnapshot, context: MethodDetectionContext) -> MethodFacts:
         if (snapshot.repo_id, snapshot.source_revision) != (context.repo_id, context.source_revision):
@@ -99,6 +122,9 @@ class DubboMethodDetector:
         calls: list[ConsumerMethodCall] = []
         bindings: list[OperationBinding] = []
         unresolved: list[MethodUnresolved] = []
+        xml_declarations, bean_classes = self._xml_declarations(snapshot, context, evidences, unresolved)
+        services = tuple(item for item in xml_declarations if item.kind == "service")
+        references = tuple(item for item in xml_declarations if item.kind == "reference")
         for relative, java_class, imports in parsed:
             if java_class.is_interface:
                 continue
@@ -137,7 +163,22 @@ class DubboMethodDetector:
                     bindings,
                     unresolved,
                 )
+            self._xml_provider_facts(
+                context,
+                relative,
+                java_class,
+                imports,
+                contracts,
+                implementation_by_method,
+                services,
+                bean_classes,
+                evidences,
+                operations,
+                bindings,
+                unresolved,
+            )
             proxies = self._proxies(java_class, imports)
+            proxies.update(self._xml_proxies(context, relative, java_class, imports, references, evidences, unresolved))
             for method, implementation in implementation_by_method.items():
                 self._proxy_calls(
                     context, relative, method, implementation, proxies, contracts, evidences, calls, unresolved
@@ -157,6 +198,151 @@ class DubboMethodDetector:
             self._coalesce(unresolved),
         )
 
+    def _xml_declarations(
+        self,
+        snapshot: RepositorySnapshot,
+        context: MethodDetectionContext,
+        evidences: list[MethodEvidence],
+        unresolved: list[MethodUnresolved],
+    ) -> tuple[tuple[_XmlDeclaration, ...], dict[str, tuple[str, ...]]]:
+        declarations: list[_XmlDeclaration] = []
+        beans: dict[str, list[str]] = {}
+        for source in sorted(snapshot.root_path.rglob("*.xml")):
+            path = source.relative_to(snapshot.root_path).as_posix()
+            text = source.read_text(encoding="utf-8")
+            matches = tuple(self._XML_DUBBO.finditer(text))
+            if not matches:
+                if "<dubbo:" in text:
+                    line = text.count("\n", 0, text.index("<dubbo:")) + 1
+                    self._unresolved(
+                        context, path, line, "UNSUPPORTED_TARGET_SHAPE", "malformed dubbo XML", evidences, unresolved
+                    )
+                continue
+            try:
+                ElementTree.fromstring(text)
+            except ElementTree.ParseError:
+                line = text.count("\n", 0, text.index("<dubbo:")) + 1
+                self._unresolved(
+                    context, path, line, "UNSUPPORTED_TARGET_SHAPE", "malformed dubbo XML", evidences, unresolved
+                )
+                continue
+            for bean in self._XML_BEAN.finditer(text):
+                attrs = self._xml_attributes(bean.group("attrs"))
+                bean_id, class_name = attrs.get("id"), attrs.get("class")
+                if bean_id and class_name:
+                    beans.setdefault(bean_id, []).append(class_name)
+            for match in matches:
+                attrs = self._xml_attributes(match.group("attrs"))
+                line = text.count("\n", 0, match.start()) + 1
+                interface = attrs.get("interface")
+                target_key = "ref" if match.group("kind") == "service" else "id"
+                target = attrs.get(target_key)
+                dynamic = any(self._dynamic(value) for value in attrs.values())
+                evidence = self._evidence(
+                    context, path, line, line, f"dubbo_xml_{match.group('kind')}", match.group(0).strip()
+                )
+                evidences.append(evidence)
+                declarations.append(
+                    _XmlDeclaration(
+                        match.group("kind"),
+                        interface,
+                        target,
+                        attrs.get("group"),
+                        attrs.get("version"),
+                        attrs.get("alias"),
+                        dynamic,
+                        path,
+                        line,
+                        evidence.id,
+                    )
+                )
+        return tuple(declarations), {key: tuple(value) for key, value in beans.items()}
+
+    def _xml_provider_facts(
+        self,
+        context: MethodDetectionContext,
+        path: str,
+        java_class: _Class,
+        imports: dict[str, str],
+        contracts: dict[str, _Class],
+        implementations: dict[_Method, ImplementationMethod],
+        services: tuple[_XmlDeclaration, ...],
+        bean_classes: dict[str, tuple[str, ...]],
+        evidences: list[MethodEvidence],
+        operations: list[ServiceOperation],
+        bindings: list[OperationBinding],
+        unresolved: list[MethodUnresolved],
+    ) -> None:
+        for service in services:
+            if service.dynamic:
+                self._xml_service_unresolved(
+                    context,
+                    path,
+                    java_class,
+                    service,
+                    "DYNAMIC_TARGET",
+                    service.target or "dubbo:service",
+                    evidences,
+                    unresolved,
+                )
+                continue
+            targets = bean_classes.get(service.target or "", ())
+            if len(targets) != 1:
+                reason = "AMBIGUOUS_TARGET" if len(targets) > 1 else "MISSING_DECLARATION"
+                self._xml_service_unresolved(
+                    context, path, java_class, service, reason, service.target or "dubbo:service", evidences, unresolved
+                )
+                continue
+            if targets[0] != java_class.fqcn:
+                continue
+            if service.interface is None:
+                self._append_unresolved(
+                    context, "MISSING_DECLARATION", java_class.fqcn, (service.evidence_id,), unresolved
+                )
+                continue
+            self._provider_facts(
+                context,
+                service.path,
+                java_class,
+                imports,
+                contracts,
+                "",
+                implementations,
+                evidences,
+                operations,
+                bindings,
+                unresolved,
+                interface_value=service.interface,
+                settings=(service.group, service.version, service.alias),
+                source_evidence_ids=(service.evidence_id,),
+                xml_service_ref=service.target,
+            )
+
+    def _xml_service_unresolved(
+        self,
+        context: MethodDetectionContext,
+        path: str,
+        java_class: _Class,
+        service: _XmlDeclaration,
+        reason: str,
+        subject: str,
+        evidences: list[MethodEvidence],
+        unresolved: list[MethodUnresolved],
+    ) -> None:
+        evidence_ids = (service.evidence_id,)
+        if service.interface in java_class.interfaces:
+            evidence = self._evidence(
+                context,
+                path,
+                java_class.body_offset,
+                java_class.body_offset,
+                "dubbo_xml_service_target",
+                java_class.fqcn,
+            )
+            evidences.append(evidence)
+            evidence_ids = (*evidence_ids, evidence.id)
+        self._append_unresolved(context, reason, subject, evidence_ids, unresolved)
+
     def _provider_facts(
         self,
         context: MethodDetectionContext,
@@ -170,9 +356,16 @@ class DubboMethodDetector:
         operations: list[ServiceOperation],
         bindings: list[OperationBinding],
         unresolved: list[MethodUnresolved],
+        *,
+        interface_value: str | None = None,
+        settings: tuple[str | None, str | None, str | None] | None = None,
+        source_evidence_ids: tuple[str, ...] = (),
+        xml_service_ref: str | None = None,
     ) -> None:
-        interface_value = self._class_value(args) or (java_class.interfaces[0] if java_class.interfaces else None)
-        settings, dynamic = self._settings(args)
+        interface_value = (
+            interface_value or self._class_value(args) or (java_class.interfaces[0] if java_class.interfaces else None)
+        )
+        settings, dynamic = (settings, False) if settings is not None else self._settings(args)
         if interface_value is None or dynamic:
             self._unresolved(
                 context,
@@ -196,7 +389,9 @@ class DubboMethodDetector:
             declaration = contract_methods.get((method.name, method.parameters))
             if declaration is None:
                 continue
-            evidence = self._evidence(context, path, method.start, method.end, "dubbo_provider_method", method.name)
+            evidence = self._evidence(
+                context, implementation.file_path, method.start, method.end, "dubbo_provider_method", method.name
+            )
             evidences.append(evidence)
             signature = self._signature(interface, declaration)
             operation = ServiceOperation(
@@ -209,8 +404,9 @@ class DubboMethodDetector:
                 interface,
                 method.name,
                 signature,
-                (evidence.id,),
+                (*source_evidence_ids, evidence.id),
                 *settings,
+                binding_identity=(f"xml-service-ref:{xml_service_ref}" if xml_service_ref is not None else None),
             )
             operations.append(operation)
             bindings.append(
@@ -220,10 +416,10 @@ class DubboMethodDetector:
                     context.service_id,
                     context.source_revision,
                     context.generation_id,
-                    self._reference(signature, *settings),
+                    self._reference(signature, *settings, xml_service_ref=xml_service_ref),
                     operation.id,
                     implementation.id,
-                    (evidence.id,),
+                    (*source_evidence_ids, evidence.id),
                 )
             )
 
@@ -248,13 +444,17 @@ class DubboMethodDetector:
             evidence = self._evidence(context, path, line, line, "dubbo_proxy_call", subject)
             evidences.append(evidence)
             if proxy.dynamic:
-                unresolved.append(self._make_unresolved(context, "DYNAMIC_TARGET", subject, evidence.id))
+                self._append_unresolved(
+                    context, "DYNAMIC_TARGET", subject, (*proxy.evidence_ids, evidence.id), unresolved
+                )
                 continue
             declaration = self._called_declaration(
                 contracts.get(proxy.interface), match.group("method"), match.group("args"), method
             )
             if declaration is None:
-                unresolved.append(self._make_unresolved(context, "MISSING_DECLARATION", subject, evidence.id))
+                self._append_unresolved(
+                    context, "MISSING_DECLARATION", subject, (*proxy.evidence_ids, evidence.id), unresolved
+                )
                 continue
             calls.append(
                 ConsumerMethodCall(
@@ -265,10 +465,14 @@ class DubboMethodDetector:
                     context.generation_id,
                     implementation.id,
                     self._reference(
-                        self._signature(proxy.interface, declaration), proxy.group, proxy.version, proxy.alias
+                        self._signature(proxy.interface, declaration),
+                        proxy.group,
+                        proxy.version,
+                        proxy.alias,
+                        xml_reference_id=proxy.xml_reference_id,
                     ),
                     "operation",
-                    (evidence.id,),
+                    (*proxy.evidence_ids, evidence.id),
                 )
             )
 
@@ -290,8 +494,12 @@ class DubboMethodDetector:
                 continue
             evidence = self._evidence(context, path, line, line, "dubbo_proxy_call", match.group(0).strip())
             evidences.append(evidence)
-            unresolved.append(
-                self._make_unresolved(context, "MISSING_IMPLEMENTATION", match.group(0).strip(), evidence.id)
+            self._append_unresolved(
+                context,
+                "MISSING_IMPLEMENTATION",
+                match.group(0).strip(),
+                (*proxies[match.group("receiver")].evidence_ids, evidence.id),
+                unresolved,
             )
 
     def _proxies(self, java_class: _Class, imports: dict[str, str]) -> dict[str, _Proxy]:
@@ -300,6 +508,70 @@ class DubboMethodDetector:
             settings, dynamic = self._settings(match.group("args") or "")
             result[match.group("name")] = _Proxy(
                 self._fqcn(match.group("type").split("<", 1)[0], java_class.fqcn, imports), *settings, dynamic
+            )
+        return result
+
+    def _xml_proxies(
+        self,
+        context: MethodDetectionContext,
+        path: str,
+        java_class: _Class,
+        imports: dict[str, str],
+        references: tuple[_XmlDeclaration, ...],
+        evidences: list[MethodEvidence],
+        unresolved: list[MethodUnresolved],
+    ) -> dict[str, _Proxy]:
+        fields = {
+            match.group("name"): self._fqcn(match.group("type").split("<", 1)[0], java_class.fqcn, imports)
+            for match in self._FIELD.finditer(java_class.body)
+        }
+        result: dict[str, _Proxy] = {}
+        for reference in references:
+            if reference.dynamic:
+                if reference.target in fields:
+                    result[reference.target] = _Proxy(
+                        reference.interface or fields[reference.target],
+                        reference.group,
+                        reference.version,
+                        reference.alias,
+                        True,
+                        (reference.evidence_id,),
+                        reference.target,
+                    )
+                continue
+            if reference.interface is None or reference.target is None:
+                self._append_unresolved(
+                    context,
+                    "MISSING_DECLARATION",
+                    reference.target or "dubbo:reference",
+                    (reference.evidence_id,),
+                    unresolved,
+                )
+                continue
+            field_type = fields.get(reference.target)
+            if field_type is None or field_type != reference.interface:
+                evidence_ids = (reference.evidence_id,)
+                if field_type is not None:
+                    evidence = self._evidence(
+                        context,
+                        path,
+                        java_class.body_offset,
+                        java_class.body_offset,
+                        "dubbo_xml_reference_target",
+                        reference.target,
+                    )
+                    evidences.append(evidence)
+                    evidence_ids = (*evidence_ids, evidence.id)
+                self._append_unresolved(context, "MISSING_DECLARATION", reference.target, evidence_ids, unresolved)
+                continue
+            result[reference.target] = _Proxy(
+                reference.interface,
+                reference.group,
+                reference.version,
+                reference.alias,
+                False,
+                (reference.evidence_id,),
+                reference.target,
             )
         return result
 
@@ -398,6 +670,14 @@ class DubboMethodDetector:
             values.append(raw)
         return (values[0], values[1], values[2]), dynamic
 
+    @classmethod
+    def _xml_attributes(cls, text: str) -> dict[str, str]:
+        return {match.group("key"): match.group("value") for match in cls._XML_ATTRIBUTE.finditer(text)}
+
+    @staticmethod
+    def _dynamic(value: str) -> bool:
+        return "${" in value or "#{" in value
+
     @staticmethod
     def _fqcn(value: str, current_fqcn: str, imports: dict[str, str]) -> str:
         if "." in value:
@@ -424,8 +704,23 @@ class DubboMethodDetector:
         return f"{package}.{value}" if package else value
 
     @staticmethod
-    def _reference(signature: str, group: str | None, version: str | None, alias: str | None) -> str:
-        return f"dubbo-operation:{signature}|group={group or ''}|version={version or ''}|alias={alias or ''}"
+    def _reference(
+        signature: str,
+        group: str | None,
+        version: str | None,
+        alias: str | None,
+        *,
+        xml_reference_id: str | None = None,
+        xml_service_ref: str | None = None,
+    ) -> str:
+        reference = f"dubbo-operation:{signature}|group={group or ''}|version={version or ''}|alias={alias or ''}"
+        if xml_reference_id is not None or xml_service_ref is not None:
+            reference = f"{reference}|origin=xml"
+        if xml_reference_id is not None:
+            reference = f"{reference}|xml-reference-id={xml_reference_id}"
+        if xml_service_ref is not None:
+            reference = f"{reference}|xml-service-ref={xml_service_ref}"
+        return reference
 
     def _evidence(
         self, context: MethodDetectionContext, path: str, start: int, end: int, kind: str, subject: str
@@ -458,11 +753,22 @@ class DubboMethodDetector:
     ) -> None:
         evidence = self._evidence(context, path, line, line, "dubbo_unresolved", subject)
         evidences.append(evidence)
-        unresolved.append(self._make_unresolved(context, reason, subject, evidence.id))
+        self._append_unresolved(context, reason, subject, (evidence.id,), unresolved)
+
+    @classmethod
+    def _append_unresolved(
+        cls,
+        context: MethodDetectionContext,
+        reason: str,
+        subject: str,
+        evidence_ids: tuple[str, ...],
+        unresolved: list[MethodUnresolved],
+    ) -> None:
+        unresolved.append(cls._make_unresolved(context, reason, subject, evidence_ids))
 
     @staticmethod
     def _make_unresolved(
-        context: MethodDetectionContext, reason: str, subject: str, evidence_id: str
+        context: MethodDetectionContext, reason: str, subject: str, evidence_ids: tuple[str, ...]
     ) -> MethodUnresolved:
         return MethodUnresolved(
             context.repo_id,
@@ -472,7 +778,7 @@ class DubboMethodDetector:
             context.generation_id,
             reason,
             subject,
-            (evidence_id,),
+            tuple(sorted(set(evidence_ids))),
         )
 
     @staticmethod

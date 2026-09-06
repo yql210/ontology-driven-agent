@@ -129,6 +129,7 @@ class ServiceOperation:
     group: str | None = None
     version: str | None = None
     alias: str | None = None
+    binding_identity: str | None = None
     id: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -138,7 +139,7 @@ class ServiceOperation:
         for name in ("declaring_interface_fqcn", "operation_name", "canonical_signature"):
             _require_nonblank(getattr(self, name), name)
         _require_evidence_ids(self.evidence_ids)
-        for name in ("group", "version", "alias"):
+        for name in ("group", "version", "alias", "binding_identity"):
             _optional_nonblank(getattr(self, name), name)
         object.__setattr__(self, "id", _stable_id({"kind": "service_operation", **self._identity()}))
 
@@ -164,6 +165,7 @@ class ServiceOperation:
             "group": self.group,
             "version": self.version,
             "alias": self.alias,
+            "binding_identity": self.binding_identity,
         }
 
     def to_dict(self) -> dict[str, Any]:

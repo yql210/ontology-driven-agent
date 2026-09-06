@@ -1,0 +1,4 @@
+<beans xmlns:dubbo="http://dubbo.apache.org/schema/dubbo">
+    <bean id="orderService" class="example.orders.OrderService" />
+    <dubbo:service interface="example.orders.OrderApi" ref="orderService" group="orders" version="1.0" />
+</beans>

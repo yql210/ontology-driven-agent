@@ -26,6 +26,17 @@ def _detect(tmp_path: Path, source: str) -> object:
     )
 
 
+def _detect_xml(tmp_path: Path, files: dict[str, str], repo_id: str = "orders") -> object:
+    for relative, source in files.items():
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source)
+    snapshot = RepositorySnapshot(repo_id, "rev-1", tmp_path, frozenset({"java", "xml"}))
+    return DubboMethodDetector().detect_methods(
+        snapshot, MethodDetectionContext(repo_id, repo_id, repo_id, "rev-1", "gen-1")
+    )
+
+
 def test_dubbo_method_detector_emits_provider_operations_bindings_and_overloads(tmp_path: Path) -> None:
     facts = _detect(
         tmp_path,
@@ -86,6 +97,178 @@ class Checkout {
     assert not facts.consumer_calls
     assert {item.reason_code for item in facts.unresolved} >= {"DYNAMIC_TARGET", "MISSING_IMPLEMENTATION"}
     assert all(item.evidence_ids for item in facts.unresolved)
+
+
+def test_dubbo_method_detector_links_literal_xml_provider_and_consumer_to_java_methods(tmp_path: Path) -> None:
+    provider = _detect_xml(
+        tmp_path / "provider",
+        {
+            "src/main/java/example/orders/OrderApi.java": """package example.orders;
+interface OrderApi { String find(String id); String find(long id); }""",
+            "src/main/java/example/orders/OrderService.java": """package example.orders;
+class OrderService implements OrderApi {
+  public String find(String id) { return id; }
+  public String find(long id) { return \"\"; }
+}""",
+            "src/main/resources/dubbo-provider.xml": """<beans xmlns:dubbo="http://dubbo.apache.org/schema/dubbo">
+  <bean id="orderService" class="example.orders.OrderService" />
+  <dubbo:service interface="example.orders.OrderApi" ref="orderService" group="orders" version="1.0" />
+</beans>""",
+        },
+        "provider",
+    )
+    consumer = _detect_xml(
+        tmp_path / "consumer",
+        {
+            "src/main/java/example/orders/OrderApi.java": """package example.orders;
+interface OrderApi { String find(String id); String find(long id); }""",
+            "src/main/java/example/checkout/Checkout.java": """package example.checkout;
+import example.orders.OrderApi;
+class Checkout {
+  private OrderApi orders;
+  String load() { return orders.find(\"42\"); }
+  String load(long id) { return orders.find(42L); }
+}""",
+            "src/main/resources/dubbo-consumer.xml": """<beans xmlns:dubbo="http://dubbo.apache.org/schema/dubbo">
+  <dubbo:reference id="orders" interface="example.orders.OrderApi" group="orders" version="1.0" />
+</beans>""",
+        },
+        "consumer",
+    )
+
+    assert {item.canonical_signature for item in provider.operations} == {
+        "example.orders.OrderApi#find(java.lang.String):java.lang.String",
+        "example.orders.OrderApi#find(long):java.lang.String",
+    }
+    assert len(provider.implementations) == len(provider.bindings) == 2
+    assert {item.binding_identity for item in provider.operations} == {"xml-service-ref:orderService"}
+    assert all(
+        {evidence.file_path for evidence in provider.evidences if evidence.id in operation.evidence_ids}
+        == {"src/main/java/example/orders/OrderService.java", "src/main/resources/dubbo-provider.xml"}
+        for operation in provider.operations
+    )
+    assert {item.target_reference for item in consumer.consumer_calls} == {
+        "dubbo-operation:example.orders.OrderApi#find(java.lang.String):java.lang.String|group=orders|version=1.0"
+        "|alias=|origin=xml|xml-reference-id=orders",
+        "dubbo-operation:example.orders.OrderApi#find(long):java.lang.String|group=orders|version=1.0"
+        "|alias=|origin=xml|xml-reference-id=orders",
+    }
+
+
+def test_dubbo_method_detector_marks_xml_placeholder_mismatch_and_malformed_declarations_unresolved(
+    tmp_path: Path,
+) -> None:
+    facts = _detect_xml(
+        tmp_path,
+        {
+            "src/main/java/example/orders/OrderApi.java": """package example.orders;
+interface OrderApi { String find(String id); }""",
+            "src/main/java/example/orders/OrderService.java": """package example.orders;
+class OrderService implements OrderApi { public String find(String id) { return id; } }""",
+            "src/main/java/example/checkout/Checkout.java": """package example.checkout;
+import example.orders.OrderApi;
+class Checkout {
+  private OrderApi orders;
+  private OrderApi mismatch;
+  String load() { return orders.find(\"42\"); }
+  String mismatch() { return mismatch.find(\"42\"); }
+}""",
+            "src/main/resources/dubbo.xml": """<beans xmlns:dubbo="http://dubbo.apache.org/schema/dubbo">
+  <dubbo:reference id="orders" interface="example.orders.OrderApi" group="${orders.group}" version="1.0" />
+  <dubbo:reference id="mismatch" interface="example.orders.OtherApi" group="orders" version="1.0" />
+  <bean id="duplicate" class="example.orders.OrderService" />
+  <bean id="duplicate" class="example.orders.OtherOrderService" />
+  <dubbo:service interface="example.orders.OrderApi" ref="missing" group="orders" version="1.0" />
+  <dubbo:service interface="example.orders.OrderApi" ref="duplicate" group="orders" version="1.0" />
+</beans>""",
+            "src/main/resources/broken.xml": '<beans><dubbo:service interface="example.orders.OrderApi"',
+            "src/main/resources/ordinary.xml": '<beans><service interface="example.orders.OrderApi" /></beans>',
+        },
+    )
+
+    assert not facts.operations
+    assert not facts.consumer_calls
+    assert {item.reason_code for item in facts.unresolved} >= {
+        "AMBIGUOUS_TARGET",
+        "DYNAMIC_TARGET",
+        "MISSING_DECLARATION",
+        "UNSUPPORTED_TARGET_SHAPE",
+    }
+    assert any(
+        {evidence.file_path for evidence in facts.evidences if evidence.id in item.evidence_ids}
+        == {"src/main/resources/dubbo.xml", "src/main/java/example/checkout/Checkout.java"}
+        for item in facts.unresolved
+        if item.reason_code == "DYNAMIC_TARGET"
+    )
+    assert any(
+        {evidence.file_path for evidence in facts.evidences if evidence.id in item.evidence_ids}
+        == {"src/main/resources/dubbo.xml", "src/main/java/example/checkout/Checkout.java"}
+        for item in facts.unresolved
+        if item.subject == "mismatch"
+    )
+    assert all("ordinary.xml" not in evidence.file_path for evidence in facts.evidences)
+
+
+def test_workspace_method_plan_does_not_cross_link_xml_call_to_annotation_operation(tmp_path: Path) -> None:
+    xml_provider = _detect_xml(
+        tmp_path / "xml-provider",
+        {
+            "src/main/java/example/orders/OrderApi.java": """package example.orders;
+interface OrderApi { String find(String id); }""",
+            "src/main/java/example/orders/OrderService.java": """package example.orders;
+class OrderService implements OrderApi { public String find(String id) { return id; } }""",
+            "src/main/resources/dubbo-provider.xml": """<beans xmlns:dubbo="http://dubbo.apache.org/schema/dubbo">
+  <bean id="orderService" class="example.orders.OrderService" />
+  <dubbo:service interface="example.orders.OrderApi" ref="orderService" group="orders" version="1.0" />
+</beans>""",
+        },
+        "xml-provider",
+    )
+    xml_consumer = _detect_xml(
+        tmp_path / "xml-consumer",
+        {
+            "src/main/java/example/orders/OrderApi.java": """package example.orders;
+interface OrderApi { String find(String id); }""",
+            "src/main/java/example/checkout/Checkout.java": """package example.checkout;
+import example.orders.OrderApi;
+class Checkout { private OrderApi orderApi; String load() { return orderApi.find("42"); } }""",
+            "src/main/resources/dubbo-consumer.xml": """<beans xmlns:dubbo="http://dubbo.apache.org/schema/dubbo">
+  <dubbo:reference id="orderApi" interface="example.orders.OrderApi" group="orders" version="1.0" />
+</beans>""",
+        },
+        "xml-consumer",
+    )
+    annotation_provider = _detect_xml(
+        tmp_path / "annotation-provider",
+        {
+            "src/main/java/example/orders/OrderApi.java": """package example.orders;
+interface OrderApi { String find(String id); }""",
+            "src/main/java/example/orders/OrderService.java": """package example.orders;
+@DubboService(interfaceClass = OrderApi.class, group = "orders", version = "1.0")
+class OrderService implements OrderApi { public String find(String id) { return id; } }""",
+        },
+        "annotation-provider",
+    )
+    generation = WorkspaceGeneration(
+        "workspace",
+        "gen-1",
+        tuple(
+            WorkspaceRepositorySnapshot(
+                "workspace",
+                repo_id,
+                "main",
+                "rev-1",
+                WorkspaceSourceDescriptor(WorkspaceSourceKind.GIT, f"https://example/{repo_id}"),
+            )
+            for repo_id in ("xml-provider", "xml-consumer", "annotation-provider")
+        ),
+    )
+    plan = MethodGraphWritePlan(
+        MethodGraphScope("namespace", generation), (annotation_provider, xml_consumer, xml_provider)
+    )
+    call = xml_consumer.consumer_calls[0]
+
+    assert plan.operation_ids_for(call.target_reference) == (xml_provider.operations[0].id,)
 
 
 def test_workspace_method_plan_resolves_only_exact_dubbo_signature_and_metadata(tmp_path: Path) -> None:

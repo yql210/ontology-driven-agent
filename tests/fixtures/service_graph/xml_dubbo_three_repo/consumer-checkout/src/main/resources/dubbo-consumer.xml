@@ -1,0 +1,3 @@
+<beans xmlns:dubbo="http://dubbo.apache.org/schema/dubbo">
+    <dubbo:reference id="orderApi" interface="example.orders.OrderApi" group="orders" version="1.0" />
+</beans>
