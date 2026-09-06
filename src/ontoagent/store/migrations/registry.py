@@ -20,6 +20,7 @@ _BUILTIN_MIGRATIONS: list[str] = [
     "2.4.0",
     "2.5.0",
     "2.6.0",
+    "2.7.0",
 ]
 
 
@@ -85,6 +86,10 @@ def _load_migration(version: str) -> MigrationBase:
         from ontoagent.store.migrations.v2_6_0_method_graph import MethodGraphMigration
 
         return MethodGraphMigration()
+    if version == "2.7.0":
+        from ontoagent.store.migrations.v2_7_0_workspace_acl import WorkspaceAclMigration
+
+        return WorkspaceAclMigration()
     raise ValueError(f"Unknown migration version: {version}")
 
 
