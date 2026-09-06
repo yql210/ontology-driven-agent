@@ -10,7 +10,14 @@ from types import ModuleType
 
 from fastmcp import FastMCP
 
+from ontoagent.api.workspace_service_graph import (
+    workspace_graph_page_envelope,
+    workspace_service_graph_query_service_factory,
+)
 from ontoagent.config import OntoAgentConfig
+from ontoagent.domain.workspace_authorization import PrincipalIdentity
+from ontoagent.domain.workspace_graph_query import WorkspaceGraphQueryRequest, WorkspaceGraphQueryValidationError
+from ontoagent.execution.workspace_query_authorization import WorkspaceAuthorizationError
 from ontoagent.pipeline.aligner import ConceptAligner
 from ontoagent.pipeline.builder import OntoAgentBuilder
 from ontoagent.pipeline.module_clustering import ModuleClustering
@@ -183,8 +190,123 @@ def graph_query(cypher: str) -> list[dict]:
     Returns:
         查询结果列表。
     """
+    if "ontoagentworkspace" in cypher.lower() or "workspaceid" in cypher.lower():
+        raise ValueError("workspace service graph queries require dedicated tools")
     neo4j = _get_graph_store()
     return neo4j.query(cypher)
+
+
+def _workspace_graph_query(
+    operation: str,
+    workspace_id: str,
+    principal: str,
+    *,
+    generation_id: str | None = None,
+    repo_id: str | None = None,
+    page_size: int = 50,
+    cursor: str | None = None,
+    depth: int = 1,
+    node_limit: int = 200,
+    value: str | None = None,
+) -> dict[str, object]:
+    """Route MCP workspace reads through the same typed request and ACL service."""
+    try:
+        request = WorkspaceGraphQueryRequest(workspace_id, generation_id, repo_id, page_size, cursor, depth, node_limit)
+        identity = PrincipalIdentity(principal)
+        method_name = {"directory": "service_directory", "operations": "operation_directory"}.get(operation, operation)
+        with workspace_service_graph_query_service_factory.create() as service:
+            method = getattr(service, method_name)
+            page = method(identity, request) if value is None else method(identity, request, value)
+        return workspace_graph_page_envelope(page)
+    except WorkspaceAuthorizationError as error:
+        return {"error": error.failure.value}
+    except (ValueError, WorkspaceGraphQueryValidationError):
+        return {"error": "invalid_request"}
+
+
+@mcp.tool
+def workspace_service_graph_directory(
+    workspace_id: str,
+    principal: str,
+    generation_id: str | None = None,
+    repo_id: str | None = None,
+    page_size: int = 50,
+    cursor: str | None = None,
+    depth: int = 1,
+    node_limit: int = 200,
+) -> dict[str, object]:
+    """List services in an ACL-authorized workspace generation."""
+    return _workspace_graph_query(
+        "directory",
+        workspace_id,
+        principal,
+        generation_id=generation_id,
+        repo_id=repo_id,
+        page_size=page_size,
+        cursor=cursor,
+        depth=depth,
+        node_limit=node_limit,
+    )
+
+
+@mcp.tool
+def workspace_service_graph_operations(workspace_id: str, principal: str) -> dict[str, object]:
+    """List visible method operations in a workspace."""
+    return _workspace_graph_query("operations", workspace_id, principal)
+
+
+def _workspace_value_tool(
+    operation: str, workspace_id: str, principal: str, value: str, **kwargs: object
+) -> dict[str, object]:
+    return _workspace_graph_query(operation, workspace_id, principal, value=value, **kwargs)
+
+
+@mcp.tool
+def workspace_service_graph_providers(workspace_id: str, principal: str, endpoint_key: str) -> dict[str, object]:
+    """Find visible providers for one endpoint."""
+    return _workspace_value_tool("providers", workspace_id, principal, endpoint_key)
+
+
+@mcp.tool
+def workspace_service_graph_consumers(workspace_id: str, principal: str, endpoint_key: str) -> dict[str, object]:
+    """Find visible consumers for one endpoint."""
+    return _workspace_value_tool("consumers", workspace_id, principal, endpoint_key)
+
+
+@mcp.tool
+def workspace_service_graph_dependencies(workspace_id: str, principal: str, node_id: str) -> dict[str, object]:
+    """Read visible dependencies of a graph node."""
+    return _workspace_value_tool("dependencies", workspace_id, principal, node_id)
+
+
+@mcp.tool
+def workspace_service_graph_evidence(workspace_id: str, principal: str, node_id: str) -> dict[str, object]:
+    """Read visible evidence attached to a graph node."""
+    return _workspace_value_tool("evidence", workspace_id, principal, node_id)
+
+
+@mcp.tool
+def workspace_service_graph_unresolved(workspace_id: str, principal: str) -> dict[str, object]:
+    """List visible unresolved method graph records."""
+    return _workspace_graph_query("unresolved", workspace_id, principal)
+
+
+@mcp.tool
+def workspace_service_graph_build_task(workspace_id: str, principal: str, task_id: str) -> dict[str, object]:
+    """Read one visible workspace build task graph record."""
+    return _workspace_value_tool("build_task", workspace_id, principal, task_id)
+
+
+@mcp.tool
+def workspace_service_graph_changes(workspace_id: str, principal: str, from_generation_id: str) -> dict[str, object]:
+    """Read data bound to a prior authorized generation."""
+    return _workspace_value_tool("changes", workspace_id, principal, from_generation_id)
+
+
+@mcp.tool
+def workspace_service_graph_impact(workspace_id: str, principal: str, node_id: str) -> dict[str, object]:
+    """Read the visible impact neighborhood of a graph node."""
+    return _workspace_value_tool("impact", workspace_id, principal, node_id)
 
 
 @mcp.tool

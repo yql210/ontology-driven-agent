@@ -15,6 +15,7 @@ from ontoagent.api.web.router import chat as chat_router
 from ontoagent.api.web.router.graph import router as graph_router
 from ontoagent.api.web.router.service_graph import router as service_graph_router
 from ontoagent.api.web.router.service_graph_eval import router as service_graph_eval_router
+from ontoagent.api.web.router.workspace_service_graph import router as workspace_service_graph_router
 from ontoagent.auth import RepoAccessControl, RepoAuthMiddleware
 from ontoagent.config import OntoAgentConfig
 from ontoagent.observability import (
@@ -185,6 +186,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_router.router, prefix="/api")
     app.include_router(graph_router, prefix="/api")
     app.include_router(service_graph_router, prefix="/api")
+    app.include_router(workspace_service_graph_router, prefix="/api")
     app.include_router(service_graph_eval_router, prefix="/api")
 
     # 挂载 trace router

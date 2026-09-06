@@ -638,6 +638,16 @@ class TestToolRegistration:
             "detect_changes",
             "export_graph",
             "evaluate_open_service_graph",
+            "workspace_service_graph_directory",
+            "workspace_service_graph_operations",
+            "workspace_service_graph_providers",
+            "workspace_service_graph_consumers",
+            "workspace_service_graph_dependencies",
+            "workspace_service_graph_evidence",
+            "workspace_service_graph_unresolved",
+            "workspace_service_graph_build_task",
+            "workspace_service_graph_changes",
+            "workspace_service_graph_impact",
         }
 
         tools = asyncio.run(mcp._local_provider.list_tools())

@@ -11,7 +11,14 @@ from types import ModuleType
 
 import click
 
+from ontoagent.api.workspace_service_graph import (
+    workspace_graph_page_envelope,
+    workspace_service_graph_query_service_factory,
+)
 from ontoagent.config import OntoAgentConfig
+from ontoagent.domain.workspace_authorization import PrincipalIdentity, WorkspaceAuthorizationFailure
+from ontoagent.domain.workspace_graph_query import WorkspaceGraphQueryRequest, WorkspaceGraphQueryValidationError
+from ontoagent.execution.workspace_query_authorization import WorkspaceAuthorizationError
 from ontoagent.parsing.service_graph.workspace.build_application_service import create_workspace_build_service
 from ontoagent.parsing.service_graph.workspace.publish_orchestrator import WorkspacePublishStatus
 from ontoagent.pipeline.builder import OntoAgentBuilder
@@ -93,6 +100,76 @@ def workspace_build(manifest: Path) -> None:
     click.echo(json.dumps(result.to_dict(), ensure_ascii=False, sort_keys=True))
     if result.outcome.status is not WorkspacePublishStatus.ACTIVE:
         raise click.exceptions.Exit(2)
+
+
+@main.group(name="workspace-service-graph")
+def workspace_service_graph() -> None:
+    """Read an ACL-gated workspace service graph through the shared query service."""
+
+
+def _workspace_graph_command(operation: str, argument: str | None = None) -> click.Command:
+    params: list[click.Parameter] = [
+        click.Argument(["workspace_id"]),
+        click.Option(["--principal"], required=True),
+        click.Option(["--generation-id"]),
+        click.Option(["--repo-id"]),
+        click.Option(["--page-size"], type=int, default=50, show_default=True),
+        click.Option(["--cursor"]),
+        click.Option(["--depth"], type=int, default=1, show_default=True),
+        click.Option(["--node-limit"], type=int, default=200, show_default=True),
+    ]
+    if argument is not None:
+        params.insert(1, click.Option([f"--{argument.replace('_', '-')}"], required=True))
+
+    def callback(**values: object) -> None:
+        try:
+            principal = PrincipalIdentity(str(values["principal"]))
+            request = WorkspaceGraphQueryRequest(
+                str(values["workspace_id"]),
+                values["generation_id"],
+                values["repo_id"],
+                int(values["page_size"]),
+                values["cursor"],
+                int(values["depth"]),
+                int(values["node_limit"]),
+            )
+            extra = () if argument is None else (str(values[argument]),)
+            with workspace_service_graph_query_service_factory.create() as service:
+                method = getattr(
+                    service,
+                    {"directory": "service_directory", "operations": "operation_directory"}.get(operation, operation),
+                )
+                page = method(principal, request, *extra)
+            click.echo(json.dumps(workspace_graph_page_envelope(page), ensure_ascii=False, sort_keys=True))
+        except WorkspaceAuthorizationError as error:
+            click.echo(json.dumps({"error": error.failure.value}, sort_keys=True), err=True)
+            raise click.exceptions.Exit(
+                {
+                    WorkspaceAuthorizationFailure.FORBIDDEN: 3,
+                    WorkspaceAuthorizationFailure.NOT_FOUND: 4,
+                    WorkspaceAuthorizationFailure.CONFLICT: 5,
+                }[error.failure]
+            ) from None
+        except (ValueError, WorkspaceGraphQueryValidationError):
+            click.echo(json.dumps({"error": "invalid_request"}, sort_keys=True), err=True)
+            raise click.exceptions.Exit(2) from None
+
+    return click.Command(operation, params=params, callback=callback)
+
+
+for _operation, _argument in (
+    ("directory", None),
+    ("operations", None),
+    ("providers", "endpoint_key"),
+    ("consumers", "endpoint_key"),
+    ("dependencies", "node_id"),
+    ("evidence", "node_id"),
+    ("unresolved", None),
+    ("build_task", "task_id"),
+    ("changes", "from_generation_id"),
+    ("impact", "node_id"),
+):
+    workspace_service_graph.add_command(_workspace_graph_command(_operation, _argument))
 
 
 @main.command()
