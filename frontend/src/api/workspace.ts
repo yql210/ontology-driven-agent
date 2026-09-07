@@ -99,11 +99,28 @@ export async function fetchWorkspaceServiceGraphImpact(
   return fetchWorkspaceServiceGraph(workspaceId, principal, 'impact', { ...params, node_id: nodeId })
 }
 
+export async function fetchWorkspaceServiceGraphChanges(
+  workspaceId: string,
+  principal: string,
+  fromGenerationId: string,
+  params: WorkspaceGraphDirectoryParams = {},
+): Promise<WorkspaceGraphDirectory> {
+  return fetchWorkspaceServiceGraph(workspaceId, principal, 'changes', { ...params, from_generation_id: fromGenerationId })
+}
+
+export async function fetchWorkspaceServiceGraphUnresolved(
+  workspaceId: string,
+  principal: string,
+  params: WorkspaceGraphDirectoryParams = {},
+): Promise<WorkspaceGraphDirectory> {
+  return fetchWorkspaceServiceGraph(workspaceId, principal, 'unresolved', params)
+}
+
 async function fetchWorkspaceServiceGraph(
   workspaceId: string,
   principal: string,
-  operation: 'directory' | 'operations' | 'providers' | 'consumers' | 'dependencies' | 'evidence' | 'impact',
-  params: WorkspaceGraphDirectoryParams & { endpoint_key?: string; node_id?: string } = {},
+  operation: 'directory' | 'operations' | 'providers' | 'consumers' | 'dependencies' | 'evidence' | 'unresolved' | 'changes' | 'impact',
+  params: WorkspaceGraphDirectoryParams & { endpoint_key?: string; node_id?: string; from_generation_id?: string } = {},
 ): Promise<WorkspaceGraphDirectory> {
   // Supported workspace route family includes service-graph/directory, service-graph/dependencies, and service-graph/evidence.
   const search = new URLSearchParams()
