@@ -47,7 +47,7 @@ async function load() {
 }
 function protocol(node: WorkspaceGraphNode) { return typeof node.protocol === 'string' ? node.protocol : '' }
 function label(node: WorkspaceGraphNode) { return String(node.displayName ?? node.operationName ?? node.canonicalSignature ?? node.id) }
-function endpointKey(node: WorkspaceGraphNode) { const value = node.canonical_key ?? node.canonicalKey ?? node.endpoint_key ?? node.endpointKey; return typeof value === 'string' ? value : '' }
+function endpointKey(node: WorkspaceGraphNode) { const value = node.canonical_key ?? node.canonicalKey ?? node.endpoint_key ?? node.endpointKey; return typeof value === 'string' && value ? value : node.id }
 async function showDrilldown(node: WorkspaceGraphNode) {
   const key = endpointKey(node); if (!key) return
   selected.value = node; drilldownLoading.value = true; drilldown.value = { providers: null, consumers: null }

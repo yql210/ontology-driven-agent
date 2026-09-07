@@ -158,7 +158,7 @@ watch([generationId, repoFilter, pageSize], () => { if (workspaceId.value && pri
       <p class="visibility">Visibility: {{ serviceDirectory?.visibility ?? operationDirectory?.visibility }} · {{ visibleNodes.length }} nodes · {{ visibleEdges.length }} edges</p>
       <div class="topology-layout">
         <section class="node-list">
-          <article v-for="node in visibleNodes" :key="node.id" class="node">
+          <article v-for="node in visibleNodes" :key="node.id" class="node" data-testid="topology-node">
             <button class="node-button" type="button" @click="showDependencies(node)">
               <strong>{{ label(node) }}</strong>
               <span>{{ nodeKind(node) }}</span>
@@ -178,7 +178,7 @@ watch([generationId, repoFilter, pageSize], () => { if (workspaceId.value && pri
             {{ loadingMore ? 'Loading...' : 'Next page' }}
           </button>
         </section>
-        <aside v-if="selected" class="detail">
+        <aside v-if="selected" class="detail" data-testid="topology-detail">
           <h2>{{ label(selected) }}</h2>
           <p class="muted">{{ selected.id }}</p>
           <p v-if="dependencyLoading">Loading dependencies...</p>
