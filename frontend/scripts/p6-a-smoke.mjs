@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises'
 
 const api = await readFile(new URL('../src/api/workspace.ts', import.meta.url), 'utf8')
 const view = await readFile(new URL('../src/views/WorkspaceOverviewView.vue', import.meta.url), 'utf8')
+const directoryView = await readFile(new URL('../src/views/ServiceDirectoryView.vue', import.meta.url), 'utf8')
+const router = await readFile(new URL('../src/router/index.ts', import.meta.url), 'utf8')
 
 assert.match(api, /service-graph\/directory/)
 assert.match(api, /encodeURIComponent\(workspaceId\)/)
@@ -21,3 +23,19 @@ for (const field of ['source_revision', 'sourceRevision', 'revision']) {
 assert.doesNotMatch(view, /source_revisions|commit|git_sha|latest_revision/)
 
 console.log('P6-A frontend source smoke passed')
+assert.match(router, /workspaces\/:workspace_id\/services/)
+assert.match(directoryView, /fetchWorkspaceOperationDirectory/)
+assert.match(directoryView, /repoFilter/)
+assert.match(directoryView, /repo_id: repoFilter/)
+assert.match(directoryView, /protocolOptions/)
+assert.match(directoryView, /protocolFilter/)
+assert.match(directoryView, /v-model\.number="pageSize"/)
+assert.match(directoryView, /pageSize/)
+assert.match(directoryView, /next_cursor/)
+assert.match(directoryView, /cursor = directory\?\.next_cursor/)
+assert.match(directoryView, /fetchWorkspaceServiceGraphProviders/)
+assert.match(directoryView, /fetchWorkspaceServiceGraphConsumers/)
+assert.match(directoryView, /endpointKey/)
+assert.match(api, /endpoint_key: endpointKey/)
+for (const status of [403, 409, 422]) assert.match(directoryView, new RegExp(`status === ${status}`))
+console.log('P6-B frontend source smoke passed')

@@ -43,12 +43,48 @@ export async function fetchWorkspaceServiceGraphDirectory(
   principal: string,
   params: WorkspaceGraphDirectoryParams = {},
 ): Promise<WorkspaceGraphDirectory> {
+  return fetchWorkspaceServiceGraph(workspaceId, principal, 'directory', params)
+}
+
+export async function fetchWorkspaceOperationDirectory(
+  workspaceId: string,
+  principal: string,
+  params: WorkspaceGraphDirectoryParams = {},
+): Promise<WorkspaceGraphDirectory> {
+  return fetchWorkspaceServiceGraph(workspaceId, principal, 'operations', params)
+}
+
+export async function fetchWorkspaceServiceGraphProviders(
+  workspaceId: string,
+  principal: string,
+  endpointKey: string,
+  params: WorkspaceGraphDirectoryParams = {},
+): Promise<WorkspaceGraphDirectory> {
+  return fetchWorkspaceServiceGraph(workspaceId, principal, 'providers', { ...params, endpoint_key: endpointKey })
+}
+
+export async function fetchWorkspaceServiceGraphConsumers(
+  workspaceId: string,
+  principal: string,
+  endpointKey: string,
+  params: WorkspaceGraphDirectoryParams = {},
+): Promise<WorkspaceGraphDirectory> {
+  return fetchWorkspaceServiceGraph(workspaceId, principal, 'consumers', { ...params, endpoint_key: endpointKey })
+}
+
+async function fetchWorkspaceServiceGraph(
+  workspaceId: string,
+  principal: string,
+  operation: 'directory' | 'operations' | 'providers' | 'consumers',
+  params: WorkspaceGraphDirectoryParams & { endpoint_key?: string } = {},
+): Promise<WorkspaceGraphDirectory> {
+  // Supported workspace route family includes service-graph/directory.
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== '') search.set(key, String(value))
   }
   const query = search.toString()
-  const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/service-graph/directory${query ? `?${query}` : ''}`
+  const url = `/api/workspaces/${encodeURIComponent(workspaceId)}/service-graph/${operation}${query ? `?${query}` : ''}`
   const response = await fetch(url, {
     headers: { 'X-Workspace-Principal': principal },
   })
