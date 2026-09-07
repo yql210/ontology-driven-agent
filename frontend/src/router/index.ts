@@ -6,6 +6,7 @@ import TracesView from '../views/TracesView.vue'
 import TraceDetailView from '../views/TraceDetailView.vue'
 import WorkspaceOverviewView from '../views/WorkspaceOverviewView.vue'
 import ServiceDirectoryView from '../views/ServiceDirectoryView.vue'
+import DependencyTopologyView from '../views/DependencyTopologyView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -17,6 +18,7 @@ const router = createRouter({
     { path: '/traces/:threadId', name: 'trace-detail', component: TraceDetailView },
     { path: '/workspaces/:workspace_id', name: 'workspace-overview', component: WorkspaceOverviewView },
     { path: '/workspaces/:workspace_id/services', name: 'workspace-services', component: ServiceDirectoryView },
+    { path: '/workspaces/:workspace_id/topology', name: 'workspace-topology', component: DependencyTopologyView },
   ],
 })
 
