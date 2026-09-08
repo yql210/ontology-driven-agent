@@ -80,3 +80,25 @@ def test_workspace_router_rejects_invalid_request_as_422(client: TestClient) -> 
         headers={"X-Workspace-Principal": "alice"},
     )
     assert response.status_code == 422
+
+
+@pytest.mark.unit
+def test_workspace_endpoint_methods_route_uses_endpoint_id_and_shared_envelope(client: TestClient) -> None:
+    service = MagicMock()
+    service.endpoint_methods.return_value = WorkspaceGraphPage(
+        "workspace-1",
+        "generation-1",
+        WorkspaceGraphVisibility.FILTERED,
+        ({"id": "endpoint-1", "node_type": "Endpoint"},),
+        (),
+        None,
+    )
+    with patch.object(workspace_service_graph, "workspace_service_graph_query_service_factory") as factory:
+        factory.create.return_value.__enter__.return_value = service
+        response = client.get(
+            "/api/workspaces/workspace-1/service-graph/endpoints/endpoint-1/methods",
+            headers={"X-Workspace-Principal": "alice"},
+        )
+    assert response.status_code == 200
+    assert response.json()["nodes"][0]["id"] == "endpoint-1"
+    assert service.endpoint_methods.call_args.args[2] == "endpoint-1"

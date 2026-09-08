@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
 
 from ontoagent.api.workspace_service_graph import (
@@ -19,6 +19,7 @@ from ontoagent.execution.workspace_service_graph_query import WorkspaceServiceGr
 
 router = APIRouter(tags=["workspace-service-graph"])
 Nonblank = Annotated[str, Query(min_length=1, pattern=r".*\S.*")]
+EndpointPath = Annotated[str, Path(min_length=1, pattern=r".*\S.*")]
 
 
 def workspace_principal(x_workspace_principal: Annotated[str | None, Header()] = None) -> PrincipalIdentity:
@@ -72,6 +73,15 @@ def _operations(
     service: WorkspaceServiceGraphQueryService, principal: PrincipalIdentity, request: WorkspaceGraphQueryRequest
 ):
     return service.operation_directory(principal, request)
+
+
+def _endpoint_methods(
+    service: WorkspaceServiceGraphQueryService,
+    principal: PrincipalIdentity,
+    request: WorkspaceGraphQueryRequest,
+    endpoint_id: str,
+):
+    return service.endpoint_methods(principal, request, endpoint_id)
 
 
 def _providers(
@@ -190,6 +200,26 @@ def operations(
 ) -> JSONResponse:
     return _run(
         principal, _common(workspace_id, generation_id, repo_id, page_size, cursor, depth, node_limit), _operations
+    )
+
+
+@router.get("/workspaces/{workspace_id}/service-graph/endpoints/{endpoint_id}/methods")
+def endpoint_methods(
+    workspace_id: str,
+    endpoint_id: EndpointPath,
+    principal: Annotated[PrincipalIdentity, Depends(workspace_principal)],
+    generation_id: Common = None,
+    repo_id: Common = None,
+    page_size: IntegerPage = 50,
+    cursor: Common = None,
+    depth: IntegerDepth = 1,
+    node_limit: IntegerLimit = 200,
+) -> JSONResponse:
+    return _run(
+        principal,
+        _common(workspace_id, generation_id, repo_id, page_size, cursor, depth, node_limit),
+        _endpoint_methods,
+        endpoint_id,
     )
 
 

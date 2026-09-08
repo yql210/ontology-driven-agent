@@ -63,6 +63,11 @@ class WorkspaceServiceGraphQueryService:
     ) -> WorkspaceGraphPage:
         return self._query(principal, request, "operation_directory", {"ServiceOperation"})
 
+    def endpoint_methods(
+        self, principal: PrincipalIdentity, request: WorkspaceGraphQueryRequest, endpoint_id: str
+    ) -> WorkspaceGraphPage:
+        return self._query(principal, request, "endpoint_methods", related_to=endpoint_id)
+
     def providers(
         self, principal: PrincipalIdentity, request: WorkspaceGraphQueryRequest, endpoint_key: str
     ) -> WorkspaceGraphPage:
@@ -146,7 +151,9 @@ class WorkspaceServiceGraphQueryService:
                 node for node in visible_nodes if node.get("canonical_key") == endpoint_key and node.get("role") == role
             )
         if related_to is not None:
-            if operation in {"dependencies", "impact"}:
+            if operation == "endpoint_methods":
+                visible_nodes, visible_edges = _endpoint_method_graph(visible_nodes, visible_edges, related_to)
+            elif operation in {"dependencies", "impact"}:
                 visible_nodes, visible_edges = _traverse_graph(
                     visible_nodes,
                     visible_edges,
@@ -167,6 +174,8 @@ class WorkspaceServiceGraphQueryService:
             visible_edges = tuple(edge for edge in visible_edges if edge.get("relation_type") in relation_types)
             ids = {str(edge[key]) for edge in visible_edges for key in ("source_id", "target_id")}
             visible_nodes = tuple(node for node in visible_nodes if node.get("id") in ids)
+        visible_nodes = tuple(_public_record(node) for node in visible_nodes)
+        visible_edges = tuple(_public_record(edge) for edge in visible_edges)
         ordered = tuple(sorted(visible_nodes, key=lambda node: str(node["id"])))[: request.node_limit]
         primary = ordered[offset : offset + request.page_size]
         ordered_ids = {str(node["id"]) for node in ordered}
@@ -179,7 +188,7 @@ class WorkspaceServiceGraphQueryService:
             and str(edge.get("target_id")) in ordered_ids
         )
         page_ids = primary_ids | {str(edge[node_id]) for edge in page_edges for node_id in ("source_id", "target_id")}
-        page = tuple(node for node in ordered if str(node["id"]) in page_ids)
+        page = tuple(_sanitize_references(node, page_ids) for node in ordered if str(node["id"]) in page_ids)
         next_cursor = (
             self._cursor(offset + request.page_size, context) if offset + request.page_size < len(ordered) else None
         )
@@ -307,9 +316,141 @@ def _traverse_graph(
     )
 
 
+def _endpoint_method_graph(
+    nodes: tuple[dict[str, object], ...], edges: tuple[dict[str, object], ...], endpoint_id: str
+) -> tuple[tuple[dict[str, object], ...], tuple[dict[str, object], ...]]:
+    """Return a closed neighborhood for a visible endpoint and method evidence."""
+    by_id = {str(node.get("id")): node for node in nodes}
+    endpoint = by_id.get(endpoint_id)
+    if endpoint is None or endpoint.get("node_type") != "Endpoint":
+        return (), ()
+    method_types = {
+        "Endpoint",
+        "ServiceOperation",
+        "ImplementationMethod",
+        "ConsumerMethodCall",
+        "OperationBinding",
+        "MethodEvidence",
+        "MethodUnresolved",
+        "MethodCallTarget",
+        "Evidence",
+    }
+    endpoint_tokens = {endpoint_id}
+    endpoint_tokens.update(
+        str(value)
+        for key, value in endpoint.items()
+        if key in {"canonical_key", "canonicalKey", "service_id", "serviceId", "endpoint_key", "endpointKey"}
+        and isinstance(value, str)
+    )
+    selected = {endpoint_id}
+    seeded_methods: set[str] = set()
+    reference_keys = {
+        "endpoint_id",
+        "endpointId",
+        "provider_endpoint_reference",
+        "providerEndpointReference",
+        "target_reference",
+        "targetReference",
+        "service_id",
+        "serviceId",
+    }
+    for node in nodes:
+        if node.get("node_type") not in method_types:
+            continue
+        if endpoint_tokens.intersection({str(node[key]) for key in reference_keys if key in node}):
+            selected.add(str(node["id"]))
+            seeded_methods.add(str(node["id"]))
+    changed = True
+    while changed:
+        changed = False
+        for edge in edges:
+            source, target = str(edge.get("source_id")), str(edge.get("target_id"))
+            if (
+                source in selected
+                and target in by_id
+                and by_id[target].get("node_type") in method_types
+                and target not in selected
+            ):
+                selected.add(target)
+                changed = True
+            elif (
+                target in selected
+                and source in by_id
+                and by_id[source].get("node_type") in method_types
+                and source not in selected
+                and (by_id[source].get("node_type") != "ImplementationMethod" or target not in seeded_methods)
+            ):
+                selected.add(source)
+                changed = True
+    return (
+        tuple(node for node in nodes if str(node.get("id")) in selected),
+        tuple(
+            edge for edge in edges if str(edge.get("source_id")) in selected and str(edge.get("target_id")) in selected
+        ),
+    )
+
+
 def _repo(node: Mapping[str, object]) -> str | None:
     value = node.get("repo_id", node.get("repoId"))
     return value if type(value) is str else None
+
+
+def _public_record(record: Mapping[str, object]) -> dict[str, object]:
+    internal = {"factPayload", "workspaceId", "generationId", "namespace", "factId", "sourceRevision"}
+    return {key: value for key, value in record.items() if key not in internal and not key.startswith("_")}
+
+
+_NODE_REFERENCE_KEYS = frozenset(
+    {
+        "provider_operation_id",
+        "providerOperationId",
+        "provider_endpoint_id",
+        "providerEndpointId",
+        "provider_endpoint_reference",
+        "providerEndpointReference",
+        "target_reference",
+        "targetReference",
+        "caller_implementation_id",
+        "callerImplementationId",
+        "implementation_id",
+        "implementationId",
+        "endpoint_id",
+        "endpointId",
+        "operation_id",
+        "operationId",
+        "evidence_id",
+        "evidenceId",
+        "evidence_ids",
+        "evidenceIds",
+    }
+)
+_SEMANTIC_TARGET_PREFIXES = (
+    "spring-http:",
+    "feign-http:",
+    "dubbo-operation:",
+    "grpc-operation:",
+    "messaging-operation:",
+)
+
+
+def _sanitize_references(record: Mapping[str, object], returned_node_ids: set[str]) -> dict[str, object]:
+    """Remove node references that point outside the final ACL-visible page."""
+    sanitized = dict(record)
+    for key in _NODE_REFERENCE_KEYS.intersection(sanitized):
+        value = sanitized[key]
+        if isinstance(value, (list, tuple)):
+            filtered = type(value)(item for item in value if str(item) in returned_node_ids)
+            if filtered:
+                sanitized[key] = filtered
+            else:
+                sanitized.pop(key)
+        elif type(value) is str and value not in returned_node_ids:
+            # Target references may be semantic identifiers (for example, spring-http:...)
+            # rather than graph node IDs and must remain available to callers.
+            if key in {"target_reference", "targetReference"} and value.startswith(_SEMANTIC_TARGET_PREFIXES):
+                continue
+            sanitized.pop(key)
+    return sanitized
 
 
 def _edge_repos(edge: Mapping[str, object], nodes: Mapping[str, Mapping[str, object]]) -> tuple[str, ...]:

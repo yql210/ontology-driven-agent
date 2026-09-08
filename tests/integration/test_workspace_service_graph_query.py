@@ -476,6 +476,66 @@ def test_workspace_graph_query_remote_filtered_and_ungranted_physical_filtering(
     assert denied.value.failure is WorkspaceAuthorizationFailure.FORBIDDEN
 
 
+def test_workspace_graph_query_remote_endpoint_methods_real_acl_safe_subgraph(
+    remote_workspace_graph: _RemoteWorkspaceGraph,
+) -> None:
+    """Resolve a published endpoint from the real directory and read its method neighborhood."""
+    environment = remote_workspace_graph
+    generation_id = f"generation-query-endpoint-methods-{uuid4()}"
+    full = PrincipalIdentity(f"full-endpoint-methods-{uuid4()}")
+    filtered = PrincipalIdentity(f"filtered-endpoint-methods-{uuid4()}")
+    assert environment.publish(generation_id, None).status is WorkspacePublishStatus.ACTIVE
+    assert (
+        environment.acl_repository.upsert_grant(WorkspaceGrant.full(full, environment.workspace.workspace_id)).principal
+        == full
+    )
+    assert (
+        environment.acl_repository.upsert_grant(
+            WorkspaceGrant.filtered(filtered, environment.workspace.workspace_id, ("consumer-checkout",))
+        ).principal
+        == filtered
+    )
+
+    request = WorkspaceGraphQueryRequest(environment.workspace.workspace_id, page_size=100, node_limit=1000)
+    full_nodes, _ = _all_service_directory_pages(environment.service, full, request)
+    provider_nodes = [
+        node
+        for node in full_nodes
+        if node.get("repo_id", node.get("repoId")) == "provider-orders"
+        and node.get("node_type") in {"Endpoint", "ServiceOperation"}
+    ]
+    assert provider_nodes
+    endpoint = next((node for node in provider_nodes if node.get("node_type") == "Endpoint"), provider_nodes[0])
+    endpoint_id = str(endpoint["id"])
+    if endpoint.get("node_type") != "Endpoint":
+        endpoint_id = str(endpoint.get("endpoint_id", endpoint.get("endpointId", endpoint_id)))
+
+    full_page = environment.service.endpoint_methods(full, request, endpoint_id)
+    full_ids = {str(node["id"]) for node in full_page.nodes}
+    assert endpoint_id in full_ids
+    assert any(
+        node.get("node_type")
+        in {
+            "ServiceOperation",
+            "ImplementationMethod",
+            "ConsumerMethodCall",
+            "OperationBinding",
+            "MethodEvidence",
+            "Evidence",
+        }
+        for node in full_page.nodes
+    )
+    assert all({str(edge["source_id"]), str(edge["target_id"])} <= full_ids for edge in full_page.edges)
+    assert all("factPayload" not in node for node in full_page.nodes)
+
+    filtered_page = environment.service.endpoint_methods(filtered, request, endpoint_id)
+    assert filtered_page.nodes == ()
+    assert filtered_page.edges == ()
+    filtered_payload = json.dumps({"nodes": filtered_page.nodes, "edges": filtered_page.edges}, sort_keys=True)
+    assert "provider-orders" not in filtered_payload
+    assert "factPayload" not in filtered_payload
+
+
 def test_workspace_graph_query_remote_cursor_generation_and_receipt_boundaries(
     remote_workspace_graph: _RemoteWorkspaceGraph,
 ) -> None:

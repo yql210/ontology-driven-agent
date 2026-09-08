@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import Protocol
 
@@ -195,7 +196,19 @@ def _method_node(row: object) -> dict[str, object]:
     labels, props = values.get("labels"), _mapping(values.get("properties"))
     if not isinstance(labels, list) or len(labels) != 1 or type(props.get("id")) is not str:
         raise WorkspaceServiceGraphGateError("malformed method graph node")
-    return {"id": props["id"], "node_type": labels[0], "repo_id": props.get("repoId"), **_public_props(props)}
+    public = _public_props(props)
+    payload = props.get("factPayload")
+    if isinstance(payload, str):
+        try:
+            fact = json.loads(payload)
+            for group in ("operations", "implementations", "consumer_calls", "bindings", "unresolved", "evidences"):
+                for item in fact.get(group, ()) if isinstance(fact, Mapping) else ():
+                    if isinstance(item, Mapping) and item.get("id") == props["id"]:
+                        public.update({key: value for key, value in item.items() if key not in {"id", "evidence_ids"}})
+                        break
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+    return {"id": props["id"], "node_type": labels[0], "repo_id": props.get("repoId"), **public}
 
 
 def _method_edge(row: object, nodes: Mapping[str, Mapping[str, object]]) -> dict[str, object]:

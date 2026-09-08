@@ -160,6 +160,7 @@ def _workspace_graph_command(operation: str, argument: str | None = None) -> cli
 for _operation, _argument in (
     ("directory", None),
     ("operations", None),
+    ("endpoint_methods", "endpoint_id"),
     ("providers", "endpoint_key"),
     ("consumers", "endpoint_key"),
     ("dependencies", "node_id"),

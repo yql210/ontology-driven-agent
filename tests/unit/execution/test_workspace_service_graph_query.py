@@ -86,6 +86,112 @@ def test_partial_grant_filters_nodes_edges_and_evidence_after_authorization() ->
     assert not hasattr(result, "total")
 
 
+def test_filtered_page_removes_hidden_node_references_but_full_page_preserves_them() -> None:
+    filtered_service, _, filtered_repository = _service()
+    filtered_repository.nodes = (
+        {
+            "id": "consumer",
+            "node_type": "ConsumerMethodCall",
+            "repo_id": "repo-a",
+            "provider_operation_id": "provider",
+            "providerOperationId": "provider",
+            "target_reference": "provider",
+            "targetReference": ["provider", "consumer"],
+            "canonical_key": "orders",
+        },
+        {"id": "provider", "node_type": "ServiceOperation", "repo_id": "repo-b"},
+    )
+    filtered_repository.edges = ()
+
+    filtered = filtered_service.service_directory(PrincipalIdentity("alice"), WorkspaceGraphQueryRequest("workspace-1"))
+    consumer = next(node for node in filtered.nodes if node["id"] == "consumer")
+    assert all(key not in consumer for key in ("provider_operation_id", "providerOperationId", "target_reference"))
+    assert consumer["targetReference"] == ["consumer"]
+    assert consumer["canonical_key"] == "orders"
+
+    full_service, _, full_repository = _service(full=True)
+    full_repository.nodes = filtered_repository.nodes
+    full_repository.edges = ()
+    full = full_service.service_directory(PrincipalIdentity("alice"), WorkspaceGraphQueryRequest("workspace-1"))
+    full_consumer = next(node for node in full.nodes if node["id"] == "consumer")
+    assert full_consumer["provider_operation_id"] == "provider"
+    assert full_consumer["targetReference"] == ["provider", "consumer"]
+
+
+def test_endpoint_methods_returns_closed_visible_subgraph_and_empty_for_hidden_or_invalid_endpoint() -> None:
+    service, _, repository = _service(full=True)
+    repository.nodes = (
+        {"id": "endpoint-a", "node_type": "Endpoint", "repo_id": "repo-a"},
+        {
+            "id": "method-a",
+            "node_type": "ImplementationMethod",
+            "repo_id": "repo-a",
+            "endpoint_id": "endpoint-a",
+            "factPayload": "secret",
+        },
+        {"id": "evidence-a", "node_type": "MethodEvidence", "repo_id": "repo-a"},
+        {"id": "unrelated", "node_type": "ImplementationMethod", "repo_id": "repo-a"},
+    )
+    repository.edges = (
+        {
+            "id": "method-evidence",
+            "relation_type": "METHOD_EVIDENCE",
+            "source_id": "method-a",
+            "target_id": "evidence-a",
+            "repo_ids": ("repo-a",),
+        },
+        {
+            "id": "unrelated-edge",
+            "relation_type": "CALLER_METHOD",
+            "source_id": "unrelated",
+            "target_id": "method-a",
+            "repo_ids": ("repo-a",),
+        },
+    )
+    page = service.endpoint_methods(PrincipalIdentity("alice"), WorkspaceGraphQueryRequest("workspace-1"), "endpoint-a")
+    assert {node["id"] for node in page.nodes} == {"endpoint-a", "method-a", "evidence-a"}
+    assert {edge["id"] for edge in page.edges} == {"method-evidence"}
+    assert all("factPayload" not in node for node in page.nodes)
+    assert all({edge["source_id"], edge["target_id"]} <= {node["id"] for node in page.nodes} for edge in page.edges)
+    assert (
+        service.endpoint_methods(PrincipalIdentity("alice"), WorkspaceGraphQueryRequest("workspace-1"), "missing").nodes
+        == ()
+    )
+
+
+def test_endpoint_methods_filtered_grant_excludes_provider_records() -> None:
+    service, _, repository = _service()
+    repository.nodes = (
+        {"id": "endpoint-a", "node_type": "Endpoint", "repo_id": "repo-a"},
+        {"id": "method-a", "node_type": "ImplementationMethod", "repo_id": "repo-a", "endpoint_id": "endpoint-a"},
+        {"id": "endpoint-b", "node_type": "Endpoint", "repo_id": "repo-b"},
+        {"id": "method-b", "node_type": "ImplementationMethod", "repo_id": "repo-b", "endpoint_id": "endpoint-b"},
+    )
+    repository.edges = ()
+    assert {
+        node["id"]
+        for node in service.endpoint_methods(
+            PrincipalIdentity("alice"), WorkspaceGraphQueryRequest("workspace-1"), "endpoint-a"
+        ).nodes
+    } == {"endpoint-a", "method-a"}
+    assert (
+        service.endpoint_methods(
+            PrincipalIdentity("alice"), WorkspaceGraphQueryRequest("workspace-1"), "endpoint-b"
+        ).nodes
+        == ()
+    )
+
+
+def test_endpoint_methods_without_grant_fails_closed() -> None:
+    class _Denied:
+        def authorize(self, principal: PrincipalIdentity, workspace_id: str, generation_id: str | None = None):
+            raise WorkspaceAuthorizationError(WorkspaceAuthorizationFailure.FORBIDDEN)
+
+    service = WorkspaceServiceGraphQueryService(_Denied(), _Repository(), b"test-cursor-secret")
+    with pytest.raises(WorkspaceAuthorizationError):
+        service.endpoint_methods(PrincipalIdentity("alice"), WorkspaceGraphQueryRequest("workspace-1"), "endpoint-a")
+
+
 def test_full_grant_retains_cross_repository_links_and_repo_filter_only_narrows() -> None:
     service, _, _ = _service(full=True)
 

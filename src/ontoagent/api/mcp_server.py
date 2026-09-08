@@ -255,6 +255,12 @@ def workspace_service_graph_operations(workspace_id: str, principal: str) -> dic
     return _workspace_graph_query("operations", workspace_id, principal)
 
 
+@mcp.tool
+def workspace_service_graph_endpoint_methods(workspace_id: str, principal: str, endpoint_id: str) -> dict[str, object]:
+    """Read the visible methods and evidence attached to one endpoint."""
+    return _workspace_value_tool("endpoint_methods", workspace_id, principal, endpoint_id)
+
+
 def _workspace_value_tool(
     operation: str, workspace_id: str, principal: str, value: str, **kwargs: object
 ) -> dict[str, object]:
