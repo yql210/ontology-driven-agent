@@ -1,6 +1,5 @@
 # OntoAgent CI Pipeline
-# 在每次 push/PR 时自动执行：ruff lint → 单元测试
-# 集成测试 (tests/integration/) 需要 NebulaGraph，仅在手动触发时运行
+# 在每次 push/PR 时执行 P7 质量门禁。
 name: CI
 
 on:
@@ -11,7 +10,7 @@ on:
   workflow_dispatch: # 手动触发（可跑集成测试）
 
 jobs:
-  lint-and-test:
+  unit:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -51,17 +50,59 @@ jobs:
       - name: Run unit tests
         run: uv run pytest tests/unit/ -v --tb=short
 
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
+  golden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
         with:
-          name: test-results-${{ matrix.python-version }}
-          path: .pytest_cache/
-          retention-days: 7
+          version: "latest"
+      - name: Set up Python
+        run: uv python install 3.13
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+      - name: Run Golden evaluator
+        run: uv run pytest tests/evaluation/open_service_graph/test_open_service_graph_eval.py -v
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Frontend smoke
+        run: npm run smoke
+      - name: Frontend build
+        run: npm run build
+
+  secret-marker-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan tracked files for secrets and internal markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=$(git ls-files | grep -Ev '(^|/)(\.env\.example|.*\.lock)$' || true)
+          if [ -z "$files" ]; then exit 0; fi
+          if grep -Ein '(sk-[A-Za-z0-9]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY)' $files; then
+            echo "Potential secret found in tracked files" >&2
+            exit 1
+          fi
+          if grep -Ein '(^|[^A-Za-z])(INTERNAL_ONLY|INTERNAL_MARKER|DO_NOT_SHIP)([^A-Za-z]|$)' $files; then
+            echo "Internal marker found in tracked files" >&2
+            exit 1
+          fi
 
   integration-test:
-    # 仅手动触发或打 tag 时运行
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    # Requires repository secrets configured for the remote Neo4j service.
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -79,22 +120,21 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --all-extras
 
-      - name: Start NebulaGraph (Docker)
+      - name: Require remote Neo4j configuration
+        env:
+          NEO4J_URI: ${{ secrets.ONTOAGENT_NEO4J_URI }}
+          NEO4J_USER: ${{ secrets.ONTOAGENT_NEO4J_USER }}
+          NEO4J_PASSWORD: ${{ secrets.ONTOAGENT_NEO4J_PASSWORD }}
         run: |
-          docker compose up -d nebula-metad nebula-storaged nebula-graphd
-          # 等待 NebulaGraph 就绪
-          timeout 60 bash -c 'until curl -sf http://localhost:19669/status; do sleep 2; done'
+          set -euo pipefail
+          test -n "$NEO4J_URI" -a -n "$NEO4J_USER" -a -n "$NEO4J_PASSWORD" || {
+            echo "Remote Neo4j integration gate requires ONTOAGENT_NEO4J_URI/USER/PASSWORD repository secrets" >&2
+            exit 1
+          }
 
       - name: Run integration tests
         run: uv run pytest tests/integration/ -v --tb=short
         env:
-          ONTOAGENT_GRAPH_BACKEND: nebula
-          ONTOAGENT_NEBULA_HOST: 127.0.0.1
-          ONTOAGENT_NEBULA_PORT: "9669"
-          ONTOAGENT_NEBULA_USER: root
-          ONTOAGENT_NEBULA_PASSWORD: nebula
-          ONTOAGENT_NEBULA_SPACE: ontoagent_ci
-
-      - name: Tear down
-        if: always()
-        run: docker compose down -v
+          ONTOAGENT_NEO4J_URI: ${{ secrets.ONTOAGENT_NEO4J_URI }}
+          ONTOAGENT_NEO4J_USER: ${{ secrets.ONTOAGENT_NEO4J_USER }}
+          ONTOAGENT_NEO4J_PASSWORD: ${{ secrets.ONTOAGENT_NEO4J_PASSWORD }}

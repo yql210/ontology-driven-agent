@@ -34,8 +34,10 @@ def test_golden_dataset_has_stable_cross_protocol_and_negative_cases() -> None:
 
     assert [record["gold_id"] for record in gold["records"]] == [
         "OSG-I7-HTTP-POST-001",
+        "OSG-I7-HTTP-GET-001",
         "OSG-I7-DUBBO-GET-001",
         "OSG-I7-KAFKA-ORDER-EVENTS-001",
+        "OSG-I7-RABBITMQ-ORDER-QUEUE-001",
         "OSG-I7-HTTP-UNRESOLVED-001",
         "OSG-I7-ISOLATED-CATALOG-001",
     ]

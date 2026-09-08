@@ -146,25 +146,40 @@ class WorkspaceServiceGraphQueryService:
                 node for node in visible_nodes if node.get("canonical_key") == endpoint_key and node.get("role") == role
             )
         if related_to is not None:
-            visible_edges = tuple(
-                edge
-                for edge in visible_edges
-                if related_to in (edge.get("source_id"), edge.get("target_id"), edge.get("id"))
-            )
-            ids = {related_to} | {str(edge[key]) for edge in visible_edges for key in ("source_id", "target_id")}
-            visible_nodes = tuple(node for node in visible_nodes if node.get("id") in ids)
+            if operation in {"dependencies", "impact"}:
+                visible_nodes, visible_edges = _traverse_graph(
+                    visible_nodes,
+                    visible_edges,
+                    related_to,
+                    request.depth,
+                    request.node_limit,
+                    reverse=operation == "impact",
+                )
+            else:
+                visible_edges = tuple(
+                    edge
+                    for edge in visible_edges
+                    if related_to in (edge.get("source_id"), edge.get("target_id"), edge.get("id"))
+                )
+                ids = {related_to} | {str(edge[key]) for edge in visible_edges for key in ("source_id", "target_id")}
+                visible_nodes = tuple(node for node in visible_nodes if node.get("id") in ids)
         if relation_types:
             visible_edges = tuple(edge for edge in visible_edges if edge.get("relation_type") in relation_types)
             ids = {str(edge[key]) for edge in visible_edges for key in ("source_id", "target_id")}
             visible_nodes = tuple(node for node in visible_nodes if node.get("id") in ids)
         ordered = tuple(sorted(visible_nodes, key=lambda node: str(node["id"])))[: request.node_limit]
-        page = ordered[offset : offset + request.page_size]
-        page_ids = {str(node["id"]) for node in page}
+        primary = ordered[offset : offset + request.page_size]
+        ordered_ids = {str(node["id"]) for node in ordered}
+        primary_ids = {str(node["id"]) for node in primary}
         page_edges = tuple(
             edge
             for edge in sorted(visible_edges, key=lambda edge: str(edge["id"]))
-            if edge.get("source_id") in page_ids
+            if edge.get("source_id") in primary_ids
+            and str(edge.get("source_id")) in ordered_ids
+            and str(edge.get("target_id")) in ordered_ids
         )
+        page_ids = primary_ids | {str(edge[node_id]) for edge in page_edges for node_id in ("source_id", "target_id")}
+        page = tuple(node for node in ordered if str(node["id"]) in page_ids)
         next_cursor = (
             self._cursor(offset + request.page_size, context) if offset + request.page_size < len(ordered) else None
         )
@@ -243,6 +258,53 @@ def _filter_graph(
     ids = {str(edge[key]) for edge in matching_edges for key in ("source_id", "target_id")}
     ids |= {str(node["id"]) for node in visible if _repo(node) == repo_filter}
     return tuple(node for node in visible if str(node["id"]) in ids), matching_edges
+
+
+def _traverse_graph(
+    nodes: tuple[dict[str, object], ...],
+    edges: tuple[dict[str, object], ...],
+    root_id: str,
+    depth: int,
+    node_limit: int,
+    *,
+    reverse: bool,
+) -> tuple[tuple[dict[str, object], ...], tuple[dict[str, object], ...]]:
+    """Walk a visible directed graph breadth-first without exceeding the requested bounds."""
+    nodes_by_id = {str(node["id"]): node for node in nodes}
+    if root_id not in nodes_by_id:
+        return (), ()
+    adjacency: dict[str, list[dict[str, object]]] = {}
+    for edge in sorted(edges, key=lambda item: str(item["id"])):
+        source_id, target_id = str(edge.get("source_id")), str(edge.get("target_id"))
+        if source_id not in nodes_by_id or target_id not in nodes_by_id:
+            continue
+        current_id = target_id if reverse else source_id
+        adjacency.setdefault(current_id, []).append(edge)
+
+    selected_ids = {root_id}
+    traversed_edges: dict[str, dict[str, object]] = {}
+    frontier = [(root_id, 0)]
+    while frontier:
+        current_id, distance = frontier.pop(0)
+        if distance == depth:
+            continue
+        for edge in adjacency.get(current_id, []):
+            next_id = str(edge.get("source_id" if reverse else "target_id"))
+            traversed_edges[str(edge["id"])] = edge
+            if next_id in selected_ids or len(selected_ids) == node_limit:
+                continue
+            selected_ids.add(next_id)
+            frontier.append((next_id, distance + 1))
+
+    selected_edges = tuple(
+        edge
+        for edge in traversed_edges.values()
+        if str(edge.get("source_id")) in selected_ids and str(edge.get("target_id")) in selected_ids
+    )
+    return (
+        tuple(node for node in nodes if str(node["id"]) in selected_ids),
+        tuple(sorted(selected_edges, key=lambda edge: str(edge["id"]))),
+    )
 
 
 def _repo(node: Mapping[str, object]) -> str | None:

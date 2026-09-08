@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+pytest_plugins = ("tests.integration.test_workspace_service_graph_query",)
+
 
 @pytest.fixture(autouse=True)
 def _reset_singletons():
