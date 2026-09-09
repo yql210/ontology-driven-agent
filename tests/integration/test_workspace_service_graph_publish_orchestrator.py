@@ -11,6 +11,13 @@ from uuid import uuid4
 import pytest
 from neo4j import GraphDatabase
 
+from ontoagent.domain.workspace_authorization import PrincipalIdentity, WorkspaceAuthorizationFailure, WorkspaceGrant
+from ontoagent.domain.workspace_graph_query import WorkspaceGraphQueryRequest
+from ontoagent.execution.workspace_query_authorization import (
+    WorkspaceAuthorizationError,
+    WorkspaceQueryAuthorizationService,
+)
+from ontoagent.execution.workspace_service_graph_query import WorkspaceServiceGraphQueryService
 from ontoagent.parsing.service_graph.detector_sdk import MethodDetectionContext
 from ontoagent.parsing.service_graph.detectors.dubbo import DubboDetector
 from ontoagent.parsing.service_graph.detectors.dubbo_method import DubboMethodDetector
@@ -50,6 +57,7 @@ from ontoagent.parsing.service_graph.workspace.models import (
     WorkspaceSourceDescriptor,
     WorkspaceSourceKind,
 )
+from ontoagent.parsing.service_graph.workspace.neo4j_query_repository import Neo4jWorkspaceServiceGraphQueryRepository
 from ontoagent.parsing.service_graph.workspace.neo4j_repository import Neo4jWorkspaceRepository
 from ontoagent.parsing.service_graph.workspace.publish_orchestrator import (
     Neo4jWorkspaceServiceGraphPublishComponentFactory,
@@ -59,6 +67,7 @@ from ontoagent.parsing.service_graph.workspace.publish_orchestrator import (
     WorkspaceServiceGraphPublishOrchestrator,
 )
 from ontoagent.parsing.service_graph.workspace_java_rpc_resolution import WorkspaceJavaRpcAuthorization
+from ontoagent.store.neo4j_workspace_acl_repository import Neo4jWorkspaceAclRepository
 
 pytestmark = pytest.mark.integration
 
@@ -334,6 +343,146 @@ def test_workspace_publisher_persists_source_pinned_d1_java_rpc_only_when_explic
             ).single()["count"]
         driver.close()
         assert remaining == 0
+
+
+def test_workspace_publisher_reresolves_d1_java_rpc_across_generations_without_leaking_superseded_graph() -> None:
+    uri, user, password = _credentials()
+    workspace = Workspace(f"workspace-d1-reresolution-{uuid4()}", "D1 Java RPC re-resolution")
+    generation_one = f"generation-d1-unmapped-{uuid4()}"
+    generation_two = f"generation-d1-mapped-{uuid4()}"
+    generation_three = f"generation-d1-stale-{uuid4()}"
+    namespaces = tuple(
+        WorkspaceServiceGraphPublishOrchestrator.namespace_for(workspace.workspace_id, generation)
+        for generation in (generation_one, generation_two, generation_three)
+    )
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+    orchestrator = WorkspaceServiceGraphPublishOrchestrator(
+        Neo4jWorkspaceServiceGraphPublishComponentFactory(
+            driver, DetectorRegistry([SpringHttpDetector(), DubboDetector(), MessagingDetector()])
+        )
+    )
+    repository = Neo4jWorkspaceRepository(driver)
+    acl_repository = Neo4jWorkspaceAclRepository(driver)
+    principal = PrincipalIdentity(f"d1-reader-{uuid4()}")
+    query_service = WorkspaceServiceGraphQueryService(
+        WorkspaceQueryAuthorizationService(acl_repository),
+        Neo4jWorkspaceServiceGraphQueryRepository(driver),
+        b"d1-java-rpc-reresolution-query-secret",
+    )
+    try:
+        first = orchestrator.publish(_d1_input(workspace, generation_one, None, ()))
+
+        assert first.status is WorkspacePublishStatus.ACTIVE
+        with driver.session() as session:
+            unmapped_operations = session.run(
+                "MATCH (operation:ServiceOperation {namespace: $namespace, repoId: 'sample-order-provider'}) "
+                "RETURN count(operation) AS count",
+                namespace=namespaces[0],
+            ).single()["count"]
+            unmapped_cross_repo_calls = session.run(
+                "MATCH (:ImplementationMethod {namespace: $namespace, repoId: 'sample-checkout-consumer'}) "
+                "-[:CALLER_METHOD]->(:ConsumerMethodCall {namespace: $namespace}) "
+                "-[:CALLS_OPERATION]->(:ServiceOperation {namespace: $namespace, repoId: 'sample-order-provider'}) "
+                "RETURN count(*) AS count",
+                namespace=namespaces[0],
+            ).single()["count"]
+        assert unmapped_operations == 0
+        assert unmapped_cross_repo_calls == 0
+
+        second = orchestrator.publish(
+            _d1_input(
+                workspace,
+                generation_two,
+                generation_one,
+                (_d1_mapping("sample-order-provider"), _d1_mapping("sample-checkout-consumer")),
+            )
+        )
+
+        assert second.status is WorkspacePublishStatus.ACTIVE
+        assert repository.get_active_binding(workspace.workspace_id).generation_id == generation_two  # type: ignore[union-attr]
+        assert (
+            repository.get_generation(workspace.workspace_id, generation_one).state
+            is WorkspaceGenerationState.SUPERSEDED
+        )  # type: ignore[union-attr]
+        with driver.session() as session:
+            old_namespace_nodes = session.run(
+                "MATCH (node) WHERE node._ontoagent_namespace = $namespace OR node.namespace = $namespace "
+                "RETURN count(node) AS count",
+                namespace=namespaces[0],
+            ).single()["count"]
+            a01_chains = session.run(
+                "MATCH (:ImplementationMethod {namespace: $namespace, repoId: 'sample-checkout-consumer'}) "
+                "-[:CALLER_METHOD]->(call:ConsumerMethodCall {namespace: $namespace}) "
+                "-[:CALLS_OPERATION]->(:ServiceOperation {namespace: $namespace, repoId: 'sample-order-provider'}) "
+                "RETURN call.id AS call_id, call.factPayload AS fact_payload",
+                namespace=namespaces[1],
+            ).data()
+            mixed_generation_relations = session.run(
+                "MATCH (source {workspaceId: $workspace_id})-[relation]->(target {workspaceId: $workspace_id}) "
+                "WHERE source.namespace IN $namespaces AND target.namespace IN $namespaces "
+                "AND source.generationId <> target.generationId "
+                "RETURN count(relation) AS count",
+                workspace_id=workspace.workspace_id,
+                namespaces=list(namespaces[:2]),
+            ).single()["count"]
+        assert old_namespace_nodes > 0
+        a01_calls = [
+            next(item for item in json.loads(row["fact_payload"])["consumer_calls"] if item["id"] == row["call_id"])
+            for row in a01_chains
+        ]
+        assert any(
+            call["target_reference"].startswith(
+                "dubbo-operation:example.orders.api.OrderService#getOrder("
+                "java.lang.String):example.orders.api.OrderSummary"
+            )
+            for call in a01_calls
+        )
+        assert mixed_generation_relations == 0
+
+        assert (
+            acl_repository.upsert_grant(WorkspaceGrant.full(principal, workspace.workspace_id)).principal == principal
+        )
+        active_page = query_service.service_directory(
+            principal,
+            WorkspaceGraphQueryRequest(workspace.workspace_id, generation_two, page_size=100, node_limit=1000),
+        )
+        assert any(node["node_type"] == "ConsumerMethodCall" for node in active_page.nodes)
+        with pytest.raises(WorkspaceAuthorizationError) as superseded:
+            query_service.service_directory(
+                principal,
+                WorkspaceGraphQueryRequest(workspace.workspace_id, generation_one, page_size=100, node_limit=1000),
+            )
+        assert superseded.value.failure is WorkspaceAuthorizationFailure.CONFLICT
+
+        stale = orchestrator.publish(
+            _d1_input(
+                workspace,
+                generation_three,
+                generation_one,
+                (_d1_mapping("sample-order-provider"), _d1_mapping("sample-checkout-consumer")),
+            )
+        )
+        assert stale.status is WorkspacePublishStatus.BLOCKED
+        assert repository.get_active_binding(workspace.workspace_id).generation_id == generation_two  # type: ignore[union-attr]
+        assert (
+            repository.get_generation(workspace.workspace_id, generation_three).state
+            is WorkspaceGenerationState.BLOCKED
+        )  # type: ignore[union-attr]
+    finally:
+        with driver.session() as session:
+            session.run(
+                "MATCH (node) WHERE node._ontoagent_namespace IN $namespaces OR node.namespace IN $namespaces "
+                "DETACH DELETE node",
+                namespaces=list(namespaces),
+            )
+            session.run(
+                "MATCH (node) WHERE node.workspaceId = $workspace_id "
+                "AND (node:OntoAgentWorkspace OR node:OntoAgentWorkspaceBuildTask "
+                "OR node:OntoAgentWorkspaceGeneration OR node:OntoAgentWorkspaceRepositorySnapshot "
+                "OR node:OntoAgentWorkspaceActiveBinding OR node:OntoAgentWorkspaceAclGrant) DETACH DELETE node",
+                workspace_id=workspace.workspace_id,
+            )
+        driver.close()
 
 
 class _FailingDetectorRegistry:

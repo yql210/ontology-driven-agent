@@ -59,6 +59,7 @@ class _Factory:
 
     def create(self, namespace: str) -> WorkspaceServiceGraphPublishComponents:
         self.namespaces.append(namespace)
+        self.components.graph_writer.namespace = namespace  # type: ignore[attr-defined]
         return self.components
 
 
@@ -136,6 +137,7 @@ class _Repository:
         self._calls = calls
         self._publication = publication
         self.active = "old-generation"
+        self.generations: dict[str, WorkspaceGeneration] = {}
 
     def create_workspace(self, workspace: Workspace) -> Workspace:
         self._calls.append("workspace")
@@ -147,19 +149,34 @@ class _Repository:
 
     def create_generation(self, generation: WorkspaceGeneration) -> WorkspaceGeneration:
         self._calls.append("generation")
+        self.generations[generation.generation_id] = generation
         return generation
 
     def advance_generation_state(
         self, generation: WorkspaceGeneration, target: WorkspaceGenerationState
     ) -> WorkspaceGeneration:
         self._calls.append(f"state:{target.value}")
-        return generation.transition_to(target)
+        advanced = generation.transition_to(target)
+        self.generations[advanced.generation_id] = advanced
+        return advanced
 
     def publish_generation(
         self, workspace_id: str, expected_active_generation_id: str | None, candidate_generation_id: str
     ) -> WorkspacePublishResult:
         self._calls.append(f"cas:{expected_active_generation_id}:{candidate_generation_id}")
         if self._publication is WorkspacePublishStatus.PUBLISHED:
+            if expected_active_generation_id != self.active and not (
+                expected_active_generation_id is None and self.active == "old-generation"
+            ):
+                candidate = self.generations[candidate_generation_id]
+                self.generations[candidate_generation_id] = candidate.transition_to(WorkspaceGenerationState.BLOCKED)
+                return WorkspacePublishResult(WorkspacePublishStatus.STALE_ACTIVE, self.active)
+            if self.active in self.generations:
+                self.generations[self.active] = self.generations[self.active].transition_to(
+                    WorkspaceGenerationState.SUPERSEDED
+                )
+            candidate = self.generations[candidate_generation_id]
+            self.generations[candidate_generation_id] = candidate.transition_to(WorkspaceGenerationState.ACTIVE)
             self.active = candidate_generation_id
         return WorkspacePublishResult(self._publication, self.active)
 
@@ -461,6 +478,8 @@ def _d1_revision(repo_id: str) -> str:
 def _d1_request(
     *,
     mappings: tuple[ContractSourceMapping, ...],
+    generation_id: str = "generation-d1",
+    expected_active_generation_id: str | None = None,
     reverse: bool = False,
 ) -> WorkspaceServiceGraphPublishInput:
     repos = ("sample-order-contract", "sample-order-provider", "sample-checkout-consumer")
@@ -509,9 +528,9 @@ def _d1_request(
         Workspace("d1-workspace", "D1"),
         snapshots,
         runtime,
-        "request-d1",
-        "generation-d1",
-        None,
+        f"request-{generation_id}",
+        generation_id,
+        expected_active_generation_id,
         (),
         (),
         authorization,
@@ -533,8 +552,10 @@ def _d1_mapping(consumer_repo_id: str) -> ContractSourceMapping:
     )
 
 
-def _d1_orchestrator(calls: list[str]) -> tuple[WorkspaceServiceGraphPublishOrchestrator, list[_MethodSink]]:
-    orchestrator, factory, writer, _ = _orchestrator(calls)
+def _d1_orchestrator(
+    calls: list[str],
+) -> tuple[WorkspaceServiceGraphPublishOrchestrator, list[_MethodSink], _Repository]:
+    orchestrator, factory, writer, repository = _orchestrator(calls)
     writer.namespace = WorkspaceServiceGraphPublishOrchestrator.namespace_for("d1-workspace", "generation-d1")
     sinks: list[_MethodSink] = []
 
@@ -560,13 +581,58 @@ def _d1_orchestrator(calls: list[str]) -> tuple[WorkspaceServiceGraphPublishOrch
         method_graph_sink_factory=method_sink_factory,
         method_detectors=(DubboMethodDetector(),),
     )
-    return orchestrator, sinks
+    return orchestrator, sinks, repository
+
+
+@pytest.mark.unit
+def test_publish_java_rpc_reresolves_d1_generation_without_mixed_method_facts() -> None:
+    calls: list[str] = []
+    orchestrator, sinks, repository = _d1_orchestrator(calls)
+    first = orchestrator.publish(_d1_request(mappings=(), generation_id="generation-d1-one"))
+    second = orchestrator.publish(
+        _d1_request(
+            mappings=(_d1_mapping("sample-order-provider"), _d1_mapping("sample-checkout-consumer")),
+            generation_id="generation-d1-two",
+            expected_active_generation_id="generation-d1-one",
+        )
+    )
+    stale = orchestrator.publish(
+        _d1_request(
+            mappings=(_d1_mapping("sample-order-provider"), _d1_mapping("sample-checkout-consumer")),
+            generation_id="generation-d1-three",
+            expected_active_generation_id="generation-d1-one",
+        )
+    )
+
+    assert first.status is OrchestratorStatus.ACTIVE
+    assert second.status is OrchestratorStatus.ACTIVE
+    assert stale.status is OrchestratorStatus.BLOCKED
+    assert len(sinks) == 3
+    unmapped_facts = sinks[0]._plan.facts  # type: ignore[union-attr]
+    assert not next(fact for fact in unmapped_facts if fact.repo_id == "sample-order-provider").operations
+    assert not next(fact for fact in unmapped_facts if fact.repo_id == "sample-checkout-consumer").consumer_calls
+    mapped_facts = sinks[1]._plan.facts  # type: ignore[union-attr]
+    provider = next(fact for fact in mapped_facts if fact.repo_id == "sample-order-provider")
+    consumer = next(fact for fact in mapped_facts if fact.repo_id == "sample-checkout-consumer")
+    assert any(
+        call.target_reference.startswith("dubbo-operation:example.orders.api.OrderService#getOrder(")
+        for call in consumer.consumer_calls
+    )
+    assert any(binding.implementation_id is not None for binding in provider.bindings)
+    assert {fact.generation_id for sink in sinks for fact in sink._plan.facts} == {  # type: ignore[union-attr]
+        "generation-d1-one",
+        "generation-d1-two",
+        "generation-d1-three",
+    }
+    assert repository.active == "generation-d1-two"
+    assert repository.generations["generation-d1-one"].state is WorkspaceGenerationState.SUPERSEDED
+    assert repository.generations["generation-d1-three"].state is WorkspaceGenerationState.BLOCKED
 
 
 @pytest.mark.unit
 def test_publish_prepares_source_pinned_java_contract_views_and_assembles_d1_facts() -> None:
     calls: list[str] = []
-    orchestrator, sinks = _d1_orchestrator(calls)
+    orchestrator, sinks, _ = _d1_orchestrator(calls)
     request = _d1_request(mappings=(_d1_mapping("sample-order-provider"), _d1_mapping("sample-checkout-consumer")))
 
     outcome = orchestrator.publish(request)
@@ -612,7 +678,7 @@ def test_publish_prepares_source_pinned_java_contract_views_and_assembles_d1_fac
 @pytest.mark.unit
 def test_publish_java_rpc_requires_mapping_and_rejects_stale_pins() -> None:
     calls: list[str] = []
-    orchestrator, sinks = _d1_orchestrator(calls)
+    orchestrator, sinks, _ = _d1_orchestrator(calls)
 
     outcome = orchestrator.publish(_d1_request(mappings=()))
     stale = replace(_d1_mapping("sample-checkout-consumer"), consumer_source_revision="stale-revision")
@@ -630,8 +696,8 @@ def test_publish_java_rpc_contract_preparation_is_repository_order_deterministic
     mappings = (_d1_mapping("sample-order-provider"), _d1_mapping("sample-checkout-consumer"))
     forward_calls: list[str] = []
     reverse_calls: list[str] = []
-    forward, _ = _d1_orchestrator(forward_calls)
-    reverse, _ = _d1_orchestrator(reverse_calls)
+    forward, _, _ = _d1_orchestrator(forward_calls)
+    reverse, _, _ = _d1_orchestrator(reverse_calls)
 
     forward_outcome = forward.publish(_d1_request(mappings=mappings))
     reverse_outcome = reverse.publish(_d1_request(mappings=mappings, reverse=True))
