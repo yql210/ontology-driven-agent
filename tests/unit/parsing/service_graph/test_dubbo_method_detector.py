@@ -79,6 +79,20 @@ class Checkout {
     )
     assert "OrderApi#find(java.lang.String):java.lang.String" in call.target_reference
     assert not facts.unresolved
+    assert len(facts.retained_source_calls) == 1
+    retained = facts.retained_source_calls[0]
+    assert (retained.start_line, retained.start_column, retained.end_line, retained.end_column) == (5, 30, 5, 47)
+    assert retained.receiver_declaration == '@DubboReference(group = "orders", version = "1.0") OrderApi orders'
+    assert retained.receiver_type == "example.orders.OrderApi"
+    assert retained.method_name == "find"
+    assert retained.argument_summaries == ('"42"',)
+    assert retained.argument_types == ("java.lang.String",)
+    assert retained.protocol_settings == (("group", "orders"), ("version", "1.0"))
+    assert retained.resolution_stage == "SOURCE_CAPTURE"
+    assert retained.resolution_status == "CAPTURED"
+    assert retained.resolution_reason is None
+    assert len(retained.receiver_evidence_ids) == 1
+    assert len(retained.argument_evidence_ids) == 1
 
 
 def test_dubbo_method_detector_marks_dynamic_and_orphan_proxy_calls_unresolved(tmp_path: Path) -> None:
@@ -97,6 +111,37 @@ class Checkout {
     assert not facts.consumer_calls
     assert {item.reason_code for item in facts.unresolved} >= {"DYNAMIC_TARGET", "MISSING_IMPLEMENTATION"}
     assert all(item.evidence_ids for item in facts.unresolved)
+    retained = next(item for item in facts.retained_source_calls if item.method_name == "find")
+    assert retained.receiver_type == "example.orders.OrderApi"
+    assert retained.protocol_settings == (("group", "${orders.group}"), ("version", "1.0"))
+    assert retained.resolution_status == "UNRESOLVED"
+    assert retained.resolution_reason == "DYNAMIC_TARGET"
+
+
+def test_dubbo_method_detector_retains_missing_contract_and_unknown_argument_type(tmp_path: Path) -> None:
+    facts = _detect(
+        tmp_path,
+        """package example.orders;
+class Checkout {
+  @DubboReference(group = "orders", version = "1.0", alias = "primary") MissingApi orders;
+  String checkout(Object id) { return orders.find(id); }
+}""",
+    )
+
+    assert not facts.consumer_calls
+    assert len(facts.retained_source_calls) == 1
+    retained = facts.retained_source_calls[0]
+    assert retained.receiver_declaration == (
+        '@DubboReference(group = "orders", version = "1.0", alias = "primary") MissingApi orders'
+    )
+    assert retained.receiver_type == "example.orders.MissingApi"
+    assert retained.argument_summaries == ("id",)
+    assert retained.argument_types == (None,)
+    assert len(retained.argument_evidence_ids) == 1
+    assert retained.protocol_settings == (("group", "orders"), ("version", "1.0"), ("alias", "primary"))
+    assert retained.resolution_stage == "SOURCE_CAPTURE"
+    assert retained.resolution_status == "UNRESOLVED"
+    assert retained.resolution_reason == "CONTRACT_MISSING"
 
 
 def test_dubbo_method_detector_links_literal_xml_provider_and_consumer_to_java_methods(tmp_path: Path) -> None:
@@ -153,6 +198,9 @@ class Checkout {
         "dubbo-operation:example.orders.OrderApi#find(long):java.lang.String|group=orders|version=1.0"
         "|alias=|origin=xml|xml-reference-id=orders",
     }
+    assert len(consumer.retained_source_calls) == 2
+    assert {item.receiver_declaration for item in consumer.retained_source_calls} == {"private OrderApi orders;"}
+    assert all(len(item.receiver_evidence_ids) == 2 for item in consumer.retained_source_calls)
 
 
 def test_dubbo_method_detector_marks_xml_placeholder_mismatch_and_malformed_declarations_unresolved(

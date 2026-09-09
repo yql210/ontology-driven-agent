@@ -91,7 +91,7 @@ def test_java_rpc_contract_fixture_manifest_is_frozen_and_source_pinned() -> Non
 
 
 @pytest.mark.unit
-def test_current_detector_keeps_cross_repository_contract_calls_explicitly_unresolved() -> None:
+def test_d1_g1_cross_repository_contract_calls_are_retained_at_source_capture() -> None:
     manifest = _manifest()
 
     provider = _detect(manifest, "sample-order-provider")
@@ -101,20 +101,25 @@ def test_current_detector_keeps_cross_repository_contract_calls_explicitly_unres
     assert not consumer.consumer_calls
     assert {item.reason_code for item in provider.unresolved} == {"MISSING_DECLARATION"}
     assert {item.reason_code for item in consumer.unresolved} == {"DYNAMIC_TARGET", "MISSING_DECLARATION"}
+    retained_by_line = {item.start_line: item for item in consumer.retained_source_calls}
+    assert retained_by_line[20].resolution_reason == "CONTRACT_MISSING"
+    assert retained_by_line[20].receiver_type == "example.orders.api.OrderService"
+    assert retained_by_line[44].resolution_reason == "DYNAMIC_TARGET"
     assert manifest["cases"]["A01"]["expected_outcome"] == "determined"
     assert manifest["cases"]["A03"]["expected_outcome"] == "determined"
 
 
 @pytest.mark.unit
-def test_current_detector_marks_typed_string_proxy_call_missing_declaration() -> None:
+def test_d1_g2_typed_proxy_calls_are_retained_with_argument_type_evidence() -> None:
     manifest = _manifest()
 
     consumer = _detect(manifest, "sample-checkout-consumer")
 
-    assert any(
-        item.reason_code == "MISSING_DECLARATION" and item.subject == "orderService.getOrder(id)"
-        for item in consumer.unresolved
-    )
+    retained = next(item for item in consumer.retained_source_calls if item.start_line == 20)
+    assert retained.argument_summaries == ("id",)
+    assert retained.argument_types == (None,)
+    assert retained.resolution_reason == "CONTRACT_MISSING"
+    assert len(retained.argument_evidence_ids) == 1
     assert manifest["cases"]["A04"]["argument_type"] == "java.lang.String"
     assert manifest["cases"]["A04"]["expected_outcome"] == "determined"
 
@@ -129,3 +134,16 @@ def test_two_repository_provider_client_module_variant_is_source_complete() -> N
     assert not provider.operations
     assert not client.consumer_calls
     assert any(item.subject == "inventoryService.reserve(sku)" for item in client.unresolved)
+    retained = client.retained_source_calls
+    assert len(retained) == 1
+    assert retained[0].resolution_reason == "ARGUMENT_TYPE_UNKNOWN"
+
+
+@pytest.mark.unit
+def test_d1_a14_repeated_identical_calls_remain_distinct_source_captures() -> None:
+    manifest = _manifest()
+    consumer = _detect(manifest, "sample-checkout-consumer")
+
+    calls = [item for item in consumer.retained_source_calls if item.method_name == "cancelOrder"]
+    assert sorted(item.start_line for item in calls) == [48, 49]
+    assert len({item.id for item in calls}) == 2

@@ -18,6 +18,7 @@ from ontoagent.parsing.service_graph.methods import (
     MethodFacts,
     MethodUnresolved,
     OperationBinding,
+    RetainedSourceCall,
     ServiceOperation,
 )
 from ontoagent.parsing.service_graph.models import RepositorySnapshot
@@ -31,6 +32,7 @@ class _Method:
     start: int
     end: int
     body: str
+    body_start_column: int
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,7 @@ class _Proxy:
     dynamic: bool
     evidence_ids: tuple[str, ...] = ()
     xml_reference_id: str | None = None
+    receiver_declaration: str | None = None
 
 
 @dataclass(frozen=True)
@@ -120,6 +123,7 @@ class DubboMethodDetector:
         operations: list[ServiceOperation] = []
         implementations: list[ImplementationMethod] = []
         calls: list[ConsumerMethodCall] = []
+        retained_source_calls: list[RetainedSourceCall] = []
         bindings: list[OperationBinding] = []
         unresolved: list[MethodUnresolved] = []
         xml_declarations, bean_classes = self._xml_declarations(snapshot, context, evidences, unresolved)
@@ -177,11 +181,20 @@ class DubboMethodDetector:
                 bindings,
                 unresolved,
             )
-            proxies = self._proxies(java_class, imports)
+            proxies = self._proxies(context, relative, java_class, imports, evidences)
             proxies.update(self._xml_proxies(context, relative, java_class, imports, references, evidences, unresolved))
             for method, implementation in implementation_by_method.items():
                 self._proxy_calls(
-                    context, relative, method, implementation, proxies, contracts, evidences, calls, unresolved
+                    context,
+                    relative,
+                    method,
+                    implementation,
+                    proxies,
+                    contracts,
+                    evidences,
+                    calls,
+                    retained_source_calls,
+                    unresolved,
                 )
             self._orphan_proxy_calls(context, relative, java_class, proxies, evidences, unresolved)
         return MethodFacts(
@@ -196,6 +209,7 @@ class DubboMethodDetector:
             tuple(bindings),
             tuple(evidences),
             self._coalesce(unresolved),
+            tuple(retained_source_calls),
         )
 
     def _xml_declarations(
@@ -433,6 +447,7 @@ class DubboMethodDetector:
         contracts: dict[str, _Class],
         evidences: list[MethodEvidence],
         calls: list[ConsumerMethodCall],
+        retained_source_calls: list[RetainedSourceCall],
         unresolved: list[MethodUnresolved],
     ) -> None:
         for match in self._CALL.finditer(method.body):
@@ -443,14 +458,62 @@ class DubboMethodDetector:
             subject = match.group(0).strip()
             evidence = self._evidence(context, path, line, line, "dubbo_proxy_call", subject)
             evidences.append(evidence)
+            argument_summaries = tuple(item.strip() for item in match.group("args").split(",") if item.strip())
+            argument_types = tuple(self._argument_type(item, method) for item in argument_summaries)
+            declaration = self._called_declaration(
+                contracts.get(proxy.interface), match.group("method"), match.group("args"), method
+            )
+            argument_evidence_ids: list[tuple[str, ...]] = []
+            for index, argument in enumerate(argument_summaries):
+                argument_evidence = self._evidence(
+                    context, path, line, line, "dubbo_proxy_argument", f"{subject} argument {index}: {argument}"
+                )
+                evidences.append(argument_evidence)
+                argument_evidence_ids.append((argument_evidence.id,))
+            resolution_reason = (
+                "DYNAMIC_TARGET"
+                if proxy.dynamic
+                else "CONTRACT_MISSING"
+                if contracts.get(proxy.interface) is None
+                else "ARGUMENT_TYPE_UNKNOWN"
+                if any(argument_type is None for argument_type in argument_types)
+                else "METHOD_DECLARATION_MISSING"
+                if declaration is None
+                else None
+            )
+            retained_source_calls.append(
+                RetainedSourceCall(
+                    context.repo_id,
+                    context.module_id,
+                    context.service_id,
+                    context.source_revision,
+                    context.generation_id,
+                    path,
+                    line,
+                    self._call_position(method, match.start())[1],
+                    line + self._call_position(method, match.end())[0],
+                    self._call_position(method, match.end())[1],
+                    implementation.id,
+                    proxy.receiver_declaration or match.group("receiver"),
+                    proxy.interface,
+                    None,
+                    proxy.evidence_ids,
+                    match.group("method"),
+                    argument_summaries,
+                    argument_types,
+                    tuple(argument_evidence_ids),
+                    self._protocol_settings(proxy),
+                    "SOURCE_CAPTURE",
+                    "UNRESOLVED" if resolution_reason is not None else "CAPTURED",
+                    resolution_reason,
+                    (*proxy.evidence_ids, evidence.id, *(item[0] for item in argument_evidence_ids)),
+                )
+            )
             if proxy.dynamic:
                 self._append_unresolved(
                     context, "DYNAMIC_TARGET", subject, (*proxy.evidence_ids, evidence.id), unresolved
                 )
                 continue
-            declaration = self._called_declaration(
-                contracts.get(proxy.interface), match.group("method"), match.group("args"), method
-            )
             if declaration is None:
                 self._append_unresolved(
                     context, "MISSING_DECLARATION", subject, (*proxy.evidence_ids, evidence.id), unresolved
@@ -502,12 +565,26 @@ class DubboMethodDetector:
                 unresolved,
             )
 
-    def _proxies(self, java_class: _Class, imports: dict[str, str]) -> dict[str, _Proxy]:
+    def _proxies(
+        self,
+        context: MethodDetectionContext,
+        path: str,
+        java_class: _Class,
+        imports: dict[str, str],
+        evidences: list[MethodEvidence],
+    ) -> dict[str, _Proxy]:
         result: dict[str, _Proxy] = {}
         for match in self._REFERENCE.finditer(java_class.body):
             settings, dynamic = self._settings(match.group("args") or "")
+            line = java_class.body_offset + java_class.body.count("\n", 0, match.start())
+            evidence = self._evidence(context, path, line, line, "dubbo_proxy_receiver", match.group(0).strip())
+            evidences.append(evidence)
             result[match.group("name")] = _Proxy(
-                self._fqcn(match.group("type").split("<", 1)[0], java_class.fqcn, imports), *settings, dynamic
+                self._fqcn(match.group("type").split("<", 1)[0], java_class.fqcn, imports),
+                *settings,
+                dynamic,
+                (evidence.id,),
+                receiver_declaration=match.group(0).strip(),
             )
         return result
 
@@ -522,21 +599,29 @@ class DubboMethodDetector:
         unresolved: list[MethodUnresolved],
     ) -> dict[str, _Proxy]:
         fields = {
-            match.group("name"): self._fqcn(match.group("type").split("<", 1)[0], java_class.fqcn, imports)
+            match.group("name"): (
+                self._fqcn(match.group("type").split("<", 1)[0], java_class.fqcn, imports),
+                match.group(0).strip(),
+                java_class.body_offset + java_class.body.count("\n", 0, match.start()),
+            )
             for match in self._FIELD.finditer(java_class.body)
         }
         result: dict[str, _Proxy] = {}
         for reference in references:
             if reference.dynamic:
                 if reference.target in fields:
+                    field_type, declaration, line = fields[reference.target]
+                    receiver_evidence = self._evidence(context, path, line, line, "dubbo_proxy_receiver", declaration)
+                    evidences.append(receiver_evidence)
                     result[reference.target] = _Proxy(
-                        reference.interface or fields[reference.target],
+                        reference.interface or field_type,
                         reference.group,
                         reference.version,
                         reference.alias,
                         True,
-                        (reference.evidence_id,),
+                        (reference.evidence_id, receiver_evidence.id),
                         reference.target,
+                        declaration,
                     )
                 continue
             if reference.interface is None or reference.target is None:
@@ -548,10 +633,10 @@ class DubboMethodDetector:
                     unresolved,
                 )
                 continue
-            field_type = fields.get(reference.target)
-            if field_type is None or field_type != reference.interface:
+            field = fields.get(reference.target)
+            if field is None or field[0] != reference.interface:
                 evidence_ids = (reference.evidence_id,)
-                if field_type is not None:
+                if field is not None:
                     evidence = self._evidence(
                         context,
                         path,
@@ -564,14 +649,18 @@ class DubboMethodDetector:
                     evidence_ids = (*evidence_ids, evidence.id)
                 self._append_unresolved(context, "MISSING_DECLARATION", reference.target, evidence_ids, unresolved)
                 continue
+            field_type, declaration, line = field
+            receiver_evidence = self._evidence(context, path, line, line, "dubbo_proxy_receiver", declaration)
+            evidences.append(receiver_evidence)
             result[reference.target] = _Proxy(
                 reference.interface,
                 reference.group,
                 reference.version,
                 reference.alias,
                 False,
-                (reference.evidence_id,),
+                (reference.evidence_id, receiver_evidence.id),
                 reference.target,
+                declaration,
             )
         return result
 
@@ -621,6 +710,7 @@ class DubboMethodDetector:
                     text.count("\n", 0, offset + match.start()) + 1,
                     text.count("\n", 0, closing) + 1,
                     text[opening + 1 : closing] if match.group("terminator") == "{" else "",
+                    opening - text.rfind("\n", 0, opening) + 1,
                 )
             )
         return result
@@ -641,6 +731,22 @@ class DubboMethodDetector:
         if re.fullmatch(r"\d+[lL]?", value):
             return "long"
         return None
+
+    @staticmethod
+    def _call_position(method: _Method, offset: int) -> tuple[int, int]:
+        prefix = method.body[:offset]
+        line_offset = prefix.count("\n")
+        if line_offset == 0:
+            return 0, method.body_start_column + offset
+        return line_offset, len(prefix.rsplit("\n", 1)[-1]) + 1
+
+    @staticmethod
+    def _protocol_settings(proxy: _Proxy) -> tuple[tuple[str, str], ...]:
+        return tuple(
+            (name, value)
+            for name, value in (("group", proxy.group), ("version", proxy.version), ("alias", proxy.alias))
+            if value is not None
+        )
 
     @staticmethod
     def _imports(text: str) -> dict[str, str]:
