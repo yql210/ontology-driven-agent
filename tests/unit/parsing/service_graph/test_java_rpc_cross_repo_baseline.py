@@ -175,7 +175,8 @@ def test_two_repository_provider_client_module_variant_is_source_complete() -> N
     provider = _detect(manifest, "provider-client-module-provider")
     client = _detect(manifest, "provider-client-module-client")
 
-    assert not provider.operations
+    assert {item.group for item in provider.operations} == {"missing", "orders"}
+    assert len(provider.bindings) == 3
     assert len(client.consumer_calls) == 1
     assert not client.unresolved
     retained = client.retained_source_calls

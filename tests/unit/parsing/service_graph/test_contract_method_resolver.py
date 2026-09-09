@@ -173,7 +173,17 @@ def test_dynamic_target_does_not_resolve_even_when_a_contract_is_visible() -> No
 
     resolution = _resolve(call, (_mapping(call, api),))
 
-    assert resolution.outcome is ContractMethodResolutionOutcome.CONTRACT_MISSING
+    assert resolution.outcome is ContractMethodResolutionOutcome.DYNAMIC_TARGET
+    assert resolution.contract_method is None
+
+
+@pytest.mark.unit
+def test_dynamic_target_is_preserved_before_contract_visibility_is_checked() -> None:
+    call = next(item for item in _consumer_calls(_manifest()) if item.start_line == 48)
+
+    resolution = _resolve(call)
+
+    assert resolution.outcome is ContractMethodResolutionOutcome.DYNAMIC_TARGET
     assert resolution.contract_method is None
 
 

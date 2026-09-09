@@ -22,6 +22,7 @@ class ContractMethodResolutionOutcome(StrEnum):
     """The complete set of outcomes emitted by contract-method resolution."""
 
     DETERMINED = "determined"
+    DYNAMIC_TARGET = "DYNAMIC_TARGET"
     CONTRACT_MISSING = "CONTRACT_MISSING"
     CONTRACT_CONFLICT = "CONTRACT_CONFLICT"
     VERSION_CONFLICT = "VERSION_CONFLICT"
@@ -84,6 +85,7 @@ class ContractMethodResolution:
     stage: str
     outcome: ContractMethodResolutionOutcome
     contract_method: JavaContractMethod | None
+    protocol_metadata: ProtocolMetadata
     evidence_ids: tuple[str, ...]
 
     def __post_init__(self) -> None:
@@ -94,6 +96,8 @@ class ContractMethodResolution:
             raise ValueError("stage must be CONTRACT_RESOLUTION")
         if type(self.outcome) is not ContractMethodResolutionOutcome:
             raise ValueError("outcome must be a ContractMethodResolutionOutcome")
+        if type(self.protocol_metadata) is not ProtocolMetadata:
+            raise ValueError("protocol_metadata must be a ProtocolMetadata")
         if self.outcome is ContractMethodResolutionOutcome.DETERMINED:
             if type(self.contract_method) is not JavaContractMethod:
                 raise ValueError("determined resolution requires a JavaContractMethod")
@@ -132,18 +136,20 @@ class ContractMethodResolver:
         if caller != CallerIdentity.from_retained_call(call):
             raise ValueError("caller must match the retained source call identity")
 
+        if call.receiver_type is None or call.resolution_reason == "DYNAMIC_TARGET":
+            return self._unresolved(call, caller, protocol_metadata, ContractMethodResolutionOutcome.DYNAMIC_TARGET)
         visibility_outcome = _visibility_outcome(visibility.status)
         if visibility_outcome is not None:
-            return self._unresolved(call, caller, visibility_outcome)
-        if call.receiver_type is None or call.resolution_reason == "DYNAMIC_TARGET":
-            return self._unresolved(call, caller, ContractMethodResolutionOutcome.CONTRACT_MISSING)
+            return self._unresolved(call, caller, protocol_metadata, visibility_outcome)
         compatible = is_compatible(call, visibility, protocol_metadata)
         if type(compatible) is not bool:
             raise ValueError("is_compatible must return bool")
         if not compatible:
-            return self._unresolved(call, caller, ContractMethodResolutionOutcome.CONTRACT_MISSING)
+            return self._unresolved(call, caller, protocol_metadata, ContractMethodResolutionOutcome.CONTRACT_MISSING)
         if any(argument_type is None for argument_type in call.argument_types):
-            return self._unresolved(call, caller, ContractMethodResolutionOutcome.ARGUMENT_TYPE_UNKNOWN)
+            return self._unresolved(
+                call, caller, protocol_metadata, ContractMethodResolutionOutcome.ARGUMENT_TYPE_UNKNOWN
+            )
 
         methods = tuple(
             method
@@ -153,24 +159,30 @@ class ContractMethodResolver:
             if method.name == call.method_name and method.parameter_types == call.argument_types
         )
         if not methods:
-            return self._unresolved(call, caller, ContractMethodResolutionOutcome.METHOD_NOT_FOUND)
+            return self._unresolved(call, caller, protocol_metadata, ContractMethodResolutionOutcome.METHOD_NOT_FOUND)
         candidates = tuple(sorted(methods, key=lambda method: method.canonical_signature))
         if len(candidates) != 1:
-            return self._unresolved(call, caller, ContractMethodResolutionOutcome.OVERLOAD_AMBIGUOUS)
+            return self._unresolved(call, caller, protocol_metadata, ContractMethodResolutionOutcome.OVERLOAD_AMBIGUOUS)
         return ContractMethodResolution(
             call.id,
             caller,
             "CONTRACT_RESOLUTION",
             ContractMethodResolutionOutcome.DETERMINED,
             candidates[0],
+            protocol_metadata,
             call.evidence_ids,
         )
 
     @staticmethod
     def _unresolved(
-        call: RetainedSourceCall, caller: CallerIdentity, outcome: ContractMethodResolutionOutcome
+        call: RetainedSourceCall,
+        caller: CallerIdentity,
+        protocol_metadata: ProtocolMetadata,
+        outcome: ContractMethodResolutionOutcome,
     ) -> ContractMethodResolution:
-        return ContractMethodResolution(call.id, caller, "CONTRACT_RESOLUTION", outcome, None, call.evidence_ids)
+        return ContractMethodResolution(
+            call.id, caller, "CONTRACT_RESOLUTION", outcome, None, protocol_metadata, call.evidence_ids
+        )
 
 
 def _visibility_outcome(status: JavaContractVisibilityStatus) -> ContractMethodResolutionOutcome | None:

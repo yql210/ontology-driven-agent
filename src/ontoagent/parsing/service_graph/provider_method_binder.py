@@ -125,6 +125,7 @@ class ProviderMethodBinder:
             if binding.operation_id == operation.id
             and self._eligible(binding, current_generation_id, authorized)
             and self._same_source(operation, binding)
+            and self._matches_retained_protocol_identity(resolution, operation, binding)
             and self._matches(matches_provider_identity, resolution, operation, binding)
         }
         matching_bindings = tuple(matching_bindings_by_id.values())
@@ -215,6 +216,29 @@ class ProviderMethodBinder:
         if type(matches) is not bool:
             raise ValueError("matches_provider_identity must return bool")
         return matches
+
+    @staticmethod
+    def _matches_retained_protocol_identity(
+        resolution: ContractMethodResolution, operation: ServiceOperation, binding: OperationBinding
+    ) -> bool:
+        """Require the retained consumer's Dubbo group/version/alias to identify this binding exactly."""
+        if resolution.protocol_metadata.protocol != "dubbo":
+            return False
+        settings = dict(resolution.protocol_metadata.settings)
+        expected = {
+            "group": operation.group,
+            "version": operation.version,
+            "alias": operation.alias,
+        }
+        if any(settings.get(name) != value for name, value in expected.items()):
+            return False
+        endpoint = (
+            f"dubbo-operation:{operation.canonical_signature}|group={operation.group or ''}"
+            f"|version={operation.version or ''}|alias={operation.alias or ''}"
+        )
+        return binding.provider_endpoint_reference == endpoint or binding.provider_endpoint_reference.startswith(
+            f"{endpoint}|"
+        )
 
     @staticmethod
     def _unresolved(

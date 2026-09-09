@@ -368,6 +368,32 @@ def test_d1_provider_metadata_mismatch_fails_closed() -> None:
 
 
 @pytest.mark.unit
+def test_d1_provider_identity_compares_retained_consumer_protocol_settings() -> None:
+    resolution = _resolution(44)
+    assert resolution.contract_method is not None
+    operation, binding, implementation = _provider_facts(resolution.contract_method.canonical_signature)
+
+    result = ProviderMethodBinder().bind(
+        resolution,
+        (operation,),
+        (binding,),
+        (implementation,),
+        GENERATION_ID,
+        _authorized_provider(),
+        lambda candidate, provider, candidate_binding: (
+            dict(candidate.protocol_metadata.settings).get("group") == provider.group
+            and dict(candidate.protocol_metadata.settings).get("version") == provider.version
+            and dict(candidate.protocol_metadata.settings).get("alias") == provider.alias
+            and candidate_binding.provider_endpoint_reference
+            == f"dubbo-operation:{provider.canonical_signature}|group={provider.group or ''}"
+            f"|version={provider.version or ''}|alias={provider.alias or ''}"
+        ),
+    )
+
+    assert result.outcome is ProviderMethodBindingOutcome.PROVIDER_IDENTITY_MISMATCH
+
+
+@pytest.mark.unit
 def test_d1_binding_without_current_implementation_evidence_fails_closed() -> None:
     resolution = _resolution(20)
     assert resolution.contract_method is not None

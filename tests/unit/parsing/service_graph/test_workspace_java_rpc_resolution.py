@@ -217,7 +217,7 @@ def test_contract_only_and_unresolved_cases_remain_stage_structured() -> None:
     assert by_line[20].binding is not None
     assert by_line[20].binding.outcome.value == "PROVIDER_MISSING"
     assert by_line[36].contract.outcome.value == "VERSION_CONFLICT"
-    assert by_line[48].contract.outcome.value == "CONTRACT_MISSING"
+    assert by_line[48].contract.outcome.value == "DYNAMIC_TARGET"
     assert by_line[48].binding is None
 
 

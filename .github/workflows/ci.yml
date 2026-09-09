@@ -63,6 +63,8 @@ jobs:
         run: uv sync --frozen --all-extras
       - name: Run Golden evaluator
         run: uv run pytest tests/evaluation/open_service_graph/test_open_service_graph_eval.py -v
+      - name: Run Java RPC public evaluation gate
+        run: uv run pytest tests/evaluation/java_rpc_contracts/test_java_rpc_contract_eval.py -v
 
   frontend:
     runs-on: ubuntu-latest

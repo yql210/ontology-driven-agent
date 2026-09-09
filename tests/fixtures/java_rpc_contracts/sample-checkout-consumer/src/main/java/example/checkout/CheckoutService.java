@@ -9,7 +9,7 @@ public class CheckoutService {
     private OrderService orderService;
     @DubboReference(group = "orders", version = "2.0")
     private OrderService versionConflictService;
-    @DubboReference(group = "orders", version = "1.0")
+    @DubboReference(group = "orders", version = "1.0", alias = "ambiguous")
     private OrderService ambiguousOrderService;
     @DubboReference(group = "missing", version = "1.0")
     private OrderService missingOrderService;

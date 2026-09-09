@@ -469,14 +469,27 @@ class DubboMethodDetector:
             return
         if contract.conflicted:
             return
-        contract_methods = {(item.name, item.parameters): item for item in contract.methods}
-        for method, implementation in implementations.items():
-            declaration = contract_methods.get((method.name, method.parameters))
-            if declaration is None:
-                continue
-            evidence = self._evidence(
-                context, implementation.file_path, method.start, method.end, "dubbo_provider_method", method.name
-            )
+        implementations_by_signature = {
+            (method.name, method.parameters): (method, implementation)
+            for method, implementation in implementations.items()
+        }
+        for declaration in contract.methods:
+            detected = implementations_by_signature.get((declaration.name, declaration.parameters))
+            if detected is None:
+                evidence = self._evidence(
+                    context,
+                    path,
+                    java_class.body_offset,
+                    java_class.body_offset,
+                    "dubbo_provider_declaration",
+                    declaration.name,
+                )
+                implementation = None
+            else:
+                method, implementation = detected
+                evidence = self._evidence(
+                    context, implementation.file_path, method.start, method.end, "dubbo_provider_method", method.name
+                )
             evidences.append(evidence)
             declaration_evidence_ids = self._contract_method_evidence_ids(context, declaration, evidences)
             signature = self._signature(interface, declaration)
@@ -488,7 +501,7 @@ class DubboMethodDetector:
                 context.generation_id,
                 "provider",
                 interface,
-                method.name,
+                declaration.name,
                 signature,
                 (*source_evidence_ids, evidence.id, *declaration_evidence_ids),
                 *settings,
@@ -504,7 +517,7 @@ class DubboMethodDetector:
                     context.generation_id,
                     self._reference(signature, *settings, xml_service_ref=xml_service_ref),
                     operation.id,
-                    implementation.id,
+                    implementation.id if implementation is not None else None,
                     (*source_evidence_ids, evidence.id, *declaration_evidence_ids),
                 )
             )
