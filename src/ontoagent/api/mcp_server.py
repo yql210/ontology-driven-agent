@@ -280,15 +280,57 @@ def workspace_service_graph_consumers(workspace_id: str, principal: str, endpoin
 
 
 @mcp.tool
-def workspace_service_graph_dependencies(workspace_id: str, principal: str, node_id: str) -> dict[str, object]:
+def workspace_service_graph_dependencies(
+    workspace_id: str,
+    principal: str,
+    node_id: str,
+    generation_id: str | None = None,
+    repo_id: str | None = None,
+    page_size: int = 50,
+    cursor: str | None = None,
+    depth: int = 1,
+    node_limit: int = 200,
+) -> dict[str, object]:
     """Read visible dependencies of a graph node."""
-    return _workspace_value_tool("dependencies", workspace_id, principal, node_id)
+    return _workspace_value_tool(
+        "dependencies",
+        workspace_id,
+        principal,
+        node_id,
+        generation_id=generation_id,
+        repo_id=repo_id,
+        page_size=page_size,
+        cursor=cursor,
+        depth=depth,
+        node_limit=node_limit,
+    )
 
 
 @mcp.tool
-def workspace_service_graph_evidence(workspace_id: str, principal: str, node_id: str) -> dict[str, object]:
+def workspace_service_graph_evidence(
+    workspace_id: str,
+    principal: str,
+    node_id: str,
+    generation_id: str | None = None,
+    repo_id: str | None = None,
+    page_size: int = 50,
+    cursor: str | None = None,
+    depth: int = 1,
+    node_limit: int = 200,
+) -> dict[str, object]:
     """Read visible evidence attached to a graph node."""
-    return _workspace_value_tool("evidence", workspace_id, principal, node_id)
+    return _workspace_value_tool(
+        "evidence",
+        workspace_id,
+        principal,
+        node_id,
+        generation_id=generation_id,
+        repo_id=repo_id,
+        page_size=page_size,
+        cursor=cursor,
+        depth=depth,
+        node_limit=node_limit,
+    )
 
 
 @mcp.tool
@@ -310,9 +352,30 @@ def workspace_service_graph_changes(workspace_id: str, principal: str, from_gene
 
 
 @mcp.tool
-def workspace_service_graph_impact(workspace_id: str, principal: str, node_id: str) -> dict[str, object]:
+def workspace_service_graph_impact(
+    workspace_id: str,
+    principal: str,
+    node_id: str,
+    generation_id: str | None = None,
+    repo_id: str | None = None,
+    page_size: int = 50,
+    cursor: str | None = None,
+    depth: int = 1,
+    node_limit: int = 200,
+) -> dict[str, object]:
     """Read the visible impact neighborhood of a graph node."""
-    return _workspace_value_tool("impact", workspace_id, principal, node_id)
+    return _workspace_value_tool(
+        "impact",
+        workspace_id,
+        principal,
+        node_id,
+        generation_id=generation_id,
+        repo_id=repo_id,
+        page_size=page_size,
+        cursor=cursor,
+        depth=depth,
+        node_limit=node_limit,
+    )
 
 
 @mcp.tool

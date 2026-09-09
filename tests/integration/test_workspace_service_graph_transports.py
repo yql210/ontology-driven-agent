@@ -16,6 +16,7 @@ from ontoagent.api.web.app import create_app
 from ontoagent.domain.workspace_authorization import PrincipalIdentity, WorkspaceGrant
 from ontoagent.parsing.service_graph.workspace.models import WorkspaceGeneration
 from ontoagent.parsing.service_graph.workspace.publish_orchestrator import WorkspacePublishStatus
+from tests.integration.test_workspace_service_graph_publish_orchestrator import _d1_input, _d1_mapping
 from tests.integration.test_workspace_service_graph_query import (
     _input,
     _method_facts,
@@ -62,6 +63,60 @@ def _mcp_directory(workspace_id: str, principal: PrincipalIdentity, **params: ob
     from ontoagent.api import mcp_server
 
     return mcp_server.workspace_service_graph_directory(workspace_id, principal.principal_id, **params)
+
+
+def _web_query(
+    client: TestClient,
+    operation: str,
+    workspace_id: str,
+    principal: PrincipalIdentity,
+    value: str | None = None,
+    **params: object,
+) -> object:
+    """Invoke an existing Web service-graph operation with its typed value parameter."""
+    if operation == "endpoint_methods":
+        assert value is not None
+        path = f"/api/workspaces/{workspace_id}/service-graph/endpoints/{value}/methods"
+    else:
+        path = f"/api/workspaces/{workspace_id}/service-graph/{operation}"
+        if value is not None:
+            params[{"consumers": "endpoint_key", "providers": "endpoint_key"}.get(operation, "node_id")] = value
+    return client.get(path, params=params, headers={"X-Workspace-Principal": principal.principal_id})
+
+
+def _cli_query(
+    operation: str,
+    workspace_id: str,
+    principal: PrincipalIdentity,
+    value: str | None = None,
+    **params: object,
+):
+    """Invoke an existing CLI service-graph operation with equivalent arguments."""
+    arguments = ["workspace-service-graph", operation, workspace_id, "--principal", principal.principal_id]
+    if value is not None:
+        option = {"consumers": "endpoint-key", "providers": "endpoint-key"}.get(operation, "node-id")
+        arguments.extend((f"--{option}", value))
+    for name, item in params.items():
+        if item is not None:
+            arguments.extend((f"--{name.replace('_', '-')}", str(item)))
+    return CliRunner().invoke(main, arguments)
+
+
+def _mcp_query(
+    operation: str,
+    workspace_id: str,
+    principal: PrincipalIdentity,
+    value: str | None = None,
+    **params: object,
+) -> dict[str, object]:
+    """Invoke the public MCP counterpart of an existing service-graph operation."""
+    from ontoagent.api import mcp_server
+
+    method = getattr(mcp_server, f"workspace_service_graph_{operation}")
+    arguments = (
+        (workspace_id, principal.principal_id) if value is None else (workspace_id, principal.principal_id, value)
+    )
+    return method(*arguments, **params)
 
 
 def _assert_filtered_safe(envelope: dict[str, object], generation_id: str) -> None:
@@ -121,6 +176,168 @@ def test_workspace_service_graph_transports_match_real_full_and_filtered_generat
     filtered = _normalized(filtered_web.json())
     assert filtered == _normalized(json.loads(filtered_cli.output)) == _normalized(filtered_mcp)
     _assert_filtered_safe(filtered, generation_id)
+
+
+def test_workspace_service_graph_transports_prove_source_pinned_d1_java_rpc_acl_boundary(
+    remote_workspace_graph: _RemoteWorkspaceGraph, client: TestClient
+) -> None:
+    """Mapped D1 Java RPC facts retain the authorized contract chain across every remote transport."""
+    environment = remote_workspace_graph
+    mapped_generation = f"generation-transport-d1-mapped-{uuid4()}"
+    unmapped_generation = f"generation-transport-d1-unmapped-{uuid4()}"
+    full = PrincipalIdentity(f"full-transport-d1-{uuid4()}")
+    filtered = PrincipalIdentity(f"filtered-transport-d1-{uuid4()}")
+    environment.namespaces.append(
+        environment.orchestrator.namespace_for(environment.workspace.workspace_id, mapped_generation)
+    )
+    assert (
+        environment.orchestrator.publish(
+            _d1_input(
+                environment.workspace,
+                mapped_generation,
+                None,
+                (_d1_mapping("sample-order-provider"), _d1_mapping("sample-checkout-consumer")),
+            )
+        ).status
+        is WorkspacePublishStatus.ACTIVE
+    )
+    assert (
+        environment.acl_repository.upsert_grant(WorkspaceGrant.full(full, environment.workspace.workspace_id)).principal
+        == full
+    )
+    assert (
+        environment.acl_repository.upsert_grant(
+            WorkspaceGrant.filtered(filtered, environment.workspace.workspace_id, ("sample-checkout-consumer",))
+        ).principal
+        == filtered
+    )
+    params = {"generation_id": mapped_generation, "page_size": 100, "node_limit": 1000}
+
+    directory = _web_query(client, "directory", environment.workspace.workspace_id, full, **params)
+    assert directory.status_code == 200, directory.text
+    directory_nodes = directory.json()["nodes"]
+    consumer_call = next(
+        node
+        for node in directory_nodes
+        if node["node_type"] == "ConsumerMethodCall"
+        and node["repo_id"] == "sample-checkout-consumer"
+        and str(node["target_reference"]).startswith(
+            "dubbo-operation:example.orders.api.OrderService#getOrder(java.lang.String):"
+            "example.orders.api.OrderSummary|group=orders|version=1.0|alias="
+        )
+    )
+    provider_operation = next(
+        node
+        for node in directory_nodes
+        if node["node_type"] == "ServiceOperation"
+        and node["repo_id"] == "sample-order-provider"
+        and node["canonical_signature"]
+        == "example.orders.api.OrderService#getOrder(java.lang.String):example.orders.api.OrderSummary"
+    )
+
+    dependency_responses = (
+        _web_query(
+            client, "dependencies", environment.workspace.workspace_id, full, consumer_call["id"], depth=2, **params
+        ),
+        _cli_query("dependencies", environment.workspace.workspace_id, full, consumer_call["id"], depth=2, **params),
+        _mcp_query("dependencies", environment.workspace.workspace_id, full, consumer_call["id"], depth=2, **params),
+    )
+    assert dependency_responses[0].status_code == 200, dependency_responses[0].text
+    assert dependency_responses[1].exit_code == 0, dependency_responses[1].output
+    dependencies = _normalized(dependency_responses[0].json())
+    assert (
+        dependencies == _normalized(json.loads(dependency_responses[1].output)) == _normalized(dependency_responses[2])
+    )
+    assert provider_operation["id"] in {node["id"] for node in dependencies["nodes"]}
+
+    impact_responses = (
+        _web_query(
+            client, "impact", environment.workspace.workspace_id, full, provider_operation["id"], depth=2, **params
+        ),
+        _cli_query("impact", environment.workspace.workspace_id, full, provider_operation["id"], depth=2, **params),
+        _mcp_query("impact", environment.workspace.workspace_id, full, provider_operation["id"], depth=2, **params),
+    )
+    assert impact_responses[0].status_code == 200, impact_responses[0].text
+    assert impact_responses[1].exit_code == 0, impact_responses[1].output
+    impact = _normalized(impact_responses[0].json())
+    assert impact == _normalized(json.loads(impact_responses[1].output)) == _normalized(impact_responses[2])
+    assert {"ConsumerMethodCall", "OperationBinding", "ImplementationMethod"} <= {
+        node["node_type"] for node in impact["nodes"]
+    }
+
+    evidence_responses = (
+        _web_query(client, "evidence", environment.workspace.workspace_id, full, provider_operation["id"], **params),
+        _cli_query("evidence", environment.workspace.workspace_id, full, provider_operation["id"], **params),
+        _mcp_query("evidence", environment.workspace.workspace_id, full, provider_operation["id"], **params),
+    )
+    assert evidence_responses[0].status_code == 200, evidence_responses[0].text
+    assert evidence_responses[1].exit_code == 0, evidence_responses[1].output
+    evidence = _normalized(evidence_responses[0].json())
+    assert evidence == _normalized(json.loads(evidence_responses[1].output)) == _normalized(evidence_responses[2])
+    contract_evidence = next(
+        node
+        for node in evidence["nodes"]
+        if node["node_type"] == "MethodEvidence"
+        and node["repo_id"] == "sample-order-contract"
+        and node["source_revision"] == "6666666666666666666666666666666666666666"
+        and node["file_path"] == "src/main/java/example/orders/api/OrderService.java"
+    )
+
+    filtered_responses = (
+        _web_query(
+            client, "dependencies", environment.workspace.workspace_id, filtered, consumer_call["id"], depth=2, **params
+        ),
+        _cli_query(
+            "dependencies", environment.workspace.workspace_id, filtered, consumer_call["id"], depth=2, **params
+        ),
+        _mcp_query(
+            "dependencies", environment.workspace.workspace_id, filtered, consumer_call["id"], depth=2, **params
+        ),
+    )
+    assert filtered_responses[0].status_code == 200, filtered_responses[0].text
+    assert filtered_responses[1].exit_code == 0, filtered_responses[1].output
+    filtered_dependencies = _normalized(filtered_responses[0].json())
+    assert (
+        filtered_dependencies
+        == _normalized(json.loads(filtered_responses[1].output))
+        == _normalized(filtered_responses[2])
+    )
+    filtered_payload = json.dumps(filtered_dependencies, sort_keys=True)
+    assert filtered_dependencies["visibility"] == "filtered"
+    assert "sample-order-provider" not in filtered_payload
+    assert "sample-order-contract" not in filtered_payload
+    assert provider_operation["id"] not in filtered_payload
+    assert contract_evidence["id"] not in filtered_payload
+    assert all(node["repo_id"] == "sample-checkout-consumer" for node in filtered_dependencies["nodes"])
+    assert all(set(edge["repo_ids"]) <= {"sample-checkout-consumer"} for edge in filtered_dependencies["edges"])
+    assert "provider_operation_id" not in filtered_payload
+    assert "provider_endpoint_reference" not in filtered_payload
+    assert "target_reference" not in filtered_payload
+
+    environment.namespaces.append(
+        environment.orchestrator.namespace_for(environment.workspace.workspace_id, unmapped_generation)
+    )
+    assert (
+        environment.orchestrator.publish(
+            _d1_input(environment.workspace, unmapped_generation, mapped_generation, ())
+        ).status
+        is WorkspacePublishStatus.ACTIVE
+    )
+    unmapped_directory = _web_query(
+        client,
+        "directory",
+        environment.workspace.workspace_id,
+        full,
+        page_size=100,
+        node_limit=1000,
+    )
+    assert unmapped_directory.status_code == 200, unmapped_directory.text
+    unmapped_payload = json.dumps(unmapped_directory.json(), sort_keys=True)
+    assert provider_operation["id"] not in unmapped_payload
+    assert not any(
+        node["node_type"] in {"ServiceOperation", "OperationBinding"} and node["repo_id"] == "sample-order-provider"
+        for node in unmapped_directory.json()["nodes"]
+    )
 
 
 @pytest.mark.parametrize(

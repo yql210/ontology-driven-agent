@@ -188,7 +188,11 @@ class WorkspaceServiceGraphQueryService:
             and str(edge.get("target_id")) in ordered_ids
         )
         page_ids = primary_ids | {str(edge[node_id]) for edge in page_edges for node_id in ("source_id", "target_id")}
-        page = tuple(_sanitize_references(node, page_ids) for node in ordered if str(node["id"]) in page_ids)
+        page = tuple(
+            _sanitize_references(node, page_ids, include_semantic_targets=authorization.repositories.is_full)
+            for node in ordered
+            if str(node["id"]) in page_ids
+        )
         next_cursor = (
             self._cursor(offset + request.page_size, context) if offset + request.page_size < len(ordered) else None
         )
@@ -433,7 +437,9 @@ _SEMANTIC_TARGET_PREFIXES = (
 )
 
 
-def _sanitize_references(record: Mapping[str, object], returned_node_ids: set[str]) -> dict[str, object]:
+def _sanitize_references(
+    record: Mapping[str, object], returned_node_ids: set[str], *, include_semantic_targets: bool = True
+) -> dict[str, object]:
     """Remove node references that point outside the final ACL-visible page."""
     sanitized = dict(record)
     for key in _NODE_REFERENCE_KEYS.intersection(sanitized):
@@ -447,7 +453,11 @@ def _sanitize_references(record: Mapping[str, object], returned_node_ids: set[st
         elif type(value) is str and value not in returned_node_ids:
             # Target references may be semantic identifiers (for example, spring-http:...)
             # rather than graph node IDs and must remain available to callers.
-            if key in {"target_reference", "targetReference"} and value.startswith(_SEMANTIC_TARGET_PREFIXES):
+            if (
+                include_semantic_targets
+                and key in {"target_reference", "targetReference"}
+                and value.startswith(_SEMANTIC_TARGET_PREFIXES)
+            ):
                 continue
             sanitized.pop(key)
     return sanitized
