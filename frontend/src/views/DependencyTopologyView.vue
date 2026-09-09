@@ -56,9 +56,15 @@ const empty = computed(() => Boolean(!loading.value && nodes.value.length === 0)
 const filteredEmpty = computed(() => Boolean(!loading.value && nodes.value.length > 0 && visibleNodes.value.length === 0))
 const nextAvailable = computed(() => Boolean(serviceCursor.value || operationCursor.value))
 
-function label(node: WorkspaceGraphNode): string {
-  return String(node.displayName ?? node.operationName ?? node.serviceName ?? node.canonicalSignature ?? node.id)
+function property(node: WorkspaceGraphNode, ...keys: string[]): string {
+  for (const key of keys) if (typeof node[key] === 'string' && node[key]) return node[key] as string
+  return ''
 }
+function label(node: WorkspaceGraphNode): string {
+  return property(node, 'canonicalSignature', 'canonical_signature', 'displayName', 'display_name', 'operationName', 'operation_name', 'serviceName', 'service_name', 'filePath', 'file_path', 'id')
+}
+function sourceRevision(node: WorkspaceGraphNode): string { return property(node, 'sourceRevision', 'source_revision', 'revision') }
+function sourcePath(node: WorkspaceGraphNode): string { return property(node, 'filePath', 'file_path') }
 function nodeKind(node: WorkspaceGraphNode): string { return String(node.node_type ?? node.nodeType ?? 'Node') }
 function endpoint(node: WorkspaceGraphNode): string { return String(node.endpoint ?? node.endpoint_key ?? node.canonical_key ?? node.canonicalKey ?? '') }
 function params(cursor?: string) {
@@ -164,6 +170,7 @@ watch([generationId, repoFilter, pageSize], () => { if (workspaceId.value && pri
               <span>{{ nodeKind(node) }}</span>
               <small>{{ node.id }}</small>
               <small v-if="endpoint(node)">{{ endpoint(node) }}</small>
+              <small v-if="sourceRevision(node)">{{ sourceRevision(node) }}</small>
             </button>
             <button class="evidence-button" type="button" @click="showEvidence(node)">Evidence</button>
           </article>
@@ -198,7 +205,7 @@ watch([generationId, repoFilter, pageSize], () => { if (workspaceId.value && pri
       <p v-if="evidenceLoading">Loading evidence...</p>
       <template v-else-if="evidenceResult">
         <ul>
-          <li v-for="node in evidenceResult.nodes" :key="node.id">{{ label(node) }} <small>{{ node.id }}</small></li>
+          <li v-for="node in evidenceResult.nodes" :key="node.id">{{ label(node) }} <small>{{ node.id }}</small><small v-if="sourcePath(node)">{{ sourcePath(node) }} <template v-if="sourceRevision(node)">@ {{ sourceRevision(node) }}</template></small></li>
           <li v-if="evidenceResult.nodes.length === 0">No evidence returned</li>
         </ul>
       </template>

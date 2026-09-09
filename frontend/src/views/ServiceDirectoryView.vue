@@ -46,7 +46,14 @@ async function load() {
   finally { loading.value = false }
 }
 function protocol(node: WorkspaceGraphNode) { return typeof node.protocol === 'string' ? node.protocol : '' }
-function label(node: WorkspaceGraphNode) { return String(node.displayName ?? node.operationName ?? node.canonicalSignature ?? node.id) }
+function property(node: WorkspaceGraphNode, ...keys: string[]) {
+  for (const key of keys) if (typeof node[key] === 'string' && node[key]) return node[key] as string
+  return ''
+}
+function label(node: WorkspaceGraphNode) {
+  return property(node, 'canonicalSignature', 'canonical_signature', 'displayName', 'display_name', 'operationName', 'operation_name', 'id')
+}
+function sourceRevision(node: WorkspaceGraphNode) { return property(node, 'sourceRevision', 'source_revision', 'revision') }
 function endpointKey(node: WorkspaceGraphNode) { const value = node.canonical_key ?? node.canonicalKey ?? node.endpoint_key ?? node.endpointKey; return typeof value === 'string' && value ? value : node.id }
 async function showDrilldown(node: WorkspaceGraphNode) {
   const key = endpointKey(node); if (!key) return
@@ -73,7 +80,7 @@ watch([workspaceId, principal, generationId], load, { immediate: true })
     <section v-else-if="error" class="state error"><h2>{{ errorTitle() }}</h2><p>{{ error.message }}</p></section>
     <section v-else-if="isEmpty" class="state"><h2>No operations returned</h2></section>
     <section v-else-if="isFilteredEmpty" class="state"><h2>No operations match these filters</h2></section>
-    <template v-else-if="directory"><p class="visibility">Visibility: {{ directory.visibility }}</p><div class="operation-list"><article v-for="node in filteredNodes" :key="node.id"><div><h2>{{ label(node) }}</h2><p>{{ node.id }}</p><p v-if="protocol(node)">{{ protocol(node) }}</p><p v-if="node.repo_id ?? node.repoId">repo: {{ node.repo_id ?? node.repoId }}</p></div><button type="button" :disabled="!endpointKey(node)" @click="showDrilldown(node)">Providers / consumers</button></article></div><nav v-if="directory.next_cursor" class="pagination"><button type="button" @click="cursor = directory?.next_cursor ?? undefined; load()">Next page</button></nav></template>
+    <template v-else-if="directory"><p class="visibility">Visibility: {{ directory.visibility }}</p><div class="operation-list"><article v-for="node in filteredNodes" :key="node.id"><div><h2>{{ label(node) }}</h2><p>{{ node.id }}</p><p v-if="protocol(node)">{{ protocol(node) }}</p><p v-if="node.repo_id ?? node.repoId">repo: {{ node.repo_id ?? node.repoId }}</p><p v-if="sourceRevision(node)">revision: {{ sourceRevision(node) }}</p></div><button type="button" :disabled="!endpointKey(node)" @click="showDrilldown(node)">Providers / consumers</button></article></div><nav v-if="directory.next_cursor" class="pagination"><button type="button" @click="cursor = directory?.next_cursor ?? undefined; load()">Next page</button></nav></template>
     <aside v-if="selected" class="drilldown"><h2>{{ label(selected) }}</h2><p v-if="drilldownLoading">Loading providers and consumers...</p><template v-else><div><h3>Providers</h3><ul><li v-for="node in drilldown.providers?.nodes ?? []" :key="node.id">{{ label(node) }}</li><li v-if="!(drilldown.providers?.nodes.length)">No providers returned</li></ul></div><div><h3>Consumers</h3><ul><li v-for="node in drilldown.consumers?.nodes ?? []" :key="node.id">{{ label(node) }}</li><li v-if="!(drilldown.consumers?.nodes.length)">No consumers returned</li></ul></div></template></aside>
   </main>
 </template>

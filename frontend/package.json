@@ -8,7 +8,8 @@
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "smoke": "node scripts/p6-a-smoke.mjs",
-    "e2e": "PLAYWRIGHT_BROWSERS_PATH=./.playwright playwright test"
+    "e2e": "PLAYWRIGHT_BROWSERS_PATH=./.playwright playwright test",
+    "e2e:d1": "PLAYWRIGHT_BROWSERS_PATH=./.playwright playwright test --config=playwright.d1.config.ts"
   },
   "dependencies": {
     "@microsoft/fetch-event-source": "^2.0.1",
