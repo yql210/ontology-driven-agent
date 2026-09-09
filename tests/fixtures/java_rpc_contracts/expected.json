@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "fixture_revision": "java-rpc-contracts-d1-v1",
+  "fixture_revision": "java-rpc-contracts-d1-v2",
   "repositories": [
     {
       "repo_id": "sample-order-contract",
-      "revision": "1111111111111111111111111111111111111111",
+      "revision": "6666666666666666666666666666666666666666",
       "role": "api",
       "source_locations": [
         "src/main/java/example/orders/api/OrderService.java",
@@ -13,7 +13,7 @@
     },
     {
       "repo_id": "sample-order-provider",
-      "revision": "2222222222222222222222222222222222222222",
+      "revision": "7777777777777777777777777777777777777777",
       "role": "provider",
       "source_locations": [
         "src/main/java/example/orders/provider/OrderServiceProvider.java"
@@ -21,7 +21,7 @@
     },
     {
       "repo_id": "sample-checkout-consumer",
-      "revision": "3333333333333333333333333333333333333333",
+      "revision": "8888888888888888888888888888888888888888",
       "role": "consumer",
       "source_locations": [
         "src/main/java/example/checkout/CheckoutService.java"
@@ -68,35 +68,42 @@
       "expected_outcome": "determined",
       "argument_type": "java.lang.String"
     },
-    "A08": {
+    "A05": {
       "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 28},
       "expected_outcome": "determined",
+      "argument_type": "int",
+      "canonical_signature": "example.orders.api.OrderService#getOrder(int):example.orders.api.OrderSummary"
+    },
+    "A08": {
+      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 32},
+      "expected_outcome": "determined",
+      "argument_type": "long",
       "canonical_signature": "example.orders.api.OrderService#getOrder(long):example.orders.api.OrderSummary"
     },
     "A09": {
-      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 32},
+      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 36},
       "expected_outcome": "unresolved",
       "reason_code": "VERSION_CONFLICT"
     },
     "A10": {
-      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 36},
+      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 40},
       "expected_outcome": "unresolved",
       "reason_code": "AMBIGUOUS_TARGET"
     },
     "A11": {
-      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 40},
+      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 44},
       "expected_outcome": "unresolved",
       "reason_code": "MISSING_IMPLEMENTATION"
     },
     "A12": {
-      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 44},
+      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 48},
       "expected_outcome": "unresolved",
       "reason_code": "DYNAMIC_TARGET"
     },
     "A14": {
-      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 48},
+      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 52},
       "expected_outcome": "determined",
-      "distinct_source_lines": [48, 49]
+      "distinct_source_lines": [52, 53]
     }
   }
 }

@@ -24,6 +24,10 @@ public class CheckoutService {
         return orderService.getOrder("A-100");
     }
 
+    public OrderSummary checkoutInt() {
+        return orderService.getOrder(100);
+    }
+
     public OrderSummary checkoutLong() {
         return orderService.getOrder(100L);
     }

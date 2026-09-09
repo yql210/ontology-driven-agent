@@ -95,6 +95,132 @@ class Checkout {
     assert len(retained.argument_evidence_ids) == 1
 
 
+@pytest.mark.parametrize(
+    ("argument", "expected_type"),
+    (
+        ("id", "java.lang.String"),
+        ("localId", "java.lang.String"),
+        ("fieldId", "java.lang.String"),
+        ("this.fieldId", "java.lang.String"),
+        ('"literal"', "java.lang.String"),
+        ("1", "int"),
+        ("1L", "long"),
+        ("(String) value", "java.lang.String"),
+        ("new RequestDto()", "example.orders.RequestDto"),
+    ),
+)
+def test_dubbo_method_detector_resolves_p0_source_argument_types(
+    tmp_path: Path, argument: str, expected_type: str
+) -> None:
+    facts = _detect(
+        tmp_path,
+        f"""package example.orders;
+import java.lang.String;
+interface OrderApi {{
+  String find(String id);
+  String find(int id);
+  String find(long id);
+  String find(RequestDto request);
+}}
+class RequestDto {{}}
+class Checkout {{
+  String fieldId;
+  @DubboReference OrderApi orders;
+  String checkout(String id, Object value) {{
+    String localId = "local";
+    return orders.find({argument});
+  }}
+}}""",
+    )
+
+    assert len(facts.retained_source_calls) == 1
+    retained = facts.retained_source_calls[0]
+    assert retained.argument_types == (expected_type,)
+    assert retained.resolution_status == "CAPTURED"
+    assert len(facts.consumer_calls) == 1
+
+
+def test_dubbo_method_detector_prefers_shadowing_local_over_class_field(tmp_path: Path) -> None:
+    facts = _detect(
+        tmp_path,
+        """package example.orders;
+interface OrderApi { String find(String id); }
+class Checkout {
+  Long id;
+  @DubboReference OrderApi orders;
+  String checkout(String ignored) {
+    String id = "local";
+    return orders.find(id);
+  }
+}""",
+    )
+
+    assert facts.retained_source_calls[0].argument_types == ("java.lang.String",)
+    assert len(facts.consumer_calls) == 1
+
+
+def test_dubbo_method_detector_resolves_explicit_import_and_rejects_star_import(tmp_path: Path) -> None:
+    facts = _detect_xml(
+        tmp_path,
+        {
+            "src/main/java/example/dto/RequestDto.java": "package example.dto; class RequestDto {}",
+            "src/main/java/example/orders/Checkout.java": """package example.orders;
+import example.dto.RequestDto;
+interface OrderApi { String find(RequestDto request); }
+class Checkout { @DubboReference OrderApi orders; String load() { return orders.find(new RequestDto()); } }""",
+            "src/main/java/example/orders/StarCheckout.java": """package example.orders;
+import example.dto.*;
+interface StarApi { String find(Object request); }
+class StarCheckout { @DubboReference StarApi orders; String load() { return orders.find(new RequestDto()); } }""",
+        },
+    )
+
+    retained = {item.receiver_type: item for item in facts.retained_source_calls}
+    assert retained["example.orders.OrderApi"].argument_types == ("example.dto.RequestDto",)
+    assert retained["example.orders.StarApi"].argument_types == (None,)
+    assert retained["example.orders.StarApi"].resolution_reason == "ARGUMENT_TYPE_UNKNOWN"
+
+
+def test_dubbo_method_detector_ignores_call_shaped_comments_and_strings(tmp_path: Path) -> None:
+    facts = _detect(
+        tmp_path,
+        """package example.orders;
+interface OrderApi { String find(String id); }
+class Checkout {
+  @DubboReference OrderApi orders;
+  String checkout() {
+    // orders.find("comment");
+    String text = "orders.find(string)";
+    /* orders.find("block"); */
+    return text;
+  }
+}""",
+    )
+
+    assert not facts.consumer_calls
+    assert not facts.retained_source_calls
+
+
+@pytest.mark.parametrize(
+    "argument", ("value.toString()", "factory()", 'value + "suffix"', 'Class.forName("example.Dto")')
+)
+def test_dubbo_method_detector_retains_dynamic_argument_expressions_as_unknown(tmp_path: Path, argument: str) -> None:
+    facts = _detect(
+        tmp_path,
+        f"""package example.orders;
+interface OrderApi {{ String find(String id); }}
+class Checkout {{
+  @DubboReference OrderApi orders;
+  String checkout(Object value) {{ return orders.find({argument}); }}
+}}""",
+    )
+
+    retained = facts.retained_source_calls[0]
+    assert retained.argument_types == (None,)
+    assert retained.resolution_reason == "ARGUMENT_TYPE_UNKNOWN"
+    assert not facts.consumer_calls
+
+
 def test_dubbo_method_detector_marks_dynamic_and_orphan_proxy_calls_unresolved(tmp_path: Path) -> None:
     facts = _detect(
         tmp_path,
@@ -118,7 +244,7 @@ class Checkout {
     assert retained.resolution_reason == "DYNAMIC_TARGET"
 
 
-def test_dubbo_method_detector_retains_missing_contract_and_unknown_argument_type(tmp_path: Path) -> None:
+def test_dubbo_method_detector_retains_missing_contract_with_typed_parameter(tmp_path: Path) -> None:
     facts = _detect(
         tmp_path,
         """package example.orders;
@@ -136,7 +262,7 @@ class Checkout {
     )
     assert retained.receiver_type == "example.orders.MissingApi"
     assert retained.argument_summaries == ("id",)
-    assert retained.argument_types == (None,)
+    assert retained.argument_types == ("java.lang.Object",)
     assert len(retained.argument_evidence_ids) == 1
     assert retained.protocol_settings == (("group", "orders"), ("version", "1.0"), ("alias", "primary"))
     assert retained.resolution_stage == "SOURCE_CAPTURE"

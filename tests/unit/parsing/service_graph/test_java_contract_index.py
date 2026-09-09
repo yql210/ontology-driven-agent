@@ -31,6 +31,15 @@ def _source(manifest: dict[str, object], repo_id: str, role: ContractSourceRole)
     return JavaContractSource(repo_id, repo_id, revision, FIXTURE_ROOT / fixture_path, role)
 
 
+def _revision(manifest: dict[str, object], repo_id: str) -> str:
+    repositories = manifest["repositories"]
+    assert isinstance(repositories, list)
+    repository = next(item for item in repositories if item["repo_id"] == repo_id)
+    revision = repository["revision"]
+    assert isinstance(revision, str)
+    return revision
+
+
 def _mapping(
     consumer_repo_id: str,
     source: JavaContractSource,
@@ -40,10 +49,7 @@ def _mapping(
     manifest = _manifest()
     repositories = manifest["repositories"]
     assert isinstance(repositories, list)
-    consumer = next(item for item in repositories if item["repo_id"] == consumer_repo_id)
-    manifest_consumer_revision = consumer["revision"]
-    assert isinstance(manifest_consumer_revision, str)
-    revision = consumer_source_revision or manifest_consumer_revision
+    revision = consumer_source_revision or _revision(manifest, consumer_repo_id)
     return ContractSourceMapping(
         consumer_repo_id,
         consumer_repo_id,
@@ -71,11 +77,15 @@ def test_a01_contract_index_extracts_api_contract_with_exact_source_pinned_signa
     assert not contract.source.is_provider
     assert [method.canonical_signature for method in contract.methods] == [
         "example.orders.api.OrderService#cancelOrder(java.lang.String):void",
+        "example.orders.api.OrderService#getOrder(int):example.orders.api.OrderSummary",
         "example.orders.api.OrderService#getOrder(java.lang.String):example.orders.api.OrderSummary",
         "example.orders.api.OrderService#getOrder(long):example.orders.api.OrderSummary",
     ]
     assert all(method.source.repo_id == "sample-order-contract" for method in contract.methods)
     assert all(method.source.file_path.endswith("OrderService.java") for method in contract.methods)
+    assert {source.source_revision for method in contract.methods for source in method.sources} == {
+        _revision(manifest, "sample-order-contract")
+    }
 
 
 @pytest.mark.unit
@@ -91,6 +101,9 @@ def test_a02_contract_index_extracts_client_module_contract_without_treating_it_
     assert [method.canonical_signature for method in contract.methods] == [
         "example.inventory.api.InventoryService#reserve(java.lang.String):java.lang.String"
     ]
+    assert {source.source_revision for method in contract.methods for source in method.sources} == {
+        _revision(manifest, "provider-client-module-client")
+    }
 
 
 @pytest.mark.unit
@@ -110,7 +123,7 @@ def test_a03_contract_index_is_order_deterministic_and_deduplicates_method_ident
 
     assert forward == reverse
     contract = forward.contracts["example.orders.api.OrderService"]
-    assert len(contract.methods) == 3
+    assert len(contract.methods) == 4
     assert len(contract.methods[0].sources) == 2
 
 
@@ -122,7 +135,7 @@ def test_a09_visibility_requires_explicit_source_pinned_mapping_and_reports_conf
     index = JavaContractIndex()
     result = index.build((api_source, client_source))
 
-    consumer_revision = "3333333333333333333333333333333333333333"
+    consumer_revision = _revision(manifest, "sample-checkout-consumer")
     no_evidence = index.visible_contracts(
         result,
         "sample-checkout-consumer",

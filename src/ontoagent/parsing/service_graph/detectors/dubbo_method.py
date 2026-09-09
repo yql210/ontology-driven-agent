@@ -28,11 +28,13 @@ from ontoagent.parsing.service_graph.models import RepositorySnapshot
 class _Method:
     name: str
     parameters: tuple[str, ...]
+    parameter_names: tuple[str, ...]
     return_type: str
     start: int
     end: int
     body: str
     body_start_column: int
+    local_declarations: tuple[tuple[str, str, int], ...]
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,8 @@ class _Class:
     body: str
     body_offset: int
     methods: tuple[_Method, ...]
+    field_types: tuple[tuple[str, str], ...]
+    imports: tuple[tuple[str, str], ...]
 
 
 @dataclass(frozen=True)
@@ -76,6 +80,8 @@ class _XmlDeclaration:
 class DubboMethodDetector:
     """Extract Dubbo provider operations and statically resolvable proxy calls."""
 
+    _UNKNOWN_STAR_IMPORT_TYPE = "__unresolved_star_import__"
+
     metadata = DetectorMetadata(
         detector_id="dubbo-method",
         detector_version="1",
@@ -101,7 +107,10 @@ class DubboMethodDetector:
         r"@DubboReference\b(?:\s*\((?P<args>[^)]*)\))?\s*"
         r"(?:(?:public|protected|private|final|static)\s+)*(?P<type>[\w.$<>]+)\s+(?P<name>\w+)\b"
     )
-    _CALL = re.compile(r"\b(?P<receiver>[A-Za-z_]\w*)\s*\.\s*(?P<method>[A-Za-z_]\w*)\s*\((?P<args>[^)]*)\)")
+    _CALL = re.compile(
+        r"\b(?P<receiver>[A-Za-z_]\w*)\s*\.\s*(?P<method>[A-Za-z_]\w*)\s*"
+        r"\((?P<args>(?:[^()]|\([^()]*\))*)\)"
+    )
     _FIELD = re.compile(
         r"(?:public|protected|private)?\s*(?:final\s+)?(?P<type>[\w.$<>]+)\s+(?P<name>\w+)\s*(?:=[^;]*)?;"
     )
@@ -188,6 +197,7 @@ class DubboMethodDetector:
                     context,
                     relative,
                     method,
+                    java_class,
                     implementation,
                     proxies,
                     contracts,
@@ -442,6 +452,7 @@ class DubboMethodDetector:
         context: MethodDetectionContext,
         path: str,
         method: _Method,
+        java_class: _Class,
         implementation: ImplementationMethod,
         proxies: dict[str, _Proxy],
         contracts: dict[str, _Class],
@@ -451,6 +462,8 @@ class DubboMethodDetector:
         unresolved: list[MethodUnresolved],
     ) -> None:
         for match in self._CALL.finditer(method.body):
+            if not self._is_code_position(method.body, match.start()):
+                continue
             proxy = proxies.get(match.group("receiver"))
             if proxy is None:
                 continue
@@ -458,10 +471,17 @@ class DubboMethodDetector:
             subject = match.group(0).strip()
             evidence = self._evidence(context, path, line, line, "dubbo_proxy_call", subject)
             evidences.append(evidence)
-            argument_summaries = tuple(item.strip() for item in match.group("args").split(",") if item.strip())
-            argument_types = tuple(self._argument_type(item, method) for item in argument_summaries)
+            argument_summaries = self._arguments(match.group("args"))
+            argument_types = tuple(
+                self._argument_type(item, method, java_class, match.start()) for item in argument_summaries
+            )
             declaration = self._called_declaration(
-                contracts.get(proxy.interface), match.group("method"), match.group("args"), method
+                contracts.get(proxy.interface),
+                match.group("method"),
+                match.group("args"),
+                method,
+                java_class,
+                match.start(),
             )
             argument_evidence_ids: list[tuple[str, ...]] = []
             for index, argument in enumerate(argument_summaries):
@@ -550,6 +570,8 @@ class DubboMethodDetector:
     ) -> None:
         covered = tuple((method.start, method.end) for method in java_class.methods)
         for match in self._CALL.finditer(java_class.body):
+            if not self._is_code_position(java_class.body, match.start()):
+                continue
             if match.group("receiver") not in proxies:
                 continue
             line = java_class.body_offset + java_class.body.count("\n", 0, match.start())
@@ -680,6 +702,7 @@ class DubboMethodDetector:
                 for item in (match.group("interfaces") or "").split(",")
                 if item.strip()
             )
+            field_types = self._field_types(body, fqcn, imports)
             result.append(
                 _Class(
                     fqcn,
@@ -689,48 +712,150 @@ class DubboMethodDetector:
                     match.group("annotations"),
                     body,
                     text.count("\n", 0, opening) + 1,
-                    tuple(self._methods(body, opening + 1, text)),
+                    tuple(self._methods(body, opening + 1, text, fqcn, imports)),
+                    tuple(field_types.items()),
+                    tuple(imports.items()),
                 )
             )
         return tuple(result)
 
-    def _methods(self, body: str, offset: int, text: str) -> list[_Method]:
+    def _methods(self, body: str, offset: int, text: str, current_fqcn: str, imports: dict[str, str]) -> list[_Method]:
         result: list[_Method] = []
         for match in self._METHOD.finditer(body):
             opening = offset + match.end() - 1
             closing = self._brace(text, opening) if match.group("terminator") == "{" else opening
             if closing < 0:
                 continue
-            params = tuple(self._parameter_type(item) for item in match.group("params").split(",") if item.strip())
+            parameter_values = tuple(item for item in match.group("params").split(",") if item.strip())
+            params = tuple(self._parameter_type(item, current_fqcn, imports) for item in parameter_values)
+            parameter_names = tuple(self._parameter_name(item) for item in parameter_values)
+            method_body = text[opening + 1 : closing] if match.group("terminator") == "{" else ""
             result.append(
                 _Method(
                     match.group("name"),
                     params,
-                    self._type(match.group("return")),
+                    parameter_names,
+                    self._resolve_type(match.group("return"), current_fqcn, imports),
                     text.count("\n", 0, offset + match.start()) + 1,
                     text.count("\n", 0, closing) + 1,
-                    text[opening + 1 : closing] if match.group("terminator") == "{" else "",
+                    method_body,
                     opening - text.rfind("\n", 0, opening) + 1,
+                    self._local_declarations(method_body, current_fqcn, imports),
                 )
             )
         return result
 
-    def _called_declaration(self, contract: _Class | None, name: str, args: str, caller: _Method) -> _Method | None:
+    def _called_declaration(
+        self, contract: _Class | None, name: str, args: str, caller: _Method, java_class: _Class, call_offset: int
+    ) -> _Method | None:
         if contract is None:
             return None
-        argument_types = tuple(self._argument_type(item.strip(), caller) for item in args.split(",") if item.strip())
+        argument_types = tuple(
+            self._argument_type(item, caller, java_class, call_offset) for item in self._arguments(args)
+        )
         if any(item is None for item in argument_types):
             return None
         matches = [item for item in contract.methods if (item.name, item.parameters) == (name, argument_types)]
         return matches[0] if len(matches) == 1 else None
 
-    @staticmethod
-    def _argument_type(value: str, caller: _Method) -> str | None:
+    def _argument_type(self, value: str, caller: _Method, java_class: _Class, call_offset: int) -> str | None:
+        value = value.strip()
         if re.fullmatch(r'"(?:[^"\\]|\\.)*"', value):
             return "java.lang.String"
-        if re.fullmatch(r"\d+[lL]?", value):
+        if re.fullmatch(r"\d+[lL]", value):
             return "long"
+        if re.fullmatch(r"\d+", value):
+            return "int"
+        cast = re.fullmatch(r"\(\s*([\w.]+)\s*\)\s*.+", value, re.DOTALL)
+        if cast:
+            return self._known_argument_type(
+                self._resolve_type(cast.group(1), java_class.fqcn, dict(java_class.imports))
+            )
+        created = re.fullmatch(r"new\s+([\w.]+)(?:\s*<[^>]+>)?\s*\([^)]*\)", value, re.DOTALL)
+        if created:
+            if self._ambiguous_star_import(created.group(1), java_class):
+                return None
+            return self._resolve_type(created.group(1), java_class.fqcn, dict(java_class.imports))
+        if value.startswith("this."):
+            return self._known_argument_type(dict(java_class.field_types).get(value.removeprefix("this.")))
+        if re.fullmatch(r"[A-Za-z_]\w*", value):
+            local_types = [item for item in caller.local_declarations if item[0] == value and item[2] < call_offset]
+            if local_types:
+                return self._known_argument_type(local_types[-1][1])
+            parameter_types = dict(zip(caller.parameter_names, caller.parameters, strict=True))
+            if value in parameter_types:
+                return self._known_argument_type(parameter_types[value])
+            return self._known_argument_type(dict(java_class.field_types).get(value))
         return None
+
+    def _known_argument_type(self, value: str | None) -> str | None:
+        return None if value == self._UNKNOWN_STAR_IMPORT_TYPE else value
+
+    @staticmethod
+    def _arguments(args: str) -> tuple[str, ...]:
+        result: list[str] = []
+        start = depth = 0
+        for index, character in enumerate(args):
+            if character == "(":
+                depth += 1
+            elif character == ")":
+                depth -= 1
+            elif character == "," and depth == 0:
+                if argument := args[start:index].strip():
+                    result.append(argument)
+                start = index + 1
+        if argument := args[start:].strip():
+            result.append(argument)
+        return tuple(result)
+
+    def _field_types(self, body: str, current_fqcn: str, imports: dict[str, str]) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for match in self._FIELD.finditer(body):
+            if self._brace_depth(body, match.start()) == 0:
+                result[match.group("name")] = self._resolve_type(match.group("type"), current_fqcn, imports)
+        return result
+
+    def _local_declarations(
+        self, body: str, current_fqcn: str, imports: dict[str, str]
+    ) -> tuple[tuple[str, str, int], ...]:
+        declarations: list[tuple[str, str, int]] = []
+        for match in self._FIELD.finditer(body):
+            declarations.append(
+                (match.group("name"), self._resolve_type(match.group("type"), current_fqcn, imports), match.start())
+            )
+        return tuple(declarations)
+
+    @staticmethod
+    def _brace_depth(text: str, end: int) -> int:
+        return text[:end].count("{") - text[:end].count("}")
+
+    @staticmethod
+    def _ambiguous_star_import(value: str, java_class: _Class) -> bool:
+        return "." not in value and "*" in dict(java_class.imports) and DubboMethodDetector._type(value) == value
+
+    @staticmethod
+    def _is_code_position(text: str, position: int) -> bool:
+        in_block_comment = in_line_comment = in_string = escaped = False
+        for index, character in enumerate(text[:position]):
+            following = text[index + 1] if index + 1 < len(text) else ""
+            if in_line_comment:
+                in_line_comment = character != "\n"
+            elif in_block_comment:
+                if character == "*" and following == "/":
+                    in_block_comment = False
+            elif in_string:
+                if character == '"' and not escaped:
+                    in_string = False
+                escaped = character == "\\" and not escaped
+                if character != "\\":
+                    escaped = False
+            elif character == "/" and following == "/":
+                in_line_comment = True
+            elif character == "/" and following == "*":
+                in_block_comment = True
+            elif character == '"':
+                in_string = True
+        return not (in_block_comment or in_line_comment or in_string)
 
     @staticmethod
     def _call_position(method: _Method, offset: int) -> tuple[int, int]:
@@ -750,7 +875,10 @@ class DubboMethodDetector:
 
     @staticmethod
     def _imports(text: str) -> dict[str, str]:
-        return {item.rsplit(".", 1)[-1]: item for item in re.findall(r"\bimport\s+([\w.]+)\s*;", text)}
+        imports = {item.rsplit(".", 1)[-1]: item for item in re.findall(r"\bimport\s+([\w.]+)\s*;", text)}
+        if re.search(r"\bimport\s+[\w.]+\.\*\s*;", text):
+            imports["*"] = "*"
+        return imports
 
     @staticmethod
     def _annotation_args(text: str, name: str) -> str | None:
@@ -792,12 +920,31 @@ class DubboMethodDetector:
 
     @staticmethod
     def _type(value: str) -> str:
-        return {"String": "java.lang.String", "Object": "java.lang.Object", "long": "long", "void": "void"}.get(
-            value.strip(), value.strip()
-        )
+        return {
+            "String": "java.lang.String",
+            "Object": "java.lang.Object",
+            "Long": "java.lang.Long",
+            "Integer": "java.lang.Integer",
+            "int": "int",
+            "long": "long",
+            "void": "void",
+        }.get(value.strip(), value.strip())
 
-    def _parameter_type(self, value: str) -> str:
-        return self._type(value.strip().split()[0])
+    def _resolve_type(self, value: str, current_fqcn: str, imports: dict[str, str]) -> str:
+        value = value.strip().split("<", 1)[0].removesuffix("[]")
+        resolved = self._type(value)
+        if resolved != value or resolved in {"int", "long", "void"} or "." in resolved:
+            return resolved
+        if "*" in imports:
+            return self._UNKNOWN_STAR_IMPORT_TYPE
+        return self._fqcn(resolved, current_fqcn, imports)
+
+    def _parameter_type(self, value: str, current_fqcn: str, imports: dict[str, str]) -> str:
+        return self._resolve_type(value.strip().split()[0], current_fqcn, imports)
+
+    @staticmethod
+    def _parameter_name(value: str) -> str:
+        return value.strip().split()[-1]
 
     def _signature(self, fqcn: str, method: _Method) -> str:
         package = fqcn.rsplit(".", 1)[0] if "." in fqcn else ""

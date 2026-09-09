@@ -12,6 +12,11 @@ public class OrderServiceProvider implements OrderService {
     }
 
     @Override
+    public OrderSummary getOrder(int id) {
+        return new OrderSummary(Integer.toString(id));
+    }
+
+    @Override
     public OrderSummary getOrder(long id) {
         return new OrderSummary(Long.toString(id));
     }
