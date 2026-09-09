@@ -24,6 +24,11 @@ from ontoagent.parsing.service_graph.detectors.spring_http import SpringHttpDete
 from ontoagent.parsing.service_graph.detectors.spring_http_method import SpringHttpMethodDetector
 from ontoagent.parsing.service_graph.graph_plan import GraphPlanBuilder
 from ontoagent.parsing.service_graph.graph_writer import GraphWriter, WriteReceipt
+from ontoagent.parsing.service_graph.java_contract_index import (
+    ContractSourceMapping,
+    ContractSourceRole,
+    JavaContractSource,
+)
 from ontoagent.parsing.service_graph.method_graph_writer import MethodGraphScope, MethodGraphWritePlan
 from ontoagent.parsing.service_graph.methods import (
     ConsumerMethodCall,
@@ -35,6 +40,7 @@ from ontoagent.parsing.service_graph.methods import (
 )
 from ontoagent.parsing.service_graph.models import RepositorySnapshot
 from ontoagent.parsing.service_graph.neo4j_graph_sink import Neo4jGraphSink
+from ontoagent.parsing.service_graph.provider_method_binder import AuthorizedProviderSource
 from ontoagent.parsing.service_graph.resolver import FactBatch, ServiceGraphResolver
 from ontoagent.parsing.service_graph.workspace.models import (
     Workspace,
@@ -52,6 +58,7 @@ from ontoagent.parsing.service_graph.workspace.publish_orchestrator import (
     WorkspaceServiceGraphPublishInput,
     WorkspaceServiceGraphPublishOrchestrator,
 )
+from ontoagent.parsing.service_graph.workspace_java_rpc_resolution import WorkspaceJavaRpcAuthorization
 
 pytestmark = pytest.mark.integration
 
@@ -60,6 +67,7 @@ CONFIGURED_MESSAGING_FIXTURE = Path(__file__).parents[1] / "fixtures/service_gra
 GRPC_FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/neutral_grpc_three_repo"
 PYTHON_HTTP_FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/python_http_three_repo"
 XML_DUBBO_FIXTURE = Path(__file__).parents[1] / "fixtures/service_graph/xml_dubbo_three_repo"
+JAVA_RPC_CONTRACTS_FIXTURE = Path(__file__).parents[1] / "fixtures/java_rpc_contracts"
 PYTHON_HTTP_REVISIONS = {
     "provider-api": "provider-v1",
     "consumer-client": "consumer-v1",
@@ -75,6 +83,257 @@ XML_DUBBO_REVISIONS = {
     "consumer-checkout": "xml-consumer-v1",
     "isolated-catalog": "xml-isolated-v1",
 }
+
+
+def _d1_revisions() -> dict[str, str]:
+    manifest = json.loads((JAVA_RPC_CONTRACTS_FIXTURE / "expected.json").read_text(encoding="utf-8"))
+    repositories = manifest["repositories"]
+    assert isinstance(repositories, list)
+    return {
+        item["repo_id"]: item["revision"]
+        for item in repositories
+        if item["repo_id"] in {"sample-order-contract", "sample-order-provider", "sample-checkout-consumer"}
+    }
+
+
+D1_REVISIONS = _d1_revisions()
+
+
+def _d1_authorization(mappings: tuple[ContractSourceMapping, ...]) -> WorkspaceJavaRpcAuthorization:
+    return WorkspaceJavaRpcAuthorization(
+        (
+            JavaContractSource(
+                "sample-order-contract",
+                "sample-order-contract",
+                D1_REVISIONS["sample-order-contract"],
+                JAVA_RPC_CONTRACTS_FIXTURE / "sample-order-contract",
+                ContractSourceRole.API,
+            ),
+        ),
+        mappings,
+        frozenset(
+            {
+                AuthorizedProviderSource(
+                    "sample-order-provider",
+                    "sample-order-provider",
+                    D1_REVISIONS["sample-order-provider"],
+                )
+            }
+        ),
+        lambda resolution, operation, binding: (
+            operation.group == "orders"
+            and operation.version == "1.0"
+            and operation.alias is None
+            and binding.provider_endpoint_reference.endswith("|group=orders|version=1.0|alias=")
+        ),
+    )
+
+
+def _d1_mapping(consumer_repo_id: str) -> ContractSourceMapping:
+    return ContractSourceMapping(
+        consumer_repo_id,
+        consumer_repo_id,
+        D1_REVISIONS[consumer_repo_id],
+        "sample-order-contract",
+        "sample-order-contract",
+        D1_REVISIONS["sample-order-contract"],
+        "1.0",
+        "workspace-contracts.yaml",
+        1,
+        1,
+    )
+
+
+def _d1_input(
+    workspace: Workspace,
+    generation_id: str,
+    expected_active: str | None,
+    mappings: tuple[ContractSourceMapping, ...],
+) -> WorkspaceServiceGraphPublishInput:
+    repositories = ("sample-order-contract", "sample-order-provider", "sample-checkout-consumer")
+    snapshots = tuple(
+        WorkspaceRepositorySnapshot(
+            workspace.workspace_id,
+            repo_id,
+            "main",
+            D1_REVISIONS[repo_id],
+            WorkspaceSourceDescriptor(WorkspaceSourceKind.GIT, f"https://example.test/{repo_id}.git"),
+        )
+        for repo_id in repositories
+    )
+    runtime = tuple(
+        RepositorySnapshot(repo_id, D1_REVISIONS[repo_id], JAVA_RPC_CONTRACTS_FIXTURE / repo_id, frozenset({"java"}))
+        for repo_id in repositories
+    )
+    return WorkspaceServiceGraphPublishInput(
+        workspace,
+        snapshots,
+        runtime,
+        f"request-{generation_id}",
+        generation_id,
+        expected_active,
+        (),
+        (),
+        _d1_authorization(mappings),
+    )
+
+
+def test_workspace_publisher_persists_source_pinned_d1_java_rpc_only_when_explicitly_mapped() -> None:
+    uri, user, password = _credentials()
+    workspace = Workspace(f"workspace-d1-java-rpc-{uuid4()}", "D1 Java RPC remote integration")
+    mapped_generation = f"generation-d1-mapped-{uuid4()}"
+    unmapped_generation = f"generation-d1-unmapped-{uuid4()}"
+    namespaces = tuple(
+        WorkspaceServiceGraphPublishOrchestrator.namespace_for(workspace.workspace_id, generation)
+        for generation in (mapped_generation, unmapped_generation)
+    )
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+    orchestrator = WorkspaceServiceGraphPublishOrchestrator(
+        Neo4jWorkspaceServiceGraphPublishComponentFactory(
+            driver, DetectorRegistry([SpringHttpDetector(), DubboDetector(), MessagingDetector()])
+        )
+    )
+    contract_signature = "example.orders.api.OrderService#getOrder(java.lang.String):example.orders.api.OrderSummary"
+    implementation_signature = (
+        "example.orders.provider.OrderServiceProvider#getOrder(java.lang.String):example.orders.api.OrderSummary"
+    )
+    try:
+        mapped = orchestrator.publish(
+            _d1_input(
+                workspace,
+                mapped_generation,
+                None,
+                (_d1_mapping("sample-order-provider"), _d1_mapping("sample-checkout-consumer")),
+            )
+        )
+
+        assert mapped.status is WorkspacePublishStatus.ACTIVE
+        assert mapped.candidate_namespace == namespaces[0]
+        for repo_id in ("sample-order-provider", "sample-checkout-consumer"):
+            assert not (
+                JAVA_RPC_CONTRACTS_FIXTURE / repo_id / "src/main/java/example/orders/api/OrderService.java"
+            ).exists()
+
+        with driver.session() as session:
+            evidence_rows = session.run(
+                "MATCH (e:MethodEvidence {namespace: $namespace}) RETURN e.id AS id, e.factPayload AS fact_payload",
+                namespace=namespaces[0],
+            ).data()
+            chain_rows = session.run(
+                "MATCH (implementation:ImplementationMethod {namespace: $namespace, repoId: 'sample-checkout-consumer'}) "
+                "-[:CALLER_METHOD]->(call:ConsumerMethodCall {namespace: $namespace}) "
+                "-[:CALLS_OPERATION]->(operation:ServiceOperation {namespace: $namespace, "
+                "repoId: 'sample-order-provider'}) "
+                "MATCH (call)-[:METHOD_EVIDENCE]->(call_evidence:MethodEvidence {namespace: $namespace}) "
+                "MATCH (binding:OperationBinding {namespace: $namespace, repoId: 'sample-order-provider'}) "
+                "-[:OPERATION_BINDING]->(operation) "
+                "MATCH (binding)-[:BINDS_IMPLEMENTATION]->"
+                "(provider_implementation:ImplementationMethod {namespace: $namespace, "
+                "repoId: 'sample-order-provider'}) "
+                "RETURN call.id AS call_id, call.factPayload AS call_payload, "
+                "call_evidence.id AS call_evidence_id, call_evidence.factPayload AS call_evidence_payload, "
+                "operation.id AS operation_id, operation.factPayload AS operation_payload, "
+                "binding.id AS binding_id, binding.factPayload AS binding_payload, "
+                "provider_implementation.id AS implementation_id, "
+                "provider_implementation.factPayload AS implementation_payload",
+                namespace=namespaces[0],
+            ).data()
+
+        contract_evidences = [
+            evidence
+            for row in evidence_rows
+            for evidence in json.loads(row["fact_payload"])["evidences"]
+            if evidence["id"] == row["id"]
+            and evidence["repo_id"] == "sample-order-contract"
+            and evidence["source_revision"] == D1_REVISIONS["sample-order-contract"]
+            and evidence["file_path"] == "src/main/java/example/orders/api/OrderService.java"
+        ]
+        a01_chains = []
+        for row in chain_rows:
+            call = next(
+                item for item in json.loads(row["call_payload"])["consumer_calls"] if item["id"] == row["call_id"]
+            )
+            call_evidence = next(
+                item
+                for item in json.loads(row["call_evidence_payload"])["evidences"]
+                if item["id"] == row["call_evidence_id"]
+            )
+            operation = next(
+                item for item in json.loads(row["operation_payload"])["operations"] if item["id"] == row["operation_id"]
+            )
+            binding = next(
+                item for item in json.loads(row["binding_payload"])["bindings"] if item["id"] == row["binding_id"]
+            )
+            provider_implementation = next(
+                item
+                for item in json.loads(row["implementation_payload"])["implementations"]
+                if item["id"] == row["implementation_id"]
+            )
+            if (
+                call["target_reference"].startswith(f"dubbo-operation:{contract_signature}|group=orders|version=1.0")
+                and call_evidence["file_path"] == "src/main/java/example/checkout/CheckoutService.java"
+                and call_evidence["start_line"] == 20
+                and operation["canonical_signature"] == contract_signature
+                and binding["operation_id"] == operation["id"]
+                and binding["implementation_id"] == provider_implementation["id"]
+                and provider_implementation["canonical_signature"] == implementation_signature
+            ):
+                a01_chains.append(row)
+        assert contract_evidences
+        assert len(a01_chains) == 1
+        assert contract_signature != implementation_signature
+
+        unmapped = orchestrator.publish(_d1_input(workspace, unmapped_generation, mapped_generation, ()))
+
+        assert unmapped.status is WorkspacePublishStatus.ACTIVE
+        assert unmapped.candidate_namespace == namespaces[1]
+        with driver.session() as session:
+            namespace_counts = session.run(
+                "MATCH (n) WHERE n._ontoagent_namespace IN $namespaces OR n.namespace IN $namespaces "
+                "RETURN n.namespace AS namespace, n.generationId AS generation_id, count(n) AS count "
+                "ORDER BY namespace, generation_id",
+                namespaces=list(namespaces),
+            ).data()
+            unmapped_cross_repo_calls = session.run(
+                "MATCH (:ImplementationMethod {namespace: $namespace, repoId: 'sample-checkout-consumer'}) "
+                "-[:CALLER_METHOD]->(:ConsumerMethodCall {namespace: $namespace}) "
+                "-[:CALLS_OPERATION]->(:ServiceOperation {namespace: $namespace, repoId: 'sample-order-provider'}) "
+                "RETURN count(*) AS count",
+                namespace=namespaces[1],
+            ).single()["count"]
+            unmapped_provider_operations = session.run(
+                "MATCH (operation:ServiceOperation {namespace: $namespace, repoId: 'sample-order-provider'}) "
+                "RETURN count(operation) AS count",
+                namespace=namespaces[1],
+            ).single()["count"]
+
+        assert {row["namespace"] for row in namespace_counts if row["namespace"] is not None} == set(namespaces)
+        assert {row["generation_id"] for row in namespace_counts if row["generation_id"] is not None} == {
+            mapped_generation,
+            unmapped_generation,
+        }
+        assert unmapped_cross_repo_calls == 0
+        assert unmapped_provider_operations == 0
+    finally:
+        with driver.session() as session:
+            session.run(
+                "MATCH (n) WHERE n._ontoagent_namespace IN $namespaces OR n.namespace IN $namespaces DETACH DELETE n",
+                namespaces=list(namespaces),
+            )
+            session.run(
+                "MATCH (n) WHERE n.workspaceId = $workspace_id "
+                "AND (n:OntoAgentWorkspace OR n:OntoAgentWorkspaceBuildTask "
+                "OR n:OntoAgentWorkspaceGeneration OR n:OntoAgentWorkspaceRepositorySnapshot "
+                "OR n:OntoAgentWorkspaceActiveBinding) DETACH DELETE n",
+                workspace_id=workspace.workspace_id,
+            )
+            remaining = session.run(
+                "MATCH (n) WHERE n._ontoagent_namespace IN $namespaces OR n.namespace IN $namespaces "
+                "RETURN count(n) AS count",
+                namespaces=list(namespaces),
+            ).single()["count"]
+        driver.close()
+        assert remaining == 0
 
 
 class _FailingDetectorRegistry:

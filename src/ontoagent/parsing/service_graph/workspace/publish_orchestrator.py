@@ -373,9 +373,14 @@ class WorkspaceServiceGraphPublishOrchestrator:
                 generation,
                 WorkspacePublishReason.RESOLUTION_FAILED,
             )
-        if not _contains_all_repositories(plan, request.snapshots, method_plan) or not _has_one_namespace(
-            plan, namespace
-        ):
+        source_only_repositories = (
+            frozenset(source.repo_id for source in request.java_rpc_authorization.contract_sources)
+            if request.java_rpc_authorization is not None
+            else frozenset()
+        )
+        if not _contains_all_repositories(
+            plan, request.snapshots, method_plan, source_only_repositories
+        ) or not _has_one_namespace(plan, namespace):
             return self._fail(
                 components.workspace_repository,
                 request,
@@ -699,12 +704,14 @@ def _contains_all_repositories(
     plan: GraphWritePlan,
     snapshots: tuple[WorkspaceRepositorySnapshot, ...],
     method_plan: MethodGraphWritePlan | None = None,
+    source_only_repositories: frozenset[str] = frozenset(),
 ) -> bool:
     covered_repositories = {
         node.props.get("repo_id") for node in plan.nodes if isinstance(node.props.get("repo_id"), str)
     }
     if method_plan is not None:
         covered_repositories.update(fact.repo_id for fact in method_plan.facts)
+    covered_repositories.update(source_only_repositories)
     return {snapshot.repo_id for snapshot in snapshots} <= covered_repositories
 
 
