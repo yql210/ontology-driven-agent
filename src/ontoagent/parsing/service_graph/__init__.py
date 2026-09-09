@@ -11,6 +11,14 @@ from .change_analysis import (
     ServiceGraphChangeAnalysisResult,
     ServiceGraphChangeAnalysisStatus,
 )
+from .contract_method_resolver import (
+    CallerIdentity,
+    ContractMethodResolution,
+    ContractMethodResolutionOutcome,
+    ContractMethodResolver,
+    ProtocolCompatibilityPredicate,
+    ProtocolMetadata,
+)
 from .detector_sdk import (
     DetectorCapability,
     DetectorMetadata,
@@ -86,6 +94,10 @@ from .query import (
 from .resolver import FactBatch, ResolvedLink, ResolveResult, ServiceGraphResolver, UnresolvedEndpoint
 
 __all__ = [
+    "CallerIdentity",
+    "ContractMethodResolution",
+    "ContractMethodResolutionOutcome",
+    "ContractMethodResolver",
     "ConsumerMethodCall",
     "DetectorCapability",
     "DetectorFacts",
@@ -145,6 +157,8 @@ __all__ = [
     "ManifestPublicationStatus",
     "Neo4jServiceGraphPublishComponentFactory",
     "OperationBinding",
+    "ProtocolCompatibilityPredicate",
+    "ProtocolMetadata",
     "RetainedSourceCall",
     "ServiceGraphPublicationReceipt",
     "ServiceGraphPublishComponents",
