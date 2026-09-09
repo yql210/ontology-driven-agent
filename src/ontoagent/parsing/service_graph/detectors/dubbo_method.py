@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from xml.etree import ElementTree
 
 from ontoagent.parsing.service_graph.detector_sdk import (
+    AuthorizedContractSource,
     DetectorCapability,
     DetectorMetadata,
     MethodDetectionContext,
@@ -49,6 +50,20 @@ class _Class:
     methods: tuple[_Method, ...]
     field_types: tuple[tuple[str, str], ...]
     imports: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True)
+class _ContractMethod:
+    name: str
+    parameters: tuple[str, ...]
+    return_type: str
+    source: AuthorizedContractSource | None = None
+
+
+@dataclass(frozen=True)
+class _Contract:
+    methods: tuple[_ContractMethod, ...]
+    conflicted: bool = False
 
 
 @dataclass(frozen=True)
@@ -127,7 +142,6 @@ class DubboMethodDetector:
             text = path.read_text(encoding="utf-8")
             imports = self._imports(text)
             parsed.extend((relative, item, imports) for item in self._classes(text, imports))
-        contracts = {item.fqcn: item for _, item, _ in parsed if item.is_interface}
         evidences: list[MethodEvidence] = []
         operations: list[ServiceOperation] = []
         implementations: list[ImplementationMethod] = []
@@ -135,6 +149,7 @@ class DubboMethodDetector:
         retained_source_calls: list[RetainedSourceCall] = []
         bindings: list[OperationBinding] = []
         unresolved: list[MethodUnresolved] = []
+        contracts = self._contracts(parsed, context, evidences, unresolved)
         xml_declarations, bean_classes = self._xml_declarations(snapshot, context, evidences, unresolved)
         services = tuple(item for item in xml_declarations if item.kind == "service")
         references = tuple(item for item in xml_declarations if item.kind == "reference")
@@ -222,6 +237,50 @@ class DubboMethodDetector:
             tuple(retained_source_calls),
         )
 
+    def _contracts(
+        self,
+        parsed: list[tuple[str, _Class, dict[str, str]]],
+        context: MethodDetectionContext,
+        evidences: list[MethodEvidence],
+        unresolved: list[MethodUnresolved],
+    ) -> dict[str, _Contract]:
+        local: dict[str, tuple[str, _Class]] = {
+            item.fqcn: (path, item) for path, item, _ in parsed if item.is_interface
+        }
+        view_contracts = context.contract_view.contracts if context.contract_view is not None else {}
+        result: dict[str, _Contract] = {}
+        for fqcn in sorted(set(local) | set(view_contracts)):
+            local_item = local.get(fqcn)
+            view_item = view_contracts.get(fqcn)
+            local_methods = (
+                tuple(_ContractMethod(item.name, item.parameters, item.return_type) for item in local_item[1].methods)
+                if local_item is not None
+                else ()
+            )
+            view_methods = (
+                tuple(
+                    _ContractMethod(item.name, item.parameter_types, item.return_type, item.source)
+                    for item in view_item.methods
+                )
+                if view_item is not None
+                else ()
+            )
+            if local_item is not None and view_item is not None:
+                local_signatures = {self._signature(fqcn, item) for item in local_methods}
+                view_signatures = {self._signature(fqcn, item) for item in view_methods}
+                if local_signatures != view_signatures:
+                    path, java_class = local_item
+                    local_evidence = self._evidence(
+                        context, path, java_class.body_offset, java_class.body_offset, "dubbo_contract_conflict", fqcn
+                    )
+                    evidences.append(local_evidence)
+                    self._append_unresolved(context, "CONTRACT_CONFLICT", fqcn, (local_evidence.id,), unresolved)
+                    result[fqcn] = _Contract((), conflicted=True)
+                    continue
+            methods = local_methods if local_item is not None else view_methods
+            result[fqcn] = _Contract(methods)
+        return result
+
     def _xml_declarations(
         self,
         snapshot: RepositorySnapshot,
@@ -288,7 +347,7 @@ class DubboMethodDetector:
         path: str,
         java_class: _Class,
         imports: dict[str, str],
-        contracts: dict[str, _Class],
+        contracts: dict[str, _Contract],
         implementations: dict[_Method, ImplementationMethod],
         services: tuple[_XmlDeclaration, ...],
         bean_classes: dict[str, tuple[str, ...]],
@@ -373,7 +432,7 @@ class DubboMethodDetector:
         path: str,
         java_class: _Class,
         imports: dict[str, str],
-        contracts: dict[str, _Class],
+        contracts: dict[str, _Contract],
         args: str,
         implementations: dict[_Method, ImplementationMethod],
         evidences: list[MethodEvidence],
@@ -408,6 +467,8 @@ class DubboMethodDetector:
                 context, path, java_class.body_offset, "MISSING_DECLARATION", interface, evidences, unresolved
             )
             return
+        if contract.conflicted:
+            return
         contract_methods = {(item.name, item.parameters): item for item in contract.methods}
         for method, implementation in implementations.items():
             declaration = contract_methods.get((method.name, method.parameters))
@@ -417,6 +478,7 @@ class DubboMethodDetector:
                 context, implementation.file_path, method.start, method.end, "dubbo_provider_method", method.name
             )
             evidences.append(evidence)
+            declaration_evidence_ids = self._contract_method_evidence_ids(context, declaration, evidences)
             signature = self._signature(interface, declaration)
             operation = ServiceOperation(
                 context.repo_id,
@@ -428,7 +490,7 @@ class DubboMethodDetector:
                 interface,
                 method.name,
                 signature,
-                (*source_evidence_ids, evidence.id),
+                (*source_evidence_ids, evidence.id, *declaration_evidence_ids),
                 *settings,
                 binding_identity=(f"xml-service-ref:{xml_service_ref}" if xml_service_ref is not None else None),
             )
@@ -443,7 +505,7 @@ class DubboMethodDetector:
                     self._reference(signature, *settings, xml_service_ref=xml_service_ref),
                     operation.id,
                     implementation.id,
-                    (*source_evidence_ids, evidence.id),
+                    (*source_evidence_ids, evidence.id, *declaration_evidence_ids),
                 )
             )
 
@@ -455,7 +517,7 @@ class DubboMethodDetector:
         java_class: _Class,
         implementation: ImplementationMethod,
         proxies: dict[str, _Proxy],
-        contracts: dict[str, _Class],
+        contracts: dict[str, _Contract],
         evidences: list[MethodEvidence],
         calls: list[ConsumerMethodCall],
         retained_source_calls: list[RetainedSourceCall],
@@ -475,8 +537,9 @@ class DubboMethodDetector:
             argument_types = tuple(
                 self._argument_type(item, method, java_class, match.start()) for item in argument_summaries
             )
+            contract = contracts.get(proxy.interface)
             declaration = self._called_declaration(
-                contracts.get(proxy.interface),
+                contract,
                 match.group("method"),
                 match.group("args"),
                 method,
@@ -493,14 +556,17 @@ class DubboMethodDetector:
             resolution_reason = (
                 "DYNAMIC_TARGET"
                 if proxy.dynamic
+                else "CONTRACT_CONFLICT"
+                if contract is not None and contract.conflicted
                 else "CONTRACT_MISSING"
-                if contracts.get(proxy.interface) is None
+                if contract is None
                 else "ARGUMENT_TYPE_UNKNOWN"
                 if any(argument_type is None for argument_type in argument_types)
                 else "METHOD_DECLARATION_MISSING"
                 if declaration is None
                 else None
             )
+            declaration_evidence_ids = self._contract_method_evidence_ids(context, declaration, evidences)
             retained_source_calls.append(
                 RetainedSourceCall(
                     context.repo_id,
@@ -526,13 +592,20 @@ class DubboMethodDetector:
                     "SOURCE_CAPTURE",
                     "UNRESOLVED" if resolution_reason is not None else "CAPTURED",
                     resolution_reason,
-                    (*proxy.evidence_ids, evidence.id, *(item[0] for item in argument_evidence_ids)),
+                    (
+                        *proxy.evidence_ids,
+                        evidence.id,
+                        *(item[0] for item in argument_evidence_ids),
+                        *declaration_evidence_ids,
+                    ),
                 )
             )
             if proxy.dynamic:
                 self._append_unresolved(
                     context, "DYNAMIC_TARGET", subject, (*proxy.evidence_ids, evidence.id), unresolved
                 )
+                continue
+            if contract is not None and contract.conflicted:
                 continue
             if declaration is None:
                 self._append_unresolved(
@@ -555,7 +628,7 @@ class DubboMethodDetector:
                         xml_reference_id=proxy.xml_reference_id,
                     ),
                     "operation",
-                    (*proxy.evidence_ids, evidence.id),
+                    (*proxy.evidence_ids, evidence.id, *declaration_evidence_ids),
                 )
             )
 
@@ -746,8 +819,8 @@ class DubboMethodDetector:
         return result
 
     def _called_declaration(
-        self, contract: _Class | None, name: str, args: str, caller: _Method, java_class: _Class, call_offset: int
-    ) -> _Method | None:
+        self, contract: _Contract | None, name: str, args: str, caller: _Method, java_class: _Class, call_offset: int
+    ) -> _ContractMethod | None:
         if contract is None:
             return None
         argument_types = tuple(
@@ -946,7 +1019,7 @@ class DubboMethodDetector:
     def _parameter_name(value: str) -> str:
         return value.strip().split()[-1]
 
-    def _signature(self, fqcn: str, method: _Method) -> str:
+    def _signature(self, fqcn: str, method: _Method | _ContractMethod) -> str:
         package = fqcn.rsplit(".", 1)[0] if "." in fqcn else ""
         return f"{fqcn}#{method.name}({','.join(method.parameters)}):{self._qualify(method.return_type, package)}"
 
@@ -993,6 +1066,34 @@ class DubboMethodDetector:
             subject,
             1.0,
         )
+
+    def _contract_method_evidence_ids(
+        self,
+        context: MethodDetectionContext,
+        declaration: _ContractMethod | None,
+        evidences: list[MethodEvidence],
+    ) -> tuple[str, ...]:
+        if declaration is None or declaration.source is None:
+            return ()
+        source = declaration.source
+        evidence = MethodEvidence(
+            source.repo_id,
+            source.module_id,
+            context.service_id,
+            source.source_revision,
+            context.generation_id,
+            source.file_path,
+            source.start_line,
+            source.end_line,
+            self.metadata.detector_id,
+            self.metadata.detector_version,
+            "dubbo_contract_method",
+            f"{declaration.name}({','.join(declaration.parameters)})",
+            1.0,
+        )
+        if all(item.id != evidence.id for item in evidences):
+            evidences.append(evidence)
+        return (evidence.id,)
 
     def _unresolved(
         self,

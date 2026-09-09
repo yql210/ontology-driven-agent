@@ -4,8 +4,21 @@ from pathlib import Path
 
 import pytest
 
-from ontoagent.parsing.service_graph.detector_sdk import MethodDetectionContext, MethodDetector
+from ontoagent.parsing.service_graph.detector_sdk import (
+    AuthorizedContractDeclaration,
+    AuthorizedContractMethod,
+    AuthorizedContractSource,
+    AuthorizedContractView,
+    MethodDetectionContext,
+    MethodDetector,
+)
 from ontoagent.parsing.service_graph.detectors.dubbo_method import DubboMethodDetector
+from ontoagent.parsing.service_graph.java_contract_index import (
+    ContractSourceRole,
+    JavaContractIndex,
+    JavaContractSource,
+    JavaSourceRange,
+)
 from ontoagent.parsing.service_graph.method_graph_writer import MethodGraphScope, MethodGraphWritePlan
 from ontoagent.parsing.service_graph.models import RepositorySnapshot
 from ontoagent.parsing.service_graph.workspace.models import (
@@ -35,6 +48,154 @@ def _detect_xml(tmp_path: Path, files: dict[str, str], repo_id: str = "orders") 
     return DubboMethodDetector().detect_methods(
         snapshot, MethodDetectionContext(repo_id, repo_id, repo_id, "rev-1", "gen-1")
     )
+
+
+def _order_contract_view() -> AuthorizedContractView:
+    fixture_root = Path("tests/fixtures/java_rpc_contracts/sample-order-contract")
+    result = JavaContractIndex().build(
+        (
+            JavaContractSource(
+                "sample-order-contract",
+                "api",
+                "6666666666666666666666666666666666666666",
+                fixture_root,
+                ContractSourceRole.API,
+            ),
+        )
+    )
+    contract = result.contracts["example.orders.api.OrderService"]
+
+    def source_view(source: JavaSourceRange) -> AuthorizedContractSource:
+        return AuthorizedContractSource(
+            source.repo_id,
+            source.module_id,
+            source.source_revision,
+            source.file_path,
+            source.start_line,
+            source.end_line,
+        )
+
+    return AuthorizedContractView(
+        {
+            "example.orders.api.OrderService": AuthorizedContractDeclaration(
+                contract.fqcn,
+                tuple(
+                    AuthorizedContractMethod(
+                        method.name, method.parameter_types, method.return_type, source_view(method.source)
+                    )
+                    for method in contract.methods
+                ),
+                tuple(source_view(source) for source in contract.sources),
+            )
+        }
+    )
+
+
+def _detect_fixture_repository(
+    repo_id: str, revision: str, root_path: Path, view: AuthorizedContractView | None = None
+) -> object:
+    return DubboMethodDetector().detect_methods(
+        RepositorySnapshot(repo_id, revision, root_path, frozenset({"java"})),
+        MethodDetectionContext(repo_id, repo_id, repo_id, revision, "gen-d1", view),
+    )
+
+
+def test_dubbo_method_detector_uses_authorized_contract_view_for_provider_fixture() -> None:
+    fixture_root = Path("tests/fixtures/java_rpc_contracts")
+    facts = _detect_fixture_repository(
+        "sample-order-provider",
+        "7777777777777777777777777777777777777777",
+        fixture_root / "sample-order-provider",
+        _order_contract_view(),
+    )
+
+    assert {item.canonical_signature for item in facts.operations} == {
+        "example.orders.api.OrderService#cancelOrder(java.lang.String):void",
+        "example.orders.api.OrderService#getOrder(int):example.orders.api.OrderSummary",
+        "example.orders.api.OrderService#getOrder(java.lang.String):example.orders.api.OrderSummary",
+        "example.orders.api.OrderService#getOrder(long):example.orders.api.OrderSummary",
+    }
+    assert len(facts.bindings) == 4
+    view_evidence_ids = {
+        evidence.id
+        for evidence in facts.evidences
+        if evidence.repo_id == "sample-order-contract"
+        and evidence.source_revision == "6666666666666666666666666666666666666666"
+        and evidence.file_path.endswith("OrderService.java")
+    }
+
+    assert view_evidence_ids
+    assert all(view_evidence_ids & set(item.evidence_ids) for item in facts.operations)
+    assert all(view_evidence_ids & set(item.evidence_ids) for item in facts.bindings)
+
+
+def test_dubbo_method_detector_uses_authorized_contract_view_for_consumer_fixture() -> None:
+    fixture_root = Path("tests/fixtures/java_rpc_contracts")
+    facts = _detect_fixture_repository(
+        "sample-checkout-consumer",
+        "8888888888888888888888888888888888888888",
+        fixture_root / "sample-checkout-consumer",
+        _order_contract_view(),
+    )
+
+    assert {
+        "dubbo-operation:example.orders.api.OrderService#getOrder(java.lang.String):example.orders.api.OrderSummary"
+        "|group=orders|version=1.0|alias="
+    } <= {item.target_reference for item in facts.consumer_calls}
+    assert (
+        next(item for item in facts.retained_source_calls if item.method_name == "getOrder").resolution_status
+        == "CAPTURED"
+    )
+    view_evidence_ids = {
+        evidence.id
+        for evidence in facts.evidences
+        if evidence.repo_id == "sample-order-contract"
+        and evidence.source_revision == "6666666666666666666666666666666666666666"
+        and evidence.file_path.endswith("OrderService.java")
+    }
+
+    assert view_evidence_ids
+    assert all(view_evidence_ids & set(item.evidence_ids) for item in facts.consumer_calls)
+    assert all(view_evidence_ids & set(item.evidence_ids) for item in facts.retained_source_calls if item.method_name)
+
+
+def test_dubbo_method_detector_without_contract_view_retains_existing_missing_contract_behavior() -> None:
+    fixture_root = Path("tests/fixtures/java_rpc_contracts")
+    facts = _detect_fixture_repository(
+        "sample-checkout-consumer",
+        "8888888888888888888888888888888888888888",
+        fixture_root / "sample-checkout-consumer",
+    )
+
+    assert not facts.consumer_calls
+    assert (
+        next(
+            item for item in facts.retained_source_calls if item.method_name == "getOrder" and item.resolution_reason
+        ).resolution_reason
+        == "CONTRACT_MISSING"
+    )
+
+
+def test_dubbo_method_detector_reports_conflicting_local_and_authorized_contracts(tmp_path: Path) -> None:
+    source = """package example.orders.api;
+interface OrderService { String getOrder(long id); }
+@DubboService(interfaceClass = OrderService.class)
+class OrderServiceProvider implements OrderService { public String getOrder(long id) { return \"\"; } }"""
+    path = tmp_path / "src/main/java/example/orders/api/OrderServiceProvider.java"
+    path.parent.mkdir(parents=True)
+    path.write_text(source, encoding="utf-8")
+    snapshot = RepositorySnapshot("provider", "provider-rev", tmp_path, frozenset({"java"}))
+    facts = DubboMethodDetector().detect_methods(
+        snapshot,
+        MethodDetectionContext(
+            "provider", "provider", "provider", "provider-rev", "gen-conflict", _order_contract_view()
+        ),
+    )
+
+    assert not facts.operations
+    assert [(item.reason_code, item.subject) for item in facts.unresolved] == [
+        ("CONTRACT_CONFLICT", "example.orders.api.OrderService")
+    ]
 
 
 def test_dubbo_method_detector_emits_provider_operations_bindings_and_overloads(tmp_path: Path) -> None:

@@ -9,6 +9,7 @@ from typing import Any
 METHOD_UNRESOLVED_REASONS = frozenset(
     {
         "AMBIGUOUS_TARGET",
+        "CONTRACT_CONFLICT",
         "DYNAMIC_TARGET",
         "IDENTITY_MISMATCH",
         "MISSING_DECLARATION",
@@ -492,12 +493,11 @@ class MethodFacts:
         )
         if any(any(type(item) is not expected for item in items) for items, expected in expected_types):
             raise ValueError("method facts collections contain an invalid type")
-        nested = (
+        local_records = (
             *self.operations,
             *self.implementations,
             *self.consumer_calls,
             *self.bindings,
-            *self.evidences,
             *self.unresolved,
             *self.retained_source_calls,
         )
@@ -505,9 +505,11 @@ class MethodFacts:
             item.repo_id != self.repo_id
             or item.source_revision != self.source_revision
             or item.generation_id != self.generation_id
-            for item in nested
+            for item in local_records
         ):
             raise ValueError("nested method fact identity mismatch")
+        if any(evidence.generation_id != self.generation_id for evidence in self.evidences):
+            raise ValueError("method evidence generation mismatch")
         for name, items in (
             ("operations", self.operations),
             ("implementations", self.implementations),
