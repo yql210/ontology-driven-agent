@@ -14,8 +14,10 @@ from ontoagent.parsing.service_graph import (
     MethodFacts,
     MethodUnresolved,
     OperationBinding,
+    RetainedSourceCall,
     ServiceOperation,
 )
+from ontoagent.parsing.service_graph.method_graph_writer import fact_from_dict
 
 
 def _evidence(subject: str = "provider operation") -> MethodEvidence:
@@ -186,6 +188,112 @@ def test_operation_binding_is_evidence_backed_and_optional_implementation():
     )
 
     assert binding.to_dict()["implementation_id"] is None
+
+
+def _retained_source_call(
+    caller_implementation_id: str, evidence_id: str, *, start_line: int = 42
+) -> RetainedSourceCall:
+    return RetainedSourceCall(
+        repo_id="orders-repo",
+        module_id="orders-api",
+        service_id="orders",
+        source_revision="commit-1",
+        generation_id="generation-1",
+        file_path="src/main/java/example/orders/OrderClient.java",
+        start_line=start_line,
+        start_column=9,
+        end_line=start_line,
+        end_column=31,
+        caller_implementation_id=caller_implementation_id,
+        receiver_declaration="private final OrderApi orderApi",
+        receiver_type="example.orders.OrderApi",
+        receiver_missing_reason=None,
+        receiver_evidence_ids=(evidence_id,),
+        method_name="find",
+        argument_summaries=("orderId", '"full"'),
+        argument_types=("java.lang.String", "java.lang.String"),
+        argument_evidence_ids=((evidence_id,), (evidence_id,)),
+        protocol_settings=(("group", "retail"), ("version", "1.0")),
+        resolution_stage="SOURCE_CAPTURE",
+        resolution_status="CAPTURED",
+        resolution_reason=None,
+        evidence_ids=(evidence_id,),
+    )
+
+
+def test_retained_source_call_is_immutable_source_pinned_and_json_safe():
+    evidence = _evidence("retained source call")
+    caller = ImplementationMethod(
+        "orders-repo",
+        "orders-api",
+        "orders",
+        "commit-1",
+        "generation-1",
+        "example.orders.OrderClient",
+        "load",
+        "example.orders.OrderClient#load(java.lang.String):example.orders.Order",
+        "src/main/java/example/orders/OrderClient.java",
+        (evidence.id,),
+    )
+    retained = _retained_source_call(caller.id, evidence.id)
+
+    assert json.loads(json.dumps(retained.to_dict())) == retained.to_dict()
+    assert retained.to_dict()["argument_evidence_ids"] == [[evidence.id], [evidence.id]]
+    with pytest.raises(ValueError, match="receiver_missing_reason"):
+        RetainedSourceCall(
+            **{
+                key: value
+                for key, value in {**retained.to_dict(), "receiver_type": None, "receiver_missing_reason": None}.items()
+                if key != "id"
+            }
+        )
+
+
+def test_retained_source_calls_at_distinct_source_lines_do_not_collapse_and_round_trip():
+    evidence = _evidence("retained source calls")
+    caller = ImplementationMethod(
+        "orders-repo",
+        "orders-api",
+        "orders",
+        "commit-1",
+        "generation-1",
+        "example.orders.OrderClient",
+        "load",
+        "example.orders.OrderClient#load(java.lang.String):example.orders.Order",
+        "src/main/java/example/orders/OrderClient.java",
+        (evidence.id,),
+    )
+    first = _retained_source_call(caller.id, evidence.id, start_line=42)
+    second = _retained_source_call(caller.id, evidence.id, start_line=43)
+    facts = MethodFacts(
+        "generic-java",
+        "1.0",
+        "orders-repo",
+        "commit-1",
+        "generation-1",
+        (),
+        (caller,),
+        (),
+        (),
+        (evidence,),
+        (),
+        (second, first),
+    )
+
+    assert first.id != second.id
+    assert facts.retained_source_calls == tuple(sorted((first, second), key=lambda item: item.id))
+    assert fact_from_dict(facts.to_dict()) == facts
+
+
+def test_fact_from_dict_accepts_legacy_method_facts_without_retained_source_calls():
+    evidence = _evidence("legacy payload")
+    facts = MethodFacts(
+        "generic-java", "1.0", "orders-repo", "commit-1", "generation-1", (), (), (), (), (evidence,), ()
+    )
+    payload = facts.to_dict()
+
+    assert "retained_source_calls" not in payload
+    assert fact_from_dict(payload) == facts
 
 
 def test_detector_sdk_accepts_a_protocol_neutral_fake_detector():

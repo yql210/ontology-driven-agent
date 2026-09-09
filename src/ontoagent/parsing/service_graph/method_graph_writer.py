@@ -15,6 +15,7 @@ from .methods import (
     MethodFacts,
     MethodUnresolved,
     OperationBinding,
+    RetainedSourceCall,
     ServiceOperation,
 )
 from .workspace.models import WorkspaceGeneration
@@ -401,8 +402,20 @@ def fact_from_dict(data: Mapping[str, object]) -> MethodFacts:
     def fact_item(item: object, cls):
         names = tuple(cls.__dataclass_fields__)[:-1]
         result = values(item, names)
-        if "evidence_ids" in names:
-            result[names.index("evidence_ids")] = tuple(result[names.index("evidence_ids")])
+        for name in ("evidence_ids", "receiver_evidence_ids"):
+            if name in names:
+                result[names.index(name)] = tuple(result[names.index(name)])
+        for name in ("argument_summaries", "argument_types"):
+            if name in names:
+                result[names.index(name)] = tuple(result[names.index(name)])
+        if "argument_evidence_ids" in names:
+            result[names.index("argument_evidence_ids")] = tuple(
+                tuple(evidence_ids) for evidence_ids in result[names.index("argument_evidence_ids")]
+            )
+        if "protocol_settings" in names:
+            result[names.index("protocol_settings")] = tuple(
+                tuple(setting) for setting in result[names.index("protocol_settings")]
+            )
         return cls(*result)
 
     evidence = items("evidences", lambda item: fact_item(item, MethodEvidence))
@@ -411,6 +424,9 @@ def fact_from_dict(data: Mapping[str, object]) -> MethodFacts:
     calls = items("consumer_calls", lambda item: fact_item(item, ConsumerMethodCall))
     bindings = items("bindings", lambda item: fact_item(item, OperationBinding))
     unresolved = items("unresolved", lambda item: fact_item(item, MethodUnresolved))
+    retained_source_calls = tuple(fact_item(item, RetainedSourceCall) for item in data.get("retained_source_calls", []))
+    if not isinstance(data.get("retained_source_calls", []), list):
+        raise ValueError("method fact retained_source_calls must be a list")
     return MethodFacts(
         _require_nonblank(data.get("detector_id"), "detector_id"),
         _require_nonblank(data.get("detector_version"), "detector_version"),
@@ -423,4 +439,5 @@ def fact_from_dict(data: Mapping[str, object]) -> MethodFacts:
         bindings,
         evidence,
         unresolved,
+        retained_source_calls,
     )

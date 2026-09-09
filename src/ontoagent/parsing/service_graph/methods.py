@@ -326,6 +326,133 @@ class MethodUnresolved:
 
 
 @dataclass(frozen=True)
+class RetainedSourceCall:
+    """An immutable source-pinned method call retained before target resolution."""
+
+    repo_id: str
+    module_id: str
+    service_id: str
+    source_revision: str
+    generation_id: str
+    file_path: str
+    start_line: int
+    start_column: int
+    end_line: int
+    end_column: int
+    caller_implementation_id: str
+    receiver_declaration: str | None
+    receiver_type: str | None
+    receiver_missing_reason: str | None
+    receiver_evidence_ids: tuple[str, ...]
+    method_name: str
+    argument_summaries: tuple[str, ...]
+    argument_types: tuple[str | None, ...]
+    argument_evidence_ids: tuple[tuple[str, ...], ...]
+    protocol_settings: tuple[tuple[str, str], ...]
+    resolution_stage: str
+    resolution_status: str
+    resolution_reason: str | None
+    evidence_ids: tuple[str, ...]
+    id: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        _require_identity(self.repo_id, self.module_id, self.service_id, self.source_revision, self.generation_id)
+        for name in ("file_path", "caller_implementation_id", "method_name", "resolution_stage", "resolution_status"):
+            _require_nonblank(getattr(self, name), name)
+        _optional_nonblank(self.receiver_declaration, "receiver_declaration")
+        _optional_nonblank(self.receiver_type, "receiver_type")
+        _optional_nonblank(self.receiver_missing_reason, "receiver_missing_reason")
+        _optional_nonblank(self.resolution_reason, "resolution_reason")
+        if (
+            not isinstance(self.start_line, int)
+            or isinstance(self.start_line, bool)
+            or self.start_line < 1
+            or not isinstance(self.end_line, int)
+            or isinstance(self.end_line, bool)
+            or self.end_line < self.start_line
+            or not isinstance(self.start_column, int)
+            or isinstance(self.start_column, bool)
+            or self.start_column < 1
+            or not isinstance(self.end_column, int)
+            or isinstance(self.end_column, bool)
+            or self.end_column < 1
+            or (self.end_line == self.start_line and self.end_column < self.start_column)
+        ):
+            raise ValueError("invalid source range")
+        if self.receiver_type is None and self.receiver_missing_reason is None:
+            raise ValueError("receiver_missing_reason is required when receiver_type is unknown")
+        if self.receiver_type is not None and self.receiver_missing_reason is not None:
+            raise ValueError("receiver_missing_reason must be absent when receiver_type is known")
+        _require_evidence_ids(self.receiver_evidence_ids)
+        if type(self.argument_summaries) is not tuple or any(
+            not isinstance(summary, str) or not summary.strip() for summary in self.argument_summaries
+        ):
+            raise ValueError("argument_summaries must be a tuple of nonblank strings")
+        if type(self.argument_types) is not tuple or len(self.argument_types) != len(self.argument_summaries):
+            raise ValueError("argument_types must match argument_summaries")
+        if any(
+            argument_type is not None and (not isinstance(argument_type, str) or not argument_type.strip())
+            for argument_type in self.argument_types
+        ):
+            raise ValueError("argument_types must contain nonblank strings or None")
+        if type(self.argument_evidence_ids) is not tuple or len(self.argument_evidence_ids) != len(
+            self.argument_summaries
+        ):
+            raise ValueError("argument_evidence_ids must match argument_summaries")
+        for argument_evidence in self.argument_evidence_ids:
+            _require_evidence_ids(argument_evidence)
+        if type(self.protocol_settings) is not tuple or any(
+            type(setting) is not tuple
+            or len(setting) != 2
+            or any(not isinstance(value, str) or not value.strip() for value in setting)
+            for setting in self.protocol_settings
+        ):
+            raise ValueError("protocol_settings must be a tuple of nonblank string pairs")
+        _require_evidence_ids(self.evidence_ids)
+        attributed_evidence_ids = {
+            *self.receiver_evidence_ids,
+            *(evidence_id for item in self.argument_evidence_ids for evidence_id in item),
+        }
+        if not attributed_evidence_ids.issubset(self.evidence_ids):
+            raise ValueError("receiver and argument evidence_ids must be retained call evidence_ids")
+        object.__setattr__(self, "id", _stable_id({"kind": "retained_source_call", **self._identity()}))
+
+    def _identity(self) -> dict[str, Any]:
+        return {
+            "repo_id": self.repo_id,
+            "module_id": self.module_id,
+            "service_id": self.service_id,
+            "source_revision": self.source_revision,
+            "generation_id": self.generation_id,
+            "file_path": self.file_path,
+            "start_line": self.start_line,
+            "start_column": self.start_column,
+            "end_line": self.end_line,
+            "end_column": self.end_column,
+            "caller_implementation_id": self.caller_implementation_id,
+            "receiver_declaration": self.receiver_declaration,
+            "receiver_type": self.receiver_type,
+            "receiver_missing_reason": self.receiver_missing_reason,
+            "method_name": self.method_name,
+            "argument_summaries": list(self.argument_summaries),
+            "argument_types": list(self.argument_types),
+            "protocol_settings": [list(setting) for setting in self.protocol_settings],
+            "resolution_stage": self.resolution_stage,
+            "resolution_status": self.resolution_status,
+            "resolution_reason": self.resolution_reason,
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            **self._identity(),
+            "receiver_evidence_ids": list(self.receiver_evidence_ids),
+            "argument_evidence_ids": [list(item) for item in self.argument_evidence_ids],
+            "evidence_ids": list(self.evidence_ids),
+            "id": self.id,
+        }
+
+
+@dataclass(frozen=True)
 class MethodFacts:
     detector_id: str
     detector_version: str
@@ -338,6 +465,7 @@ class MethodFacts:
     bindings: tuple[OperationBinding, ...]
     evidences: tuple[MethodEvidence, ...]
     unresolved: tuple[MethodUnresolved, ...]
+    retained_source_calls: tuple[RetainedSourceCall, ...] = ()
 
     def __post_init__(self) -> None:
         for name in ("detector_id", "detector_version", "repo_id", "source_revision", "generation_id"):
@@ -349,6 +477,7 @@ class MethodFacts:
             self.bindings,
             self.evidences,
             self.unresolved,
+            self.retained_source_calls,
         )
         if any(type(items) is not tuple for items in collections):
             raise ValueError("method facts collections must be tuples")
@@ -359,6 +488,7 @@ class MethodFacts:
             (self.bindings, OperationBinding),
             (self.evidences, MethodEvidence),
             (self.unresolved, MethodUnresolved),
+            (self.retained_source_calls, RetainedSourceCall),
         )
         if any(any(type(item) is not expected for item in items) for items, expected in expected_types):
             raise ValueError("method facts collections contain an invalid type")
@@ -369,6 +499,7 @@ class MethodFacts:
             *self.bindings,
             *self.evidences,
             *self.unresolved,
+            *self.retained_source_calls,
         )
         if any(
             item.repo_id != self.repo_id
@@ -384,6 +515,7 @@ class MethodFacts:
             ("bindings", self.bindings),
             ("evidences", self.evidences),
             ("unresolved", self.unresolved),
+            ("retained_source_calls", self.retained_source_calls),
         ):
             object.__setattr__(self, name, self._canonicalize_records(name, items))
         evidence_ids = {evidence.id for evidence in self.evidences}
@@ -395,6 +527,7 @@ class MethodFacts:
             *self.consumer_calls,
             *self.bindings,
             *self.unresolved,
+            *self.retained_source_calls,
         )
         if any(evidence_id not in evidence_ids for item in evidence_backed for evidence_id in item.evidence_ids):
             raise ValueError("missing method evidence")
@@ -402,6 +535,8 @@ class MethodFacts:
         operation_ids = {item.id for item in self.operations}
         if any(call.caller_implementation_id not in implementation_ids for call in self.consumer_calls):
             raise ValueError("consumer call references unknown implementation")
+        if any(call.caller_implementation_id not in implementation_ids for call in self.retained_source_calls):
+            raise ValueError("retained source call references unknown implementation")
         if any(binding.operation_id not in operation_ids for binding in self.bindings):
             raise ValueError("binding references unknown operation")
         if any(
@@ -432,7 +567,7 @@ class MethodFacts:
         return tuple(sorted(by_id.values(), key=lambda item: item.id))
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "detector_id": self.detector_id,
             "detector_version": self.detector_version,
             "repo_id": self.repo_id,
@@ -445,3 +580,8 @@ class MethodFacts:
             "evidences": [item.to_dict() for item in sorted(self.evidences, key=lambda item: item.id)],
             "unresolved": [item.to_dict() for item in sorted(self.unresolved, key=lambda item: item.id)],
         }
+        if self.retained_source_calls:
+            result["retained_source_calls"] = [
+                item.to_dict() for item in sorted(self.retained_source_calls, key=lambda item: item.id)
+            ]
+        return result

@@ -43,6 +43,7 @@ from .methods import (
     MethodFacts,
     MethodUnresolved,
     OperationBinding,
+    RetainedSourceCall,
     ServiceOperation,
 )
 from .models import (
@@ -144,6 +145,7 @@ __all__ = [
     "ManifestPublicationStatus",
     "Neo4jServiceGraphPublishComponentFactory",
     "OperationBinding",
+    "RetainedSourceCall",
     "ServiceGraphPublicationReceipt",
     "ServiceGraphPublishComponents",
     "ServiceGraphPublishInput",
