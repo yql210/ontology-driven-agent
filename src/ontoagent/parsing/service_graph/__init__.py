@@ -99,6 +99,13 @@ from .query import (
     ServiceGraphRelationResult,
 )
 from .resolver import FactBatch, ResolvedLink, ResolveResult, ServiceGraphResolver, UnresolvedEndpoint
+from .workspace_java_rpc_resolution import (
+    FrozenSourceIdentity,
+    WorkspaceJavaRpcCallResolution,
+    WorkspaceJavaRpcResolutionAssembler,
+    WorkspaceJavaRpcResolutionInput,
+    WorkspaceJavaRpcResolutionResult,
+)
 
 __all__ = [
     "CallerIdentity",
@@ -171,6 +178,7 @@ __all__ = [
     "ProviderMethodBinder",
     "ProviderMethodBindingOutcome",
     "ProviderMethodBindingResult",
+    "FrozenSourceIdentity",
     "RetainedSourceCall",
     "ServiceGraphPublicationReceipt",
     "ServiceGraphPublishComponents",
@@ -191,4 +199,8 @@ __all__ = [
     "ServiceOperation",
     "UnresolvedEndpoint",
     "WriteReceipt",
+    "WorkspaceJavaRpcCallResolution",
+    "WorkspaceJavaRpcResolutionAssembler",
+    "WorkspaceJavaRpcResolutionInput",
+    "WorkspaceJavaRpcResolutionResult",
 ]
