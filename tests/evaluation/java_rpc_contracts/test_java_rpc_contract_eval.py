@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,33 @@ from tests.evaluation.java_rpc_contracts.java_rpc_contract_eval import (
 )
 
 FIXTURE_ROOT = Path(__file__).parents[2] / "fixtures" / "java_rpc_contracts"
+REPOSITORY_ROOT = FIXTURE_ROOT.parents[2]
+
+
+@pytest.mark.unit
+def test_public_java_rpc_evaluator_uses_only_tracked_complete_fixture_sources() -> None:
+    manifest = load_manifest(FIXTURE_ROOT / "expected.json")
+    required_paths = {Path("tests/evaluation/java_rpc_contracts/__init__.py")}
+
+    for repository in manifest["repositories"]:
+        fixture_path = repository.get("fixture_path", repository["repo_id"])
+        assert isinstance(fixture_path, str)
+        root = FIXTURE_ROOT / fixture_path
+        expected_sources = set(repository["source_locations"])
+        actual_sources = {path.relative_to(root).as_posix() for path in root.rglob("*.java")}
+        assert expected_sources == actual_sources
+        required_paths.update((root / source).relative_to(REPOSITORY_ROOT) for source in expected_sources)
+
+    tracked = set(
+        subprocess.run(
+            ["git", "ls-files", "--", *(str(path) for path in sorted(required_paths))],
+            cwd=REPOSITORY_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+    )
+    assert tracked == {path.as_posix() for path in required_paths}
 
 
 @pytest.mark.unit

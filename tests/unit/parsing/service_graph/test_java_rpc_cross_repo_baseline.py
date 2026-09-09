@@ -58,7 +58,7 @@ def test_java_rpc_contract_fixture_manifest_is_frozen_and_source_pinned() -> Non
         "sample-order-contract": "6666666666666666666666666666666666666666",
         "sample-order-provider": "7777777777777777777777777777777777777777",
         "sample-checkout-consumer": "8888888888888888888888888888888888888888",
-        "provider-client-module-provider": "4444444444444444444444444444444444444444",
+        "provider-client-module-provider": "9999999999999999999999999999999999999999",
         "provider-client-module-client": "5555555555555555555555555555555555555555",
     }
     api_repository = _repository(manifest, "sample-order-contract")

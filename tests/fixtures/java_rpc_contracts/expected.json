@@ -29,11 +29,16 @@
     },
     {
       "repo_id": "provider-client-module-provider",
-      "revision": "4444444444444444444444444444444444444444",
+      "revision": "9999999999999999999999999999999999999999",
       "role": "provider",
       "fixture_path": "provider-client-module/provider",
       "source_locations": [
-        "src/main/java/example/inventory/provider/InventoryServiceProvider.java"
+        "src/main/java/example/inventory/provider/InventoryServiceProvider.java",
+        "src/main/java/example/orders/api/OrderService.java",
+        "src/main/java/example/orders/api/OrderSummary.java",
+        "src/main/java/example/orders/provider/AmbiguousOrderServiceProviderOne.java",
+        "src/main/java/example/orders/provider/AmbiguousOrderServiceProviderTwo.java",
+        "src/main/java/example/orders/provider/MissingOrderServiceProvider.java"
       ]
     },
     {
