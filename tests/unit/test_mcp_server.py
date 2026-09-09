@@ -640,6 +640,7 @@ class TestToolRegistration:
             "evaluate_open_service_graph",
             "workspace_service_graph_directory",
             "workspace_service_graph_operations",
+            "workspace_service_graph_endpoint_methods",
             "workspace_service_graph_providers",
             "workspace_service_graph_consumers",
             "workspace_service_graph_dependencies",

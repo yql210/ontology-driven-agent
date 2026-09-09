@@ -757,6 +757,13 @@ class TestWriteShapesYaml:
 class TestIntegrationWithRealFile:
     """使用真实 ontology.json 的集成测试。"""
 
+    @pytest.fixture(autouse=True)
+    def require_real_ontology_artifact(self):
+        """Skip the real-artifact suite when its optional input is absent."""
+        path = "/tmp/OntologyAutoGen/OntologyAutoGen/output/ontology.json"
+        if not os.path.exists(path):
+            pytest.skip(f"optional external ontology artifact is unavailable: {path}")
+
     @pytest.fixture
     def real_ontology(self):
         path = "/tmp/OntologyAutoGen/OntologyAutoGen/output/ontology.json"
