@@ -108,13 +108,15 @@ def _d1_revisions() -> dict[str, str]:
 D1_REVISIONS = _d1_revisions()
 
 
-def _d1_authorization(mappings: tuple[ContractSourceMapping, ...]) -> WorkspaceJavaRpcAuthorization:
+def _d1_authorization(
+    mappings: tuple[ContractSourceMapping, ...], revisions: dict[str, str] = D1_REVISIONS
+) -> WorkspaceJavaRpcAuthorization:
     return WorkspaceJavaRpcAuthorization(
         (
             JavaContractSource(
                 "sample-order-contract",
                 "sample-order-contract",
-                D1_REVISIONS["sample-order-contract"],
+                revisions["sample-order-contract"],
                 JAVA_RPC_CONTRACTS_FIXTURE / "sample-order-contract",
                 ContractSourceRole.API,
             ),
@@ -125,7 +127,7 @@ def _d1_authorization(mappings: tuple[ContractSourceMapping, ...]) -> WorkspaceJ
                 AuthorizedProviderSource(
                     "sample-order-provider",
                     "sample-order-provider",
-                    D1_REVISIONS["sample-order-provider"],
+                    revisions["sample-order-provider"],
                 )
             }
         ),
@@ -138,14 +140,14 @@ def _d1_authorization(mappings: tuple[ContractSourceMapping, ...]) -> WorkspaceJ
     )
 
 
-def _d1_mapping(consumer_repo_id: str) -> ContractSourceMapping:
+def _d1_mapping(consumer_repo_id: str, revisions: dict[str, str] = D1_REVISIONS) -> ContractSourceMapping:
     return ContractSourceMapping(
         consumer_repo_id,
         consumer_repo_id,
-        D1_REVISIONS[consumer_repo_id],
+        revisions[consumer_repo_id],
         "sample-order-contract",
         "sample-order-contract",
-        D1_REVISIONS["sample-order-contract"],
+        revisions["sample-order-contract"],
         "1.0",
         "workspace-contracts.yaml",
         1,
@@ -158,6 +160,7 @@ def _d1_input(
     generation_id: str,
     expected_active: str | None,
     mappings: tuple[ContractSourceMapping, ...],
+    revisions: dict[str, str] = D1_REVISIONS,
 ) -> WorkspaceServiceGraphPublishInput:
     repositories = ("sample-order-contract", "sample-order-provider", "sample-checkout-consumer")
     snapshots = tuple(
@@ -165,13 +168,13 @@ def _d1_input(
             workspace.workspace_id,
             repo_id,
             "main",
-            D1_REVISIONS[repo_id],
+            revisions[repo_id],
             WorkspaceSourceDescriptor(WorkspaceSourceKind.GIT, f"https://example.test/{repo_id}.git"),
         )
         for repo_id in repositories
     )
     runtime = tuple(
-        RepositorySnapshot(repo_id, D1_REVISIONS[repo_id], JAVA_RPC_CONTRACTS_FIXTURE / repo_id, frozenset({"java"}))
+        RepositorySnapshot(repo_id, revisions[repo_id], JAVA_RPC_CONTRACTS_FIXTURE / repo_id, frozenset({"java"}))
         for repo_id in repositories
     )
     return WorkspaceServiceGraphPublishInput(
@@ -183,7 +186,7 @@ def _d1_input(
         expected_active,
         (),
         (),
-        _d1_authorization(mappings),
+        _d1_authorization(mappings, revisions),
     )
 
 
@@ -345,7 +348,105 @@ def test_workspace_publisher_persists_source_pinned_d1_java_rpc_only_when_explic
         assert remaining == 0
 
 
-def test_workspace_publisher_reresolves_d1_java_rpc_across_generations_without_leaking_superseded_graph() -> None:
+def test_a15_workspace_publisher_isolates_contract_source_revision_generations_in_remote_neo4j() -> None:
+    uri, user, password = _credentials()
+    workspace = Workspace(f"workspace-d1-contract-revision-{uuid4()}", "D1 contract revision isolation")
+    generation_one = f"generation-d1-contract-v1-{uuid4()}"
+    generation_two = f"generation-d1-contract-v2-{uuid4()}"
+    revisions_two = {**D1_REVISIONS, "sample-order-contract": "contract-revision-v2"}
+    namespaces = tuple(
+        WorkspaceServiceGraphPublishOrchestrator.namespace_for(workspace.workspace_id, generation)
+        for generation in (generation_one, generation_two)
+    )
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+    orchestrator = WorkspaceServiceGraphPublishOrchestrator(
+        Neo4jWorkspaceServiceGraphPublishComponentFactory(
+            driver, DetectorRegistry([SpringHttpDetector(), DubboDetector(), MessagingDetector()])
+        )
+    )
+    repository = Neo4jWorkspaceRepository(driver)
+    try:
+        first = orchestrator.publish(
+            _d1_input(
+                workspace,
+                generation_one,
+                None,
+                (_d1_mapping("sample-order-provider"), _d1_mapping("sample-checkout-consumer")),
+            )
+        )
+        second = orchestrator.publish(
+            _d1_input(
+                workspace,
+                generation_two,
+                generation_one,
+                (
+                    _d1_mapping("sample-order-provider", revisions_two),
+                    _d1_mapping("sample-checkout-consumer", revisions_two),
+                ),
+                revisions_two,
+            )
+        )
+
+        assert first.status is WorkspacePublishStatus.ACTIVE
+        assert second.status is WorkspacePublishStatus.ACTIVE
+        assert repository.get_active_binding(workspace.workspace_id).generation_id == generation_two  # type: ignore[union-attr]
+        assert (
+            repository.get_generation(workspace.workspace_id, generation_one).state
+            is WorkspaceGenerationState.SUPERSEDED
+        )  # type: ignore[union-attr]
+        with driver.session() as session:
+            first_contract_revisions = session.run(
+                "MATCH (e:MethodEvidence {namespace: $namespace}) RETURN e.id AS id, e.factPayload AS fact_payload",
+                namespace=namespaces[0],
+            ).data()
+            second_contract_revisions = session.run(
+                "MATCH (e:MethodEvidence {namespace: $namespace}) RETURN e.id AS id, e.factPayload AS fact_payload",
+                namespace=namespaces[1],
+            ).data()
+            second_chains = session.run(
+                "MATCH (:ImplementationMethod {namespace: $namespace, repoId: 'sample-checkout-consumer'}) "
+                "-[:CALLER_METHOD]->(:ConsumerMethodCall {namespace: $namespace}) "
+                "-[:CALLS_OPERATION]->(:ServiceOperation {namespace: $namespace, repoId: 'sample-order-provider'}) "
+                "RETURN count(*) AS count",
+                namespace=namespaces[1],
+            ).single()["count"]
+        first_evidences = [
+            next(evidence for evidence in json.loads(row["fact_payload"])["evidences"] if evidence["id"] == row["id"])
+            for row in first_contract_revisions
+        ]
+        second_evidences = [
+            next(evidence for evidence in json.loads(row["fact_payload"])["evidences"] if evidence["id"] == row["id"])
+            for row in second_contract_revisions
+        ]
+        assert any(
+            evidence["repo_id"] == "sample-order-contract"
+            and evidence["source_revision"] == D1_REVISIONS["sample-order-contract"]
+            for evidence in first_evidences
+        )
+        assert any(
+            evidence["repo_id"] == "sample-order-contract"
+            and evidence["source_revision"] == revisions_two["sample-order-contract"]
+            for evidence in second_evidences
+        )
+        assert second_chains > 0
+    finally:
+        with driver.session() as session:
+            session.run(
+                "MATCH (node) WHERE node._ontoagent_namespace IN $namespaces OR node.namespace IN $namespaces "
+                "DETACH DELETE node",
+                namespaces=list(namespaces),
+            )
+            session.run(
+                "MATCH (node) WHERE node.workspaceId = $workspace_id "
+                "AND (node:OntoAgentWorkspace OR node:OntoAgentWorkspaceBuildTask "
+                "OR node:OntoAgentWorkspaceGeneration OR node:OntoAgentWorkspaceRepositorySnapshot "
+                "OR node:OntoAgentWorkspaceActiveBinding) DETACH DELETE node",
+                workspace_id=workspace.workspace_id,
+            )
+        driver.close()
+
+
+def test_a17_mapping_change_reresolves_and_a18_stale_candidate_preserves_active_generation() -> None:
     uri, user, password = _credentials()
     workspace = Workspace(f"workspace-d1-reresolution-{uuid4()}", "D1 Java RPC re-resolution")
     generation_one = f"generation-d1-unmapped-{uuid4()}"

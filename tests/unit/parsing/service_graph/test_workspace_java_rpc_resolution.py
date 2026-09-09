@@ -49,28 +49,31 @@ def _revision(repo_id: str) -> str:
     return revision
 
 
-def _facts(repo_id: str) -> MethodFacts:
+def _facts(repo_id: str, source_revision: str | None = None, generation_id: str = GENERATION_ID) -> MethodFacts:
+    revision = source_revision or _revision(repo_id)
     return DubboMethodDetector().detect_methods(
-        RepositorySnapshot(repo_id, _revision(repo_id), FIXTURE_ROOT / repo_id, frozenset({"java"})),
-        MethodDetectionContext(repo_id, repo_id, repo_id, _revision(repo_id), GENERATION_ID),
+        RepositorySnapshot(repo_id, revision, FIXTURE_ROOT / repo_id, frozenset({"java"})),
+        MethodDetectionContext(repo_id, repo_id, repo_id, revision, generation_id),
     )
 
 
-def _source_pinned_provider_method_facts() -> MethodFacts:
+def _source_pinned_provider_method_facts(
+    source_revision: str | None = None, generation_id: str = GENERATION_ID
+) -> MethodFacts:
     """Supply provider facts as assembly evidence, not detector E2E evidence.
 
     D1 provider sources deliberately exclude the API contract. These facts model
     the later authorized-contract-view integration while retaining only provider
     repository, module, and revision identities.
     """
-    revision = _revision(PROVIDER)
+    revision = source_revision or _revision(PROVIDER)
     signature = "example.orders.api.OrderService#getOrder(java.lang.String):example.orders.api.OrderSummary"
     evidence = MethodEvidence(
         PROVIDER,
         PROVIDER,
         PROVIDER,
         revision,
-        GENERATION_ID,
+        generation_id,
         "src/main/java/example/orders/provider/OrderServiceProvider.java",
         10,
         10,
@@ -85,7 +88,7 @@ def _source_pinned_provider_method_facts() -> MethodFacts:
         PROVIDER,
         PROVIDER,
         revision,
-        GENERATION_ID,
+        generation_id,
         "example.orders.provider.OrderServiceProvider",
         "getOrder",
         "example.orders.provider.OrderServiceProvider#getOrder(java.lang.String):example.orders.api.OrderSummary",
@@ -97,7 +100,7 @@ def _source_pinned_provider_method_facts() -> MethodFacts:
         PROVIDER,
         PROVIDER,
         revision,
-        GENERATION_ID,
+        generation_id,
         "provider",
         "example.orders.api.OrderService",
         "getOrder",
@@ -113,7 +116,7 @@ def _source_pinned_provider_method_facts() -> MethodFacts:
         PROVIDER,
         PROVIDER,
         revision,
-        GENERATION_ID,
+        generation_id,
         f"dubbo-operation:{signature}|group=orders|version=1.0|alias=",
         operation.id,
         implementation.id,
@@ -124,7 +127,7 @@ def _source_pinned_provider_method_facts() -> MethodFacts:
         "1",
         PROVIDER,
         revision,
-        GENERATION_ID,
+        generation_id,
         (operation,),
         (implementation,),
         (),
@@ -135,12 +138,17 @@ def _source_pinned_provider_method_facts() -> MethodFacts:
 
 
 def _input(
-    *, facts: tuple[MethodFacts, ...] | None = None, mappings: tuple[ContractSourceMapping, ...] | None = None
+    *,
+    facts: tuple[MethodFacts, ...] | None = None,
+    mappings: tuple[ContractSourceMapping, ...] | None = None,
+    generation_id: str = GENERATION_ID,
+    revisions: dict[str, str] | None = None,
 ) -> WorkspaceJavaRpcResolutionInput:
-    consumer_facts = _facts(CONSUMER)
-    provider_facts = _facts(PROVIDER)
+    revisions = revisions or {repo_id: _revision(repo_id) for repo_id in (CONSUMER, CONTRACT, PROVIDER)}
+    consumer_facts = _facts(CONSUMER, revisions[CONSUMER], generation_id)
+    provider_facts = _facts(PROVIDER, revisions[PROVIDER], generation_id)
     contract = JavaContractSource(
-        CONTRACT, CONTRACT, _revision(CONTRACT), FIXTURE_ROOT / CONTRACT, ContractSourceRole.API
+        CONTRACT, CONTRACT, revisions[CONTRACT], FIXTURE_ROOT / CONTRACT, ContractSourceRole.API
     )
     index = JavaContractIndex().build((contract,))
     all_facts = facts or (consumer_facts, provider_facts)
@@ -164,15 +172,15 @@ def _input(
         )
     )
     frozen = frozenset(
-        FrozenSourceIdentity(repo_id, repo_id, _revision(repo_id)) for repo_id in (CONSUMER, CONTRACT, PROVIDER)
+        FrozenSourceIdentity(repo_id, repo_id, revisions[repo_id]) for repo_id in (CONSUMER, CONTRACT, PROVIDER)
     )
     return WorkspaceJavaRpcResolutionInput(
-        GENERATION_ID,
+        generation_id,
         all_facts,
         index,
         all_mappings,
         frozen,
-        frozenset({AuthorizedProviderSource(PROVIDER, PROVIDER, _revision(PROVIDER))}),
+        frozenset({AuthorizedProviderSource(PROVIDER, PROVIDER, revisions[PROVIDER])}),
         lambda resolution, operation, binding: (
             operation.group == "orders"
             and operation.version == "1.0"
@@ -229,6 +237,89 @@ def test_a14_keeps_distinct_retained_call_ids() -> None:
 
     assert len(callers) == 2
     assert len({item.retained_call_id for item in callers}) == 2
+
+
+@pytest.mark.unit
+def test_a15_contract_source_revision_change_reresolves_unchanged_consumer_in_new_generation() -> None:
+    """A contract revision is an explicit source-pinned input to each generation."""
+    first_generation = "generation-contract-v1"
+    second_generation = "generation-contract-v2"
+    first_revisions = {repo_id: _revision(repo_id) for repo_id in (CONSUMER, CONTRACT, PROVIDER)}
+    second_revisions = {**first_revisions, CONTRACT: "contract-revision-v2"}
+
+    first = WorkspaceJavaRpcResolutionAssembler().resolve(
+        _input(
+            facts=(
+                _facts(CONSUMER, first_revisions[CONSUMER], first_generation),
+                _source_pinned_provider_method_facts(first_revisions[PROVIDER], first_generation),
+            ),
+            generation_id=first_generation,
+            revisions=first_revisions,
+        )
+    )
+    second = WorkspaceJavaRpcResolutionAssembler().resolve(
+        _input(
+            facts=(
+                _facts(CONSUMER, second_revisions[CONSUMER], second_generation),
+                _source_pinned_provider_method_facts(second_revisions[PROVIDER], second_generation),
+            ),
+            generation_id=second_generation,
+            revisions=second_revisions,
+        )
+    )
+
+    first_call = next(item for item in first.determined if item.retained_call.start_line == 20)
+    second_call = next(item for item in second.determined if item.retained_call.start_line == 20)
+    assert first_call.retained_call.source_revision == second_call.retained_call.source_revision
+    assert first_call.contract.contract_method is not None
+    assert second_call.contract.contract_method is not None
+    assert first_call.contract.contract_method.source.source_revision == first_revisions[CONTRACT]
+    assert second_call.contract.contract_method.source.source_revision == second_revisions[CONTRACT]
+    assert first_call.binding is not None
+    assert second_call.binding is not None
+    assert first_call.binding.provider_operation is not None
+    assert second_call.binding.provider_operation is not None
+    assert first_call.binding.provider_operation.generation_id == first_generation
+    assert second_call.binding.provider_operation.generation_id == second_generation
+
+
+@pytest.mark.unit
+def test_a16_provider_revision_with_no_current_binding_is_unresolved_without_reusing_old_provider_facts() -> None:
+    """Provider bindings must be recomputed from the current source-pinned facts."""
+    first_generation = "generation-provider-v1"
+    second_generation = "generation-provider-v2"
+    first_revisions = {repo_id: _revision(repo_id) for repo_id in (CONSUMER, CONTRACT, PROVIDER)}
+    second_revisions = {**first_revisions, PROVIDER: "provider-revision-v2"}
+
+    first = WorkspaceJavaRpcResolutionAssembler().resolve(
+        _input(
+            facts=(
+                _facts(CONSUMER, first_revisions[CONSUMER], first_generation),
+                _source_pinned_provider_method_facts(first_revisions[PROVIDER], first_generation),
+            ),
+            generation_id=first_generation,
+            revisions=first_revisions,
+        )
+    )
+    second = WorkspaceJavaRpcResolutionAssembler().resolve(
+        _input(
+            facts=(
+                _facts(CONSUMER, second_revisions[CONSUMER], second_generation),
+                _facts(PROVIDER, second_revisions[PROVIDER], second_generation),
+            ),
+            generation_id=second_generation,
+            revisions=second_revisions,
+        )
+    )
+
+    first_call = next(item for item in first.calls if item.retained_call.start_line == 20)
+    assert first_call.binding is not None
+    assert first_call.binding.outcome.value == "determined"
+    second_call = next(item for item in second.calls if item.retained_call.start_line == 20)
+    assert second_call.contract.outcome.value == "determined"
+    assert second_call.binding is not None
+    assert second_call.binding.outcome.value == "PROVIDER_MISSING"
+    assert second_call.binding.provider_operation is None
 
 
 @pytest.mark.unit

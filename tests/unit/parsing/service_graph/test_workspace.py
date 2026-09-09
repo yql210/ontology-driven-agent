@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import fields, replace
 
 import pytest
 
@@ -63,6 +63,18 @@ def test_generation_requires_complete_unique_snapshots_from_its_workspace() -> N
         WorkspaceGeneration("workspace-1", "generation-1", (_snapshot(workspace_id="workspace-2"),))
     with pytest.raises(ValueError, match="source_revision"):
         replace(snapshot, source_revision=" ")
+
+
+def test_todo_d34_parser_version_is_not_a_workspace_generation_input() -> None:
+    """TODO(D3.4): add a parser-version trigger only with a persisted generation identity seam."""
+    assert tuple(field.name for field in fields(WorkspaceRepositorySnapshot)) == (
+        "workspace_id",
+        "repo_id",
+        "branch",
+        "source_revision",
+        "source",
+    )
+    assert "parser_version" not in {field.name for field in fields(WorkspaceGeneration)}
 
 
 def test_generation_transitions_through_lifecycle_and_active_can_be_superseded() -> None:
