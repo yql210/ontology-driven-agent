@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from .contract_method_resolver import (
@@ -11,12 +11,20 @@ from .contract_method_resolver import (
     ContractMethodResolver,
     ProtocolMetadata,
 )
+from .detector_sdk import (
+    AuthorizedContractDeclaration,
+    AuthorizedContractMethod,
+    AuthorizedContractSource,
+    AuthorizedContractView,
+)
 from .java_contract_index import (
     ContractSourceMapping,
     JavaContractIndex,
     JavaContractIndexResult,
+    JavaContractSource,
     JavaContractVisibilityResult,
     JavaContractVisibilityStatus,
+    JavaSourceRange,
 )
 from .methods import ImplementationMethod, MethodFacts, OperationBinding, RetainedSourceCall, ServiceOperation
 from .provider_method_binder import (
@@ -26,6 +34,12 @@ from .provider_method_binder import (
     ProviderMethodBindingOutcome,
     ProviderMethodBindingResult,
 )
+
+
+def _deny_provider_identity(
+    resolution: ContractMethodResolution, operation: ServiceOperation, binding: OperationBinding
+) -> bool:
+    return False
 
 
 @dataclass(frozen=True)
@@ -43,6 +57,109 @@ class FrozenSourceIdentity:
     @property
     def identity(self) -> tuple[str, str, str]:
         return self.repo_id, self.module_id, self.source_revision
+
+
+@dataclass(frozen=True)
+class WorkspaceJavaRpcAuthorization:
+    """Explicit Java source and provider authorization for one frozen workspace generation."""
+
+    contract_sources: tuple[JavaContractSource, ...]
+    contract_mappings: tuple[ContractSourceMapping, ...]
+    authorized_provider_sources: frozenset[AuthorizedProviderSource]
+    matches_provider_identity: ProviderBindingIdentityPredicate = _deny_provider_identity
+
+    def __post_init__(self) -> None:
+        if type(self.contract_sources) is not tuple or any(
+            type(item) is not JavaContractSource for item in self.contract_sources
+        ):
+            raise ValueError("contract_sources must be a tuple of JavaContractSource values")
+        if type(self.contract_mappings) is not tuple or any(
+            type(item) is not ContractSourceMapping for item in self.contract_mappings
+        ):
+            raise ValueError("contract_mappings must be a tuple of ContractSourceMapping values")
+        if type(self.authorized_provider_sources) is not frozenset or any(
+            type(item) is not AuthorizedProviderSource for item in self.authorized_provider_sources
+        ):
+            raise ValueError("authorized_provider_sources must be a frozenset of AuthorizedProviderSource values")
+        if not callable(self.matches_provider_identity):
+            raise ValueError("matches_provider_identity must be callable")
+
+
+def prepare_authorized_contract_views(
+    authorization: WorkspaceJavaRpcAuthorization,
+    repositories: Mapping[tuple[str, str, str], object],
+    frozen_source_identities: frozenset[FrozenSourceIdentity],
+) -> tuple[JavaContractIndexResult, Mapping[tuple[str, str, str], AuthorizedContractView]]:
+    """Build one deny-by-default, source-pinned contract view for each frozen repository identity."""
+    if type(authorization) is not WorkspaceJavaRpcAuthorization:
+        raise ValueError("authorization must be a WorkspaceJavaRpcAuthorization")
+    if type(frozen_source_identities) is not frozenset or any(
+        type(item) is not FrozenSourceIdentity for item in frozen_source_identities
+    ):
+        raise ValueError("frozen_source_identities must be a frozenset of FrozenSourceIdentity values")
+    frozen = {item.identity for item in frozen_source_identities}
+    if not frozen:
+        raise ValueError("frozen_source_identities must not be empty")
+    if set(repositories) != frozen:
+        raise ValueError("repositories must match current frozen source identities")
+    source_identities = {source.identity for source in authorization.contract_sources}
+    if len(source_identities) != len(authorization.contract_sources) or not source_identities.issubset(frozen):
+        raise ValueError("contract sources must be current frozen source identities")
+    for source in authorization.contract_sources:
+        repository = repositories[source.identity]
+        if getattr(repository, "root_path", None) != source.root_path:
+            raise ValueError("contract source root must match the frozen repository snapshot")
+    for mapping in authorization.contract_mappings:
+        consumer = (mapping.consumer_repo_id, mapping.consumer_module_id, mapping.consumer_source_revision)
+        if consumer not in frozen or mapping.contract_source_identity not in source_identities:
+            raise ValueError("contract mappings must use current frozen authorized contract sources")
+    if any(source.identity not in frozen for source in authorization.authorized_provider_sources):
+        raise ValueError("authorized providers must be current frozen source identities")
+    if any(source.identity in source_identities for source in authorization.authorized_provider_sources):
+        raise ValueError("contract API or client sources cannot be authorized providers")
+
+    index = JavaContractIndex().build(tuple(sorted(authorization.contract_sources, key=lambda item: item.identity)))
+    views: dict[tuple[str, str, str], AuthorizedContractView] = {}
+    for identity in sorted(frozen):
+        allowed = {
+            mapping.contract_source_identity
+            for mapping in authorization.contract_mappings
+            if (mapping.consumer_repo_id, mapping.consumer_module_id, mapping.consumer_source_revision) == identity
+        }
+        declarations: dict[str, AuthorizedContractDeclaration] = {}
+        for fqcn, contract in sorted(index.contracts.items()):
+            sources = tuple(source for source in contract.sources if _source_identity(source) in allowed)
+            if not sources:
+                continue
+            methods = tuple(
+                AuthorizedContractMethod(
+                    method.name, method.parameter_types, method.return_type, _contract_source(method.source)
+                )
+                for method in contract.methods
+                if _source_identity(method.source) in allowed
+            )
+            declarations[fqcn] = AuthorizedContractDeclaration(
+                fqcn,
+                methods,
+                tuple(_contract_source(source) for source in sources),
+            )
+        views[identity] = AuthorizedContractView(declarations)
+    return index, views
+
+
+def _source_identity(source: JavaSourceRange) -> tuple[str, str, str]:
+    return source.repo_id, source.module_id, source.source_revision
+
+
+def _contract_source(source: JavaSourceRange) -> AuthorizedContractSource:
+    return AuthorizedContractSource(
+        source.repo_id,
+        source.module_id,
+        source.source_revision,
+        source.file_path,
+        source.start_line,
+        source.end_line,
+    )
 
 
 @dataclass(frozen=True)

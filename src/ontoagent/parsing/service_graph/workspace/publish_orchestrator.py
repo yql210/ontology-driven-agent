@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -10,9 +10,11 @@ from typing import TYPE_CHECKING, Protocol
 from ..detectors.registry import DetectorRegistry
 from ..graph_plan import GraphNode, GraphPlanBuilder, GraphRelation, GraphWritePlan
 from ..graph_writer import GraphWriter, WriteReceipt
+from ..methods import ConsumerMethodCall
 from ..models import DetectorFacts, RepositorySnapshot
 from ..neo4j_graph_sink import Neo4jDriver, Neo4jGraphSink
 from ..resolver import FactBatch, ResolveResult, ServiceGraphResolver
+from ..workspace_java_rpc_resolution import WorkspaceJavaRpcAuthorization, WorkspaceJavaRpcCallResolution
 from .models import (
     BuildTask,
     Workspace,
@@ -65,6 +67,7 @@ class WorkspaceServiceGraphPublishInput:
     expected_active_generation_id: str | None
     owned_work_dirs: tuple[Path, ...] = ()
     method_facts: tuple[MethodFacts, ...] = ()
+    java_rpc_authorization: WorkspaceJavaRpcAuthorization | None = None
 
     def __post_init__(self) -> None:
         from ..method_graph_writer import MethodGraphScope, MethodGraphWritePlan
@@ -80,6 +83,11 @@ class WorkspaceServiceGraphPublishInput:
             raise ValueError("owned_work_dirs must be an immutable tuple of paths")
         if type(self.method_facts) is not tuple or any(type(fact) is not MethodFacts for fact in self.method_facts):
             raise ValueError("method_facts must be an immutable tuple of MethodFacts")
+        if (
+            self.java_rpc_authorization is not None
+            and type(self.java_rpc_authorization) is not WorkspaceJavaRpcAuthorization
+        ):
+            raise ValueError("java_rpc_authorization must be a WorkspaceJavaRpcAuthorization or None")
         if any(type(snapshot) is not WorkspaceRepositorySnapshot for snapshot in self.snapshots):
             raise ValueError("snapshots must contain WorkspaceRepositorySnapshot values")
         if any(type(snapshot) is not RepositorySnapshot for snapshot in self.repository_snapshots):
@@ -96,6 +104,30 @@ class WorkspaceServiceGraphPublishInput:
             raise ValueError("snapshot workspace_id mismatch")
         if any(runtime[repo_id].source_revision != snapshot.source_revision for repo_id, snapshot in frozen.items()):
             raise ValueError("frozen and runtime source revisions must match")
+        if self.java_rpc_authorization is not None:
+            frozen_identities = {
+                (snapshot.repo_id, snapshot.repo_id, snapshot.source_revision) for snapshot in self.snapshots
+            }
+            contract_source_identities = {source.identity for source in self.java_rpc_authorization.contract_sources}
+            if not contract_source_identities.issubset(frozen_identities):
+                raise ValueError("contract sources must use current frozen identities")
+            if any(
+                source.root_path != runtime[source.repo_id].root_path
+                for source in self.java_rpc_authorization.contract_sources
+            ):
+                raise ValueError("contract source root must match the frozen repository snapshot")
+            if any(
+                (mapping.consumer_repo_id, mapping.consumer_module_id, mapping.consumer_source_revision)
+                not in frozen_identities
+                or mapping.contract_source_identity not in contract_source_identities
+                for mapping in self.java_rpc_authorization.contract_mappings
+            ):
+                raise ValueError("contract mappings must use current frozen authorized contract sources")
+            if any(
+                source.identity not in frozen_identities or source.identity in contract_source_identities
+                for source in self.java_rpc_authorization.authorized_provider_sources
+            ):
+                raise ValueError("authorized providers must be current non-contract frozen identities")
         object.__setattr__(self, "snapshots", tuple(sorted(self.snapshots, key=lambda item: item.repo_id)))
         object.__setattr__(
             self, "repository_snapshots", tuple(sorted(self.repository_snapshots, key=lambda item: item.repo_id))
@@ -302,13 +334,27 @@ class WorkspaceServiceGraphPublishOrchestrator:
                 components.workspace_repository, request, namespace, generation, WorkspacePublishReason.DETECTOR_FAILED
             )
         detected_method_facts = self._detect_methods(
-            components.method_detectors, request.repository_snapshots, request.generation_id
+            components.method_detectors,
+            request.repository_snapshots,
+            request.generation_id,
+            request.java_rpc_authorization,
         )
         if detected_method_facts is None:
             return self._fail(
                 components.workspace_repository, request, namespace, generation, WorkspacePublishReason.DETECTOR_FAILED
             )
         all_method_facts = (*request.method_facts, *detected_method_facts)
+        if request.java_rpc_authorization is not None:
+            try:
+                all_method_facts = self._assemble_java_rpc(request, all_method_facts)
+            except (OSError, ValueError):
+                return self._fail(
+                    components.workspace_repository,
+                    request,
+                    namespace,
+                    generation,
+                    WorkspacePublishReason.DETECTOR_FAILED,
+                )
         if all_method_facts:
             from ..method_graph_writer import MethodGraphScope, MethodGraphWritePlan
 
@@ -456,22 +502,90 @@ class WorkspaceServiceGraphPublishOrchestrator:
 
     @staticmethod
     def _detect_methods(
-        detectors: tuple[MethodDetector, ...], snapshots: tuple[RepositorySnapshot, ...], generation_id: str
+        detectors: tuple[MethodDetector, ...],
+        snapshots: tuple[RepositorySnapshot, ...],
+        generation_id: str,
+        java_rpc_authorization: WorkspaceJavaRpcAuthorization | None,
     ) -> tuple[MethodFacts, ...] | None:
         if not detectors:
             return ()
         from ..detector_sdk import MethodDetectionContext
+        from ..workspace_java_rpc_resolution import FrozenSourceIdentity, prepare_authorized_contract_views
 
         facts: list[MethodFacts] = []
         try:
-            for snapshot in snapshots:
-                context = MethodDetectionContext(
-                    snapshot.repo_id, snapshot.repo_id, snapshot.repo_id, snapshot.source_revision, generation_id
+            views = {}
+            if java_rpc_authorization is not None:
+                identities = frozenset(
+                    FrozenSourceIdentity(snapshot.repo_id, snapshot.repo_id, snapshot.source_revision)
+                    for snapshot in snapshots
                 )
-                facts.extend(detector.detect_methods(snapshot, context) for detector in detectors)
+                repositories = {
+                    (snapshot.repo_id, snapshot.repo_id, snapshot.source_revision): snapshot for snapshot in snapshots
+                }
+                _, views = prepare_authorized_contract_views(java_rpc_authorization, repositories, identities)
+            for snapshot in snapshots:
+                identity = snapshot.repo_id, snapshot.repo_id, snapshot.source_revision
+                for detector in detectors:
+                    view = views.get(identity) if detector.metadata.detector_id == "dubbo-method" else None
+                    context = MethodDetectionContext(
+                        snapshot.repo_id,
+                        snapshot.repo_id,
+                        snapshot.repo_id,
+                        snapshot.source_revision,
+                        generation_id,
+                        view,
+                    )
+                    facts.append(detector.detect_methods(snapshot, context))
         except (OSError, ValueError):
             return None
         return tuple(facts)
+
+    @staticmethod
+    def _assemble_java_rpc(
+        request: WorkspaceServiceGraphPublishInput, method_facts: tuple[MethodFacts, ...]
+    ) -> tuple[MethodFacts, ...]:
+        """Run the pure second pass and retain only cross-repository calls with a determined outcome."""
+        from ..workspace_java_rpc_resolution import (
+            FrozenSourceIdentity,
+            WorkspaceJavaRpcResolutionAssembler,
+            WorkspaceJavaRpcResolutionInput,
+            prepare_authorized_contract_views,
+        )
+
+        assert request.java_rpc_authorization is not None
+        frozen = frozenset(
+            FrozenSourceIdentity(snapshot.repo_id, snapshot.repo_id, snapshot.source_revision)
+            for snapshot in request.repository_snapshots
+        )
+        repositories = {
+            (snapshot.repo_id, snapshot.repo_id, snapshot.source_revision): snapshot
+            for snapshot in request.repository_snapshots
+        }
+        index, _ = prepare_authorized_contract_views(request.java_rpc_authorization, repositories, frozen)
+        resolution = WorkspaceJavaRpcResolutionAssembler().resolve(
+            WorkspaceJavaRpcResolutionInput(
+                request.generation_id,
+                method_facts,
+                index,
+                request.java_rpc_authorization.contract_mappings,
+                frozen,
+                request.java_rpc_authorization.authorized_provider_sources,
+                request.java_rpc_authorization.matches_provider_identity,
+            )
+        )
+        return tuple(
+            replace(
+                facts,
+                consumer_calls=tuple(
+                    call
+                    for call in facts.consumer_calls
+                    if facts.detector_id != "dubbo-method"
+                    or any(_is_determined_dubbo_call(call, item) for item in resolution.determined)
+                ),
+            )
+            for facts in method_facts
+        )
 
     def _fail(
         self,
@@ -552,6 +666,26 @@ def _namespace_plan(plan: GraphWritePlan, namespace: str) -> GraphWritePlan:
             )
             for relation in plan.relations
         ),
+    )
+
+
+def _is_determined_dubbo_call(call: ConsumerMethodCall, resolution: WorkspaceJavaRpcCallResolution) -> bool:
+    """Admit only the exact source-local call that the second pass determined."""
+    retained = resolution.retained_call
+    method = resolution.contract.contract_method
+    if method is None:
+        return False
+    settings = dict(retained.protocol_settings)
+    reference = (
+        f"dubbo-operation:{method.canonical_signature}|group={settings.get('group', '')}"
+        f"|version={settings.get('version', '')}|alias={settings.get('alias', '')}"
+    )
+    return (
+        call.repo_id == retained.repo_id
+        and call.module_id == retained.module_id
+        and call.source_revision == retained.source_revision
+        and call.caller_implementation_id == retained.caller_implementation_id
+        and (call.target_reference == reference or call.target_reference.startswith(f"{reference}|origin=xml"))
     )
 
 

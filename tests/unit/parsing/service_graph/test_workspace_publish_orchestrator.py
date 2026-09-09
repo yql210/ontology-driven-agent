@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
 
+from ontoagent.parsing.service_graph.detectors.dubbo_method import DubboMethodDetector
 from ontoagent.parsing.service_graph.graph_plan import GraphNode, GraphWritePlan
 from ontoagent.parsing.service_graph.graph_writer import WriteReceipt
+from ontoagent.parsing.service_graph.java_contract_index import (
+    ContractSourceMapping,
+    ContractSourceRole,
+    JavaContractSource,
+)
 from ontoagent.parsing.service_graph.method_graph_writer import MethodGraphScope, MethodGraphWritePlan
 from ontoagent.parsing.service_graph.methods import (
     ImplementationMethod,
@@ -16,6 +23,7 @@ from ontoagent.parsing.service_graph.methods import (
     ServiceOperation,
 )
 from ontoagent.parsing.service_graph.models import DetectorFacts, RepositorySnapshot
+from ontoagent.parsing.service_graph.provider_method_binder import AuthorizedProviderSource
 from ontoagent.parsing.service_graph.resolver import ResolveResult
 from ontoagent.parsing.service_graph.workspace.models import (
     Workspace,
@@ -34,6 +42,13 @@ from ontoagent.parsing.service_graph.workspace.publish_orchestrator import (
     WorkspaceServiceGraphPublishComponents,
     WorkspaceServiceGraphPublishInput,
     WorkspaceServiceGraphPublishOrchestrator,
+)
+from ontoagent.parsing.service_graph.workspace_java_rpc_resolution import (
+    FrozenSourceIdentity,
+    WorkspaceJavaRpcAuthorization,
+    WorkspaceJavaRpcResolutionAssembler,
+    WorkspaceJavaRpcResolutionInput,
+    prepare_authorized_contract_views,
 )
 
 
@@ -428,3 +443,197 @@ def test_publish_method_receipt_mismatch_fails_without_replacing_active_binding(
     assert outcome.generation_state is WorkspaceGenerationState.FAILED
     assert repository.active == "old-generation"
     assert not any(call.startswith("cas:") for call in calls)
+
+
+JAVA_RPC_FIXTURE_ROOT = Path(__file__).parents[3] / "fixtures" / "java_rpc_contracts"
+
+
+def _d1_revision(repo_id: str) -> str:
+    manifest = json.loads((JAVA_RPC_FIXTURE_ROOT / "expected.json").read_text(encoding="utf-8"))
+    repositories = manifest["repositories"]
+    assert isinstance(repositories, list)
+    repository = next(item for item in repositories if item["repo_id"] == repo_id)
+    revision = repository["revision"]
+    assert isinstance(revision, str)
+    return revision
+
+
+def _d1_request(
+    *,
+    mappings: tuple[ContractSourceMapping, ...],
+    reverse: bool = False,
+) -> WorkspaceServiceGraphPublishInput:
+    repos = ("sample-order-contract", "sample-order-provider", "sample-checkout-consumer")
+    snapshots = tuple(
+        WorkspaceRepositorySnapshot(
+            "d1-workspace",
+            repo_id,
+            "main",
+            _d1_revision(repo_id),
+            WorkspaceSourceDescriptor(WorkspaceSourceKind.GIT, f"https://example.test/{repo_id}.git"),
+        )
+        for repo_id in repos
+    )
+    runtime = tuple(
+        RepositorySnapshot(repo_id, _d1_revision(repo_id), JAVA_RPC_FIXTURE_ROOT / repo_id, frozenset({"java"}))
+        for repo_id in repos
+    )
+    if reverse:
+        snapshots = tuple(reversed(snapshots))
+        runtime = tuple(reversed(runtime))
+    contract = JavaContractSource(
+        "sample-order-contract",
+        "sample-order-contract",
+        _d1_revision("sample-order-contract"),
+        JAVA_RPC_FIXTURE_ROOT / "sample-order-contract",
+        ContractSourceRole.API,
+    )
+    authorization = WorkspaceJavaRpcAuthorization(
+        (contract,),
+        mappings,
+        frozenset(
+            {
+                AuthorizedProviderSource(
+                    "sample-order-provider", "sample-order-provider", _d1_revision("sample-order-provider")
+                )
+            }
+        ),
+        lambda resolution, operation, binding: (
+            operation.group == "orders"
+            and operation.version == "1.0"
+            and operation.alias is None
+            and binding.provider_endpoint_reference.endswith("|group=orders|version=1.0|alias=")
+        ),
+    )
+    return WorkspaceServiceGraphPublishInput(
+        Workspace("d1-workspace", "D1"),
+        snapshots,
+        runtime,
+        "request-d1",
+        "generation-d1",
+        None,
+        (),
+        (),
+        authorization,
+    )
+
+
+def _d1_mapping(consumer_repo_id: str) -> ContractSourceMapping:
+    return ContractSourceMapping(
+        consumer_repo_id,
+        consumer_repo_id,
+        _d1_revision(consumer_repo_id),
+        "sample-order-contract",
+        "sample-order-contract",
+        _d1_revision("sample-order-contract"),
+        "1.0",
+        "workspace-contracts.yaml",
+        1,
+        1,
+    )
+
+
+def _d1_orchestrator(calls: list[str]) -> tuple[WorkspaceServiceGraphPublishOrchestrator, list[_MethodSink]]:
+    orchestrator, factory, writer, _ = _orchestrator(calls)
+    writer.namespace = WorkspaceServiceGraphPublishOrchestrator.namespace_for("d1-workspace", "generation-d1")
+    sinks: list[_MethodSink] = []
+
+    def method_sink_factory(scope: MethodGraphScope) -> _MethodSink:
+        sink = _MethodSink(calls, scope)
+        sinks.append(sink)
+        return sink
+
+    class _D1PlanBuilder:
+        def build(self, result: ResolveResult) -> GraphWritePlan:
+            repo_ids = ("sample-order-contract", "sample-order-provider", "sample-checkout-consumer")
+            return GraphWritePlan(
+                tuple(
+                    GraphNode(repo_id, "Endpoint", {"id": repo_id, "repo_id": repo_id, "evidence_ids": (repo_id,)})
+                    for repo_id in repo_ids
+                ),
+                (),
+            )
+
+    factory.components = replace(
+        factory.components,
+        plan_builder=_D1PlanBuilder(),
+        method_graph_sink_factory=method_sink_factory,
+        method_detectors=(DubboMethodDetector(),),
+    )
+    return orchestrator, sinks
+
+
+@pytest.mark.unit
+def test_publish_prepares_source_pinned_java_contract_views_and_assembles_d1_facts() -> None:
+    calls: list[str] = []
+    orchestrator, sinks = _d1_orchestrator(calls)
+    request = _d1_request(mappings=(_d1_mapping("sample-order-provider"), _d1_mapping("sample-checkout-consumer")))
+
+    outcome = orchestrator.publish(request)
+
+    assert outcome.status is OrchestratorStatus.ACTIVE
+    assert len(sinks) == 1 and sinks[0]._plan is not None
+    facts = sinks[0]._plan.facts
+    provider = next(item for item in facts if item.repo_id == "sample-order-provider")
+    consumer = next(item for item in facts if item.repo_id == "sample-checkout-consumer")
+    assert any(
+        item.canonical_signature.endswith("#getOrder(java.lang.String):example.orders.api.OrderSummary")
+        for item in provider.operations
+    )
+    assert consumer.consumer_calls
+    assert "interface OrderService" not in (
+        JAVA_RPC_FIXTURE_ROOT / "sample-order-provider/src/main/java/example/orders/provider/OrderServiceProvider.java"
+    ).read_text(encoding="utf-8")
+    frozen = frozenset(
+        FrozenSourceIdentity(item.repo_id, item.repo_id, item.source_revision) for item in request.repository_snapshots
+    )
+    repositories = {(item.repo_id, item.repo_id, item.source_revision): item for item in request.repository_snapshots}
+    index, _ = prepare_authorized_contract_views(request.java_rpc_authorization, repositories, frozen)  # type: ignore[arg-type]
+    resolved = WorkspaceJavaRpcResolutionAssembler().resolve(
+        WorkspaceJavaRpcResolutionInput(
+            request.generation_id,
+            facts,
+            index,
+            request.java_rpc_authorization.contract_mappings,  # type: ignore[union-attr]
+            frozen,
+            request.java_rpc_authorization.authorized_provider_sources,  # type: ignore[union-attr]
+            request.java_rpc_authorization.matches_provider_identity,  # type: ignore[union-attr]
+        )
+    )
+    a01 = next(item for item in resolved.determined if item.retained_call.start_line == 20)
+    assert a01.contract.contract_method is not None
+    assert (
+        a01.binding is not None
+        and a01.binding.provider_operation is not None
+        and a01.binding.implementation is not None
+    )
+
+
+@pytest.mark.unit
+def test_publish_java_rpc_requires_mapping_and_rejects_stale_pins() -> None:
+    calls: list[str] = []
+    orchestrator, sinks = _d1_orchestrator(calls)
+
+    outcome = orchestrator.publish(_d1_request(mappings=()))
+    stale = replace(_d1_mapping("sample-checkout-consumer"), consumer_source_revision="stale-revision")
+
+    assert outcome.status is OrchestratorStatus.ACTIVE
+    assert len(sinks) == 1 and sinks[0]._plan is not None
+    assert not next(item for item in sinks[0]._plan.facts if item.repo_id == "sample-order-provider").operations
+    assert not next(item for item in sinks[0]._plan.facts if item.repo_id == "sample-checkout-consumer").consumer_calls
+    with pytest.raises(ValueError, match="current frozen"):
+        _d1_request(mappings=(stale,))
+
+
+@pytest.mark.unit
+def test_publish_java_rpc_contract_preparation_is_repository_order_deterministic() -> None:
+    mappings = (_d1_mapping("sample-order-provider"), _d1_mapping("sample-checkout-consumer"))
+    forward_calls: list[str] = []
+    reverse_calls: list[str] = []
+    forward, _ = _d1_orchestrator(forward_calls)
+    reverse, _ = _d1_orchestrator(reverse_calls)
+
+    forward_outcome = forward.publish(_d1_request(mappings=mappings))
+    reverse_outcome = reverse.publish(_d1_request(mappings=mappings, reverse=True))
+
+    assert forward_outcome.status is reverse_outcome.status is OrchestratorStatus.ACTIVE
