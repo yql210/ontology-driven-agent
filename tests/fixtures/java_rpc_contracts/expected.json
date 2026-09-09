@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "fixture_revision": "java-rpc-contracts-d1-v1",
+  "repositories": [
+    {
+      "repo_id": "sample-order-contract",
+      "revision": "1111111111111111111111111111111111111111",
+      "role": "api",
+      "source_locations": [
+        "src/main/java/example/orders/api/OrderService.java",
+        "src/main/java/example/orders/api/OrderSummary.java"
+      ]
+    },
+    {
+      "repo_id": "sample-order-provider",
+      "revision": "2222222222222222222222222222222222222222",
+      "role": "provider",
+      "source_locations": [
+        "src/main/java/example/orders/provider/OrderServiceProvider.java"
+      ]
+    },
+    {
+      "repo_id": "sample-checkout-consumer",
+      "revision": "3333333333333333333333333333333333333333",
+      "role": "consumer",
+      "source_locations": [
+        "src/main/java/example/checkout/CheckoutService.java"
+      ]
+    },
+    {
+      "repo_id": "provider-client-module-provider",
+      "revision": "4444444444444444444444444444444444444444",
+      "role": "provider",
+      "fixture_path": "provider-client-module/provider",
+      "source_locations": [
+        "src/main/java/example/inventory/provider/InventoryServiceProvider.java"
+      ]
+    },
+    {
+      "repo_id": "provider-client-module-client",
+      "revision": "5555555555555555555555555555555555555555",
+      "role": "client_module",
+      "fixture_path": "provider-client-module/client-module",
+      "source_locations": [
+        "src/main/java/example/inventory/api/InventoryService.java",
+        "src/main/java/example/checkout/InventoryClient.java"
+      ]
+    }
+  ],
+  "cases": {
+    "A01": {
+      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 20},
+      "expected_outcome": "determined",
+      "canonical_signature": "example.orders.api.OrderService#getOrder(java.lang.String):example.orders.api.OrderSummary"
+    },
+    "A02": {
+      "source": {"repo_id": "sample-order-contract", "path": "src/main/java/example/orders/api/OrderService.java", "line": 4},
+      "expected_outcome": "contract_only",
+      "canonical_signature": "example.orders.api.OrderService#getOrder(java.lang.String):example.orders.api.OrderSummary"
+    },
+    "A03": {
+      "source": {"repo_id": "sample-order-provider", "path": "src/main/java/example/orders/provider/OrderServiceProvider.java", "line": 10},
+      "expected_outcome": "determined",
+      "order_independent": true
+    },
+    "A04": {
+      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 20},
+      "expected_outcome": "determined",
+      "argument_type": "java.lang.String"
+    },
+    "A08": {
+      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 28},
+      "expected_outcome": "determined",
+      "canonical_signature": "example.orders.api.OrderService#getOrder(long):example.orders.api.OrderSummary"
+    },
+    "A09": {
+      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 32},
+      "expected_outcome": "unresolved",
+      "reason_code": "VERSION_CONFLICT"
+    },
+    "A10": {
+      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 36},
+      "expected_outcome": "unresolved",
+      "reason_code": "AMBIGUOUS_TARGET"
+    },
+    "A11": {
+      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 40},
+      "expected_outcome": "unresolved",
+      "reason_code": "MISSING_IMPLEMENTATION"
+    },
+    "A12": {
+      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 44},
+      "expected_outcome": "unresolved",
+      "reason_code": "DYNAMIC_TARGET"
+    },
+    "A14": {
+      "source": {"repo_id": "sample-checkout-consumer", "path": "src/main/java/example/checkout/CheckoutService.java", "line": 48},
+      "expected_outcome": "determined",
+      "distinct_source_lines": [48, 49]
+    }
+  }
+}
