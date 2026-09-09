@@ -73,6 +73,13 @@ from .neo4j_manifest_repository import (
     Neo4jServiceGraphManifestRepository,
 )
 from .neo4j_method_graph_sink import Neo4jMethodGraphSink
+from .provider_method_binder import (
+    AuthorizedProviderSource,
+    ProviderBindingIdentityPredicate,
+    ProviderMethodBinder,
+    ProviderMethodBindingOutcome,
+    ProviderMethodBindingResult,
+)
 from .publish_orchestrator import (
     Neo4jServiceGraphPublishComponentFactory,
     ServiceGraphPublicationReceipt,
@@ -95,6 +102,7 @@ from .resolver import FactBatch, ResolvedLink, ResolveResult, ServiceGraphResolv
 
 __all__ = [
     "CallerIdentity",
+    "AuthorizedProviderSource",
     "ContractMethodResolution",
     "ContractMethodResolutionOutcome",
     "ContractMethodResolver",
@@ -159,6 +167,10 @@ __all__ = [
     "OperationBinding",
     "ProtocolCompatibilityPredicate",
     "ProtocolMetadata",
+    "ProviderBindingIdentityPredicate",
+    "ProviderMethodBinder",
+    "ProviderMethodBindingOutcome",
+    "ProviderMethodBindingResult",
     "RetainedSourceCall",
     "ServiceGraphPublicationReceipt",
     "ServiceGraphPublishComponents",
