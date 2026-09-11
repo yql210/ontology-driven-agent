@@ -75,8 +75,8 @@ class WorkspaceServiceGraphPublishInput:
 
         if type(self.workspace) is not Workspace:
             raise ValueError("workspace must be a Workspace")
-        if type(self.snapshots) is not tuple or len(self.snapshots) < 3:
-            raise ValueError("snapshots must be an immutable tuple of at least three repositories")
+        if type(self.snapshots) is not tuple or len(self.snapshots) < 2:
+            raise ValueError("snapshots must be an immutable tuple of at least two repositories")
         if type(self.repository_snapshots) is not tuple:
             raise ValueError("repository_snapshots must be an immutable tuple")
         if type(self.owned_work_dirs) is not tuple or any(not isinstance(path, Path) for path in self.owned_work_dirs):
@@ -696,8 +696,8 @@ def _is_determined_dubbo_call(call: ConsumerMethodCall, resolution: WorkspaceJav
 
 def _assert_p0_snapshot_boundary(snapshots: tuple[WorkspaceRepositorySnapshot, ...]) -> None:
     """Defend the P0 publication boundary even if a request was deserialized unsafely."""
-    if len(snapshots) < 3 or len({snapshot.repo_id for snapshot in snapshots}) != len(snapshots):
-        raise ValueError("P0 workspace publication requires at least three unique frozen repository snapshots")
+    if len(snapshots) < 2 or len({snapshot.repo_id for snapshot in snapshots}) != len(snapshots):
+        raise ValueError("P0 workspace publication requires at least two unique frozen repository snapshots")
 
 
 def _contains_all_repositories(

@@ -376,15 +376,15 @@ def test_publish_missing_frozen_repository_from_plan_fails_before_write_and_cas(
     assert not any(call.startswith("cas:") for call in calls)
 
 
-def test_publish_defensively_rejects_less_than_three_frozen_repositories_before_factory_or_write() -> None:
+def test_publish_defensively_rejects_less_than_two_frozen_repositories_before_factory_or_write() -> None:
     calls: list[str] = []
     orchestrator, factory, _, _ = _orchestrator(calls)
     valid = _input()
     malformed = object.__new__(WorkspaceServiceGraphPublishInput)
     for field_name, value in (
         ("workspace", valid.workspace),
-        ("snapshots", valid.snapshots[:2]),
-        ("repository_snapshots", valid.repository_snapshots[:2]),
+        ("snapshots", valid.snapshots[:1]),
+        ("repository_snapshots", valid.repository_snapshots[:1]),
         ("task_idempotency_key", valid.task_idempotency_key),
         ("generation_id", valid.generation_id),
         ("expected_active_generation_id", valid.expected_active_generation_id),
@@ -393,7 +393,7 @@ def test_publish_defensively_rejects_less_than_three_frozen_repositories_before_
     ):
         object.__setattr__(malformed, field_name, value)
 
-    with pytest.raises(ValueError, match="at least three unique"):
+    with pytest.raises(ValueError, match="at least two unique"):
         orchestrator.publish(malformed)
 
     assert factory.namespaces == []

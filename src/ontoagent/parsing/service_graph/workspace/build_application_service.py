@@ -268,8 +268,8 @@ def _load_manifest(manifest_path: Path) -> Mapping[str, object]:
 
 def _repositories(manifest: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:
     value = manifest.get("repositories")
-    if not isinstance(value, list) or len(value) < 3:
-        raise ValueError("manifest repositories must list at least three repositories")
+    if not isinstance(value, list) or len(value) < 2:
+        raise ValueError("manifest repositories must list at least two repositories")
     repositories: list[Mapping[str, object]] = []
     for index, item in enumerate(value):
         if not isinstance(item, dict):

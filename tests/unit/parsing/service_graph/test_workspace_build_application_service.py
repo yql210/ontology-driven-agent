@@ -68,10 +68,23 @@ def test_build_freezes_local_git_repositories_and_routes_validated_request(tmp_p
     assert all(snapshot.languages == frozenset({"java", "yaml"}) for snapshot in request.repository_snapshots)
 
 
+def test_build_accepts_workspace_manifest_with_two_repositories(tmp_path: Path) -> None:
+    # Arrange
+    received = []
+    service = WorkspaceBuildApplicationService(received.append, id_factory=iter(("task-key", "generation-1")).__next__)
+
+    # Act
+    result = service.build(_manifest(tmp_path, _repositories(tmp_path)[:2]))
+
+    # Assert
+    assert result.generation_id == "generation-1"
+    assert tuple(snapshot.repo_id for snapshot in received[0].snapshots) == ("repo-a", "repo-b")
+
+
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        (lambda repositories: repositories.pop(), "at least three"),
+        (lambda repositories: repositories.__delitem__(slice(1, None)), "at least two"),
         (lambda repositories: repositories.__setitem__(0, {**repositories[0], "path": "/missing"}), "path"),
         (lambda repositories: repositories.__setitem__(0, {**repositories[0], "source_revision": "stale"}), "revision"),
         (lambda repositories: repositories.__setitem__(1, {**repositories[1], "repo_id": "repo-a"}), "duplicate"),
