@@ -110,12 +110,18 @@ class WorkspaceRepositorySnapshot:
     branch: str
     source_revision: str
     source: WorkspaceSourceDescriptor
+    module_id: str | None = None
 
     def __post_init__(self) -> None:
         for field_name in ("workspace_id", "repo_id", "branch", "source_revision"):
             _require_nonblank(getattr(self, field_name), field_name)
         if type(self.source) is not WorkspaceSourceDescriptor:
             raise ValueError("source must be a WorkspaceSourceDescriptor")
+        if self.module_id is None:
+            object.__setattr__(self, "module_id", self.repo_id)
+        else:
+            _require_nonblank(self.module_id, "module_id")
+            object.__setattr__(self, "module_id", self.module_id.strip())
 
 
 @dataclass(frozen=True)

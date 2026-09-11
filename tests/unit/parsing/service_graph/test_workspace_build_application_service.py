@@ -81,6 +81,17 @@ def test_build_accepts_workspace_manifest_with_two_repositories(tmp_path: Path) 
     assert tuple(snapshot.repo_id for snapshot in received[0].snapshots) == ("repo-a", "repo-b")
 
 
+def test_build_passes_custom_module_id_and_defaults_legacy_manifest_to_repo_id(tmp_path: Path) -> None:
+    repositories = _repositories(tmp_path)[:2]
+    repositories[0] = {**repositories[0], "module_id": "  checkout-api  "}
+    received = []
+    service = WorkspaceBuildApplicationService(received.append, id_factory=iter(("task-key", "generation-1")).__next__)
+
+    service.build(_manifest(tmp_path, repositories))
+
+    assert tuple(snapshot.module_id for snapshot in received[0].snapshots) == ("checkout-api", "repo-b")
+
+
 @pytest.mark.parametrize(
     ("change", "message"),
     [

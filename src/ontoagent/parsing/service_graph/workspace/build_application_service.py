@@ -275,7 +275,9 @@ def _repositories(manifest: Mapping[str, object]) -> tuple[Mapping[str, object],
         if not isinstance(item, dict):
             raise ValueError(f"repository {index} must be an object")
         _reject_unknown_fields(
-            item, {"repo_id", "path", "git_url", "branch", "source_revision", "languages"}, f"repository {index}"
+            item,
+            {"repo_id", "module_id", "path", "git_url", "branch", "source_revision", "languages"},
+            f"repository {index}",
         )
         for field_name in ("repo_id", "branch", "source_revision"):
             _required_string(item, field_name)
@@ -312,6 +314,7 @@ def _freeze_repositories(
     try:
         for repository in repositories:
             repo_id = _required_string(repository, "repo_id")
+            module_id = _optional_string(repository, "module_id") or repo_id
             branch = _required_string(repository, "branch")
             revision = _required_string(repository, "source_revision")
             if "path" in repository:
@@ -348,7 +351,9 @@ def _freeze_repositories(
             if not isinstance(language_values, list):
                 raise ValueError(f"repository {repo_id} languages must be a list")
             languages = frozenset(value.strip().lower() for value in language_values if isinstance(value, str))
-            frozen.append(WorkspaceRepositorySnapshot(workspace_id, repo_id, branch, actual_revision, source))
+            frozen.append(
+                WorkspaceRepositorySnapshot(workspace_id, repo_id, branch, actual_revision, source, module_id)
+            )
             runtime.append(RepositorySnapshot(repo_id, actual_revision, root_path, languages))
     except Exception:
         for work_dir in owned_work_dirs:
