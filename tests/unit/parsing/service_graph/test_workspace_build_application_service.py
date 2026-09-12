@@ -170,9 +170,26 @@ def test_prepare_converts_java_rpc_manifest_to_publish_authorization(tmp_path: P
     assert next(iter(authorization.authorized_provider_sources)).module_id == "consumer-module"
 
 
-def test_build_preserves_java_rpc_manifest_configuration(tmp_path: Path) -> None:
-    java_rpc = {"contract_sources": [], "contract_mappings": [], "authorized_provider_sources": []}
-    manifest_path = _manifest(tmp_path, _repositories(tmp_path)[:2])
+def test_build_publishes_manifest_java_rpc_authorization_with_generation_identities(tmp_path: Path) -> None:
+    repositories = _repositories(tmp_path)[:2]
+    repositories[0] = {**repositories[0], "module_id": "consumer-module"}
+    repositories[1] = {**repositories[1], "module_id": "provider-module"}
+    java_rpc = {
+        "contract_sources": [
+            {
+                "repo_id": "repo-b",
+                "module_id": "ignored",
+                "source_revision": repositories[1]["source_revision"],
+                "path": ".",
+                "role": "api",
+            }
+        ],
+        "contract_mappings": [],
+        "authorized_provider_sources": [
+            {"repo_id": "repo-a", "module_id": "ignored", "source_revision": repositories[0]["source_revision"]}
+        ],
+    }
+    manifest_path = _manifest(tmp_path, repositories)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["java_rpc"] = java_rpc
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -181,7 +198,19 @@ def test_build_preserves_java_rpc_manifest_configuration(tmp_path: Path) -> None
 
     service.build(manifest_path)
 
-    assert received[0].java_rpc_manifest == java_rpc
+    request = received[0]
+    authorization = request.java_rpc_authorization
+    assert type(authorization) is WorkspaceJavaRpcAuthorization
+    assert authorization.contract_sources[0].identity == (
+        "repo-b",
+        "provider-module",
+        repositories[1]["source_revision"],
+    )
+    assert next(iter(authorization.authorized_provider_sources)).identity == (
+        "repo-a",
+        "consumer-module",
+        repositories[0]["source_revision"],
+    )
 
 
 def test_prepare_rejects_callable_in_java_rpc_manifest(tmp_path: Path) -> None:

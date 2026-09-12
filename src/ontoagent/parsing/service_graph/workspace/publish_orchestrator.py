@@ -528,7 +528,9 @@ class WorkspaceServiceGraphPublishOrchestrator:
             views = {}
             if java_rpc_authorization is not None:
                 identities = frozenset(
-                    FrozenSourceIdentity(snapshot.repo_id, snapshot.module_id or snapshot.repo_id, snapshot.source_revision)
+                    FrozenSourceIdentity(
+                        snapshot.repo_id, snapshot.module_id or snapshot.repo_id, snapshot.source_revision
+                    )
                     for snapshot in frozen_snapshots
                 )
                 repositories = {
