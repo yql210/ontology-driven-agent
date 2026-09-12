@@ -342,6 +342,7 @@ class WorkspaceServiceGraphPublishOrchestrator:
             request.repository_snapshots,
             request.generation_id,
             request.java_rpc_authorization,
+            request.snapshots,
         )
         if detected_method_facts is None:
             return self._fail(
@@ -515,6 +516,7 @@ class WorkspaceServiceGraphPublishOrchestrator:
         snapshots: tuple[RepositorySnapshot, ...],
         generation_id: str,
         java_rpc_authorization: WorkspaceJavaRpcAuthorization | None,
+        frozen_snapshots: tuple[WorkspaceRepositorySnapshot, ...],
     ) -> tuple[MethodFacts, ...] | None:
         if not detectors:
             return ()
@@ -526,20 +528,23 @@ class WorkspaceServiceGraphPublishOrchestrator:
             views = {}
             if java_rpc_authorization is not None:
                 identities = frozenset(
-                    FrozenSourceIdentity(snapshot.repo_id, snapshot.repo_id, snapshot.source_revision)
-                    for snapshot in snapshots
+                    FrozenSourceIdentity(snapshot.repo_id, snapshot.module_id or snapshot.repo_id, snapshot.source_revision)
+                    for snapshot in frozen_snapshots
                 )
                 repositories = {
-                    (snapshot.repo_id, snapshot.repo_id, snapshot.source_revision): snapshot for snapshot in snapshots
+                    (snapshot.repo_id, snapshot.module_id or snapshot.repo_id, snapshot.source_revision): runtime
+                    for snapshot, runtime in zip(frozen_snapshots, snapshots, strict=True)
                 }
                 _, views = prepare_authorized_contract_views(java_rpc_authorization, repositories, identities)
             for snapshot in snapshots:
-                identity = snapshot.repo_id, snapshot.repo_id, snapshot.source_revision
+                frozen = next(item for item in frozen_snapshots if item.repo_id == snapshot.repo_id)
+                module_id = frozen.module_id or snapshot.repo_id
+                identity = snapshot.repo_id, module_id, snapshot.source_revision
                 for detector in detectors:
                     view = views.get(identity) if detector.metadata.detector_id == "dubbo-method" else None
                     context = MethodDetectionContext(
                         snapshot.repo_id,
-                        snapshot.repo_id,
+                        module_id,
                         snapshot.repo_id,
                         snapshot.source_revision,
                         generation_id,
@@ -564,12 +569,12 @@ class WorkspaceServiceGraphPublishOrchestrator:
 
         assert request.java_rpc_authorization is not None
         frozen = frozenset(
-            FrozenSourceIdentity(snapshot.repo_id, snapshot.repo_id, snapshot.source_revision)
-            for snapshot in request.repository_snapshots
+            FrozenSourceIdentity(snapshot.repo_id, snapshot.module_id or snapshot.repo_id, snapshot.source_revision)
+            for snapshot in request.snapshots
         )
         repositories = {
-            (snapshot.repo_id, snapshot.repo_id, snapshot.source_revision): snapshot
-            for snapshot in request.repository_snapshots
+            (snapshot.repo_id, snapshot.module_id or snapshot.repo_id, snapshot.source_revision): runtime
+            for snapshot, runtime in zip(request.snapshots, request.repository_snapshots, strict=True)
         }
         index, _ = prepare_authorized_contract_views(request.java_rpc_authorization, repositories, frozen)
         resolution = WorkspaceJavaRpcResolutionAssembler().resolve(
