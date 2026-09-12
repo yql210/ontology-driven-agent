@@ -47,6 +47,11 @@ class Closable(Protocol):
     def close(self) -> None: ...
 
 
+@dataclass(frozen=True)
+class _WorkspaceBuildPublishInput(WorkspaceServiceGraphPublishInput):
+    java_rpc_manifest: Mapping[str, object] | None = None
+
+
 class WorkspaceBuildRepository(Protocol):
     def create_workspace(self, workspace: Workspace) -> Workspace: ...
 
@@ -158,7 +163,8 @@ class WorkspaceBuildApplicationService:
         expected_active_generation_id: str | None = None,
     ) -> WorkspaceServiceGraphPublishInput:
         """Validate and freeze a local-only manifest before any durable work is scheduled."""
-        _reject_unknown_fields(manifest, {"workspace_id", "name", "repositories"}, "manifest")
+        _reject_unknown_fields(manifest, {"workspace_id", "name", "repositories", "java_rpc"}, "manifest")
+        java_rpc_manifest = _java_rpc_manifest(manifest)
         workspace = Workspace(_required_string(manifest, "workspace_id"), _required_string(manifest, "name"))
         repositories = _repositories(manifest)
         _require_nonblank(idempotency_key, "idempotency_key")
@@ -168,7 +174,7 @@ class WorkspaceBuildApplicationService:
         snapshots, runtime_snapshots, owned_work_dirs = _freeze_repositories(
             workspace.workspace_id, repositories, manifest_dir, self._git_runner
         )
-        return WorkspaceServiceGraphPublishInput(
+        return _WorkspaceBuildPublishInput(
             workspace,
             snapshots,
             runtime_snapshots,
@@ -176,6 +182,7 @@ class WorkspaceBuildApplicationService:
             generation_id,
             expected_active_generation_id,
             owned_work_dirs,
+            java_rpc_manifest=java_rpc_manifest,
         )
 
     def submit(
@@ -263,8 +270,33 @@ def _load_manifest(manifest_path: Path) -> Mapping[str, object]:
         raise ValueError(f"invalid JSON manifest: {error}") from error
     if not isinstance(data, dict):
         raise ValueError("manifest must be a JSON object")
-    _reject_unknown_fields(data, {"workspace_id", "name", "repositories", "expected_active_generation_id"}, "manifest")
+    _reject_unknown_fields(
+        data, {"workspace_id", "name", "repositories", "expected_active_generation_id", "java_rpc"}, "manifest"
+    )
     return data
+
+
+def _java_rpc_manifest(manifest: Mapping[str, object]) -> Mapping[str, object] | None:
+    if "java_rpc" not in manifest:
+        return None
+    value = manifest["java_rpc"]
+    if not isinstance(value, Mapping):
+        raise ValueError("java_rpc must be an object")
+    _reject_callables(value, "java_rpc")
+    return value
+
+
+def _reject_callables(value: object, name: str) -> None:
+    if callable(value):
+        raise ValueError(f"{name} must not contain callable values")
+    if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise ValueError(f"{name} must contain string keys")
+        for key, item in value.items():
+            _reject_callables(item, f"{name}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            _reject_callables(item, f"{name}[{index}]")
 
 
 def _repositories(manifest: Mapping[str, object]) -> tuple[Mapping[str, object], ...]:

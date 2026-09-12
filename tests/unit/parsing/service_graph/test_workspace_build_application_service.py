@@ -119,6 +119,38 @@ def test_build_legacy_manifest_gets_compatibility_service_identity(tmp_path: Pat
     assert received[0].snapshots[0].services == (ServiceIdentity("repo-a", "provider"),)
 
 
+def test_build_preserves_java_rpc_manifest_configuration(tmp_path: Path) -> None:
+    java_rpc = {"enabled": True, "namespace": "orders", "timeout_ms": 500}
+    manifest_path = _manifest(tmp_path, _repositories(tmp_path)[:2])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["java_rpc"] = java_rpc
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    received = []
+    service = WorkspaceBuildApplicationService(received.append, id_factory=iter(("task-key", "generation-1")).__next__)
+
+    service.build(manifest_path)
+
+    assert received[0].java_rpc_manifest == java_rpc
+
+
+def test_prepare_rejects_callable_in_java_rpc_manifest(tmp_path: Path) -> None:
+    repositories = _repositories(tmp_path)[:2]
+    service = WorkspaceBuildApplicationService(lambda _: None)
+
+    with pytest.raises(ValueError, match="java_rpc"):
+        service.prepare(
+            {
+                "workspace_id": "workspace-1",
+                "name": "Workspace",
+                "repositories": repositories,
+                "java_rpc": {"resolver": lambda: None},
+            },
+            tmp_path,
+            "request-1",
+            "generation-1",
+        )
+
+
 @pytest.mark.parametrize(
     ("change", "message"),
     [
