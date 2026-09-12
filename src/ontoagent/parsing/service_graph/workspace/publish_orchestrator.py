@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
@@ -68,6 +68,7 @@ class WorkspaceServiceGraphPublishInput:
     owned_work_dirs: tuple[Path, ...] = ()
     method_facts: tuple[MethodFacts, ...] = ()
     java_rpc_authorization: WorkspaceJavaRpcAuthorization | None = None
+    java_rpc_manifest: Mapping[str, object] | None = None
 
     def __post_init__(self) -> None:
         from ..method_graph_writer import MethodGraphScope, MethodGraphWritePlan
@@ -88,6 +89,8 @@ class WorkspaceServiceGraphPublishInput:
             and type(self.java_rpc_authorization) is not WorkspaceJavaRpcAuthorization
         ):
             raise ValueError("java_rpc_authorization must be a WorkspaceJavaRpcAuthorization or None")
+        if self.java_rpc_manifest is not None and not isinstance(self.java_rpc_manifest, Mapping):
+            raise ValueError("java_rpc_manifest must be a Mapping or None")
         if any(type(snapshot) is not WorkspaceRepositorySnapshot for snapshot in self.snapshots):
             raise ValueError("snapshots must contain WorkspaceRepositorySnapshot values")
         if any(type(snapshot) is not RepositorySnapshot for snapshot in self.repository_snapshots):

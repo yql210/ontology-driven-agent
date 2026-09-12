@@ -181,7 +181,20 @@ class _Repository:
         return WorkspacePublishResult(self._publication, self.active)
 
 
-def _input(method_facts: tuple[MethodFacts, ...] = ()) -> WorkspaceServiceGraphPublishInput:
+def test_publish_input_accepts_java_rpc_manifest_as_a_mapping_without_changing_old_positionals() -> None:
+    request = _input(java_rpc_manifest={"contract_sources": []})
+
+    assert request.java_rpc_manifest == {"contract_sources": []}
+
+
+def test_publish_input_rejects_non_mapping_java_rpc_manifest() -> None:
+    with pytest.raises(ValueError, match="java_rpc_manifest"):
+        _input(java_rpc_manifest=object())
+
+
+def _input(
+    method_facts: tuple[MethodFacts, ...] = (), java_rpc_manifest: object = None
+) -> WorkspaceServiceGraphPublishInput:
     workspace = Workspace("workspace-1", "Workspace")
     persisted = tuple(
         WorkspaceRepositorySnapshot(
@@ -198,7 +211,15 @@ def _input(method_facts: tuple[MethodFacts, ...] = ()) -> WorkspaceServiceGraphP
         for snapshot in persisted
     )
     return WorkspaceServiceGraphPublishInput(
-        workspace, persisted, runtime, "request-1", "generation-1", None, (), method_facts
+        workspace,
+        persisted,
+        runtime,
+        "request-1",
+        "generation-1",
+        None,
+        (),
+        method_facts,
+        java_rpc_manifest=java_rpc_manifest,
     )
 
 

@@ -54,11 +54,6 @@ class Closable(Protocol):
     def close(self) -> None: ...
 
 
-@dataclass(frozen=True)
-class _WorkspaceBuildPublishInput(WorkspaceServiceGraphPublishInput):
-    java_rpc_manifest: Mapping[str, object] | None = None
-
-
 class WorkspaceBuildRepository(Protocol):
     def create_workspace(self, workspace: Workspace) -> Workspace: ...
 
@@ -181,7 +176,7 @@ class WorkspaceBuildApplicationService:
         snapshots, runtime_snapshots, owned_work_dirs = _freeze_repositories(
             workspace.workspace_id, repositories, manifest_dir, self._git_runner
         )
-        return _WorkspaceBuildPublishInput(
+        return WorkspaceServiceGraphPublishInput(
             workspace,
             snapshots,
             runtime_snapshots,
