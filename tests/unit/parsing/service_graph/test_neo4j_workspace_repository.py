@@ -42,13 +42,14 @@ class _Driver:
         return _Session(self)
 
 
-def _snapshot(repo_id: str = "repo-1") -> WorkspaceRepositorySnapshot:
+def _snapshot(repo_id: str = "repo-1", module_id: str | None = None) -> WorkspaceRepositorySnapshot:
     return WorkspaceRepositorySnapshot(
         "workspace-1",
         repo_id,
         "main",
         f"revision-{repo_id}",
         WorkspaceSourceDescriptor(WorkspaceSourceKind.GIT, f"https://example.test/{repo_id}.git"),
+        module_id,
     )
 
 
@@ -74,7 +75,9 @@ def test_create_build_task_uses_workspace_scoped_idempotency_key_and_returns_exi
 def test_create_generation_serializes_frozen_snapshot_set_with_parameterized_cypher() -> None:
     driver = _Driver([[{"generation_id": "generation-1"}]])
     repository = _repository(driver)
-    generation = WorkspaceGeneration("workspace-1", "generation-1", (_snapshot("repo-1"), _snapshot("repo-2")))
+    generation = WorkspaceGeneration(
+        "workspace-1", "generation-1", (_snapshot("repo-1", "checkout-api"), _snapshot("repo-2"))
+    )
 
     persisted = repository.create_generation(generation)
 
@@ -92,9 +95,11 @@ def test_create_generation_serializes_frozen_snapshot_set_with_parameterized_cyp
             "source_revision": "revision-repo-1",
             "source_kind": "git",
             "source_descriptor": "https://example.test/repo-1.git",
+            "module_id": "checkout-api",
         },
         {
             "repo_id": "repo-2",
+            "module_id": "repo-2",
             "branch": "main",
             "source_revision": "revision-repo-2",
             "source_kind": "git",
@@ -137,6 +142,7 @@ def test_read_generation_and_active_binding_decode_persisted_records() -> None:
                             "source_revision": "revision-1",
                             "source_kind": "git",
                             "source_descriptor": "https://example.test/repo-1.git",
+                            "module_id": "checkout-api",
                         }
                     ],
                 }
@@ -159,6 +165,7 @@ def test_read_generation_and_active_binding_decode_persisted_records() -> None:
                 "main",
                 "revision-1",
                 WorkspaceSourceDescriptor(WorkspaceSourceKind.GIT, "https://example.test/repo-1.git"),
+                "checkout-api",
             ),
         ),
         WorkspaceGenerationState.VERIFYING,

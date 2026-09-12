@@ -87,8 +87,9 @@ class Neo4jWorkspaceRepository:
         "UNWIND $snapshots AS snapshot "
         "MERGE (frozen:OntoAgentWorkspaceRepositorySnapshot "
         "{workspaceId: $workspace_id, generationId: $generation_id, repoId: snapshot.repo_id}) "
-        "ON CREATE SET frozen.branch = snapshot.branch, frozen.sourceRevision = snapshot.source_revision, "
-        "frozen.sourceKind = snapshot.source_kind, frozen.sourceDescriptor = snapshot.source_descriptor "
+        "ON CREATE SET frozen.branch = snapshot.branch, frozen.moduleId = snapshot.module_id, "
+        "frozen.sourceRevision = snapshot.source_revision, frozen.sourceKind = snapshot.source_kind, "
+        "frozen.sourceDescriptor = snapshot.source_descriptor "
         "MERGE (generation)-[:HAS_FROZEN_SNAPSHOT]->(frozen) "
         "RETURN generation.generationId AS generation_id"
     )
@@ -97,7 +98,7 @@ class Neo4jWorkspaceRepository:
         "OPTIONAL MATCH (generation)-[:HAS_FROZEN_SNAPSHOT]->(snapshot:OntoAgentWorkspaceRepositorySnapshot) "
         "WITH generation, snapshot ORDER BY snapshot.repoId "
         "RETURN generation.workspaceId AS workspace_id, generation.generationId AS generation_id, generation.state AS state, "
-        "collect({repo_id: snapshot.repoId, branch: snapshot.branch, source_revision: snapshot.sourceRevision, "
+        "collect({repo_id: snapshot.repoId, module_id: snapshot.moduleId, branch: snapshot.branch, source_revision: snapshot.sourceRevision, "
         "source_kind: snapshot.sourceKind, source_descriptor: snapshot.sourceDescriptor}) AS snapshots"
     )
     GET_ACTIVE_BINDING_QUERY = (
@@ -359,13 +360,14 @@ class Neo4jWorkspaceRepository:
         return WorkspaceActiveBinding(_string(values, "workspace_id"), _string(values, "generation_id"))
 
 
-def _snapshot_params(snapshot: WorkspaceRepositorySnapshot) -> dict[str, str]:
+def _snapshot_params(snapshot: WorkspaceRepositorySnapshot) -> dict[str, str | None]:
     return {
         "repo_id": snapshot.repo_id,
         "branch": snapshot.branch,
         "source_revision": snapshot.source_revision,
         "source_kind": snapshot.source.kind.value,
         "source_descriptor": snapshot.source.value,
+        "module_id": snapshot.module_id,
     }
 
 
@@ -388,6 +390,7 @@ def _snapshot_from_mapping(workspace_id: str, row: object) -> WorkspaceRepositor
         WorkspaceSourceDescriptor(
             WorkspaceSourceKind(_string(values, "source_kind")), _string(values, "source_descriptor")
         ),
+        _optional_nonblank_string(values, "module_id"),
     )
 
 
