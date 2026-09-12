@@ -9,6 +9,7 @@ import pytest
 from ontoagent.parsing.service_graph.workspace.build_application_service import WorkspaceBuildApplicationService
 from ontoagent.parsing.service_graph.workspace.models import ServiceIdentity
 from ontoagent.parsing.service_graph.workspace.publish_orchestrator import WorkspacePublishStatus
+from ontoagent.parsing.service_graph.workspace_java_rpc_resolution import WorkspaceJavaRpcAuthorization
 
 
 def _git_repository(tmp_path: Path, name: str) -> tuple[Path, str]:
@@ -119,8 +120,58 @@ def test_build_legacy_manifest_gets_compatibility_service_identity(tmp_path: Pat
     assert received[0].snapshots[0].services == (ServiceIdentity("repo-a", "provider"),)
 
 
+def test_prepare_converts_java_rpc_manifest_to_publish_authorization(tmp_path: Path) -> None:
+    repositories = _repositories(tmp_path)[:2]
+    repositories[0] = {**repositories[0], "module_id": "consumer-module"}
+    repositories[1] = {**repositories[1], "module_id": "provider-module"}
+    java_rpc = {
+        "contract_sources": [
+            {
+                "repo_id": "repo-b",
+                "module_id": "ignored",
+                "source_revision": repositories[1]["source_revision"],
+                "path": ".",
+                "role": "api",
+            }
+        ],
+        "contract_mappings": [
+            {
+                "consumer_repo_id": "repo-a",
+                "consumer_module_id": "ignored",
+                "consumer_source_revision": repositories[0]["source_revision"],
+                "contract_repo_id": "repo-b",
+                "contract_module_id": "ignored",
+                "contract_source_revision": repositories[1]["source_revision"],
+                "version": "1.0",
+                "evidence_file_path": "evidence.txt",
+                "evidence_start_line": 2,
+                "evidence_end_line": 3,
+            }
+        ],
+        "authorized_provider_sources": [
+            {"repo_id": "repo-a", "module_id": "ignored", "source_revision": repositories[0]["source_revision"]}
+        ],
+    }
+    service = WorkspaceBuildApplicationService(lambda _: None)
+
+    request = service.prepare(
+        {"workspace_id": "workspace-1", "name": "Workspace", "repositories": repositories, "java_rpc": java_rpc},
+        tmp_path,
+        "request-1",
+        "generation-1",
+    )
+
+    authorization = request.java_rpc_authorization
+    assert type(authorization) is WorkspaceJavaRpcAuthorization
+    assert authorization.contract_sources[0].module_id == "provider-module"
+    assert authorization.contract_sources[0].root_path == Path(repositories[1]["path"]).resolve()
+    assert authorization.contract_mappings[0].consumer_module_id == "consumer-module"
+    assert authorization.contract_mappings[0].contract_module_id == "provider-module"
+    assert next(iter(authorization.authorized_provider_sources)).module_id == "consumer-module"
+
+
 def test_build_preserves_java_rpc_manifest_configuration(tmp_path: Path) -> None:
-    java_rpc = {"enabled": True, "namespace": "orders", "timeout_ms": 500}
+    java_rpc = {"contract_sources": [], "contract_mappings": [], "authorized_provider_sources": []}
     manifest_path = _manifest(tmp_path, _repositories(tmp_path)[:2])
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["java_rpc"] = java_rpc

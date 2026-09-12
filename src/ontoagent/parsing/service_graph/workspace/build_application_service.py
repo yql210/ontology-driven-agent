@@ -18,7 +18,14 @@ from ontoagent.parsing.service_graph.detectors.dubbo import DubboDetector
 from ontoagent.parsing.service_graph.detectors.messaging import MessagingDetector
 from ontoagent.parsing.service_graph.detectors.registry import DetectorRegistry
 from ontoagent.parsing.service_graph.detectors.spring_http import SpringHttpDetector
+from ontoagent.parsing.service_graph.java_contract_index import (
+    ContractSourceMapping,
+    ContractSourceRole,
+    JavaContractSource,
+)
 from ontoagent.parsing.service_graph.models import RepositorySnapshot
+from ontoagent.parsing.service_graph.provider_method_binder import AuthorizedProviderSource
+from ontoagent.parsing.service_graph.workspace_java_rpc_resolution import WorkspaceJavaRpcAuthorization
 
 from .models import (
     BuildTask,
@@ -182,6 +189,7 @@ class WorkspaceBuildApplicationService:
             generation_id,
             expected_active_generation_id,
             owned_work_dirs,
+            java_rpc_authorization=_java_rpc_authorization(java_rpc_manifest, snapshots, runtime_snapshots),
             java_rpc_manifest=java_rpc_manifest,
         )
 
@@ -284,6 +292,131 @@ def _java_rpc_manifest(manifest: Mapping[str, object]) -> Mapping[str, object] |
         raise ValueError("java_rpc must be an object")
     _reject_callables(value, "java_rpc")
     return value
+
+
+def _java_rpc_authorization(
+    manifest: Mapping[str, object] | None,
+    snapshots: tuple[WorkspaceRepositorySnapshot, ...],
+    repositories: tuple[RepositorySnapshot, ...],
+) -> WorkspaceJavaRpcAuthorization | None:
+    if manifest is None:
+        return None
+    _reject_unknown_fields(
+        manifest, {"contract_sources", "contract_mappings", "authorized_provider_sources"}, "java_rpc"
+    )
+    by_repo = {snapshot.repo_id: (snapshot, repositories[index]) for index, snapshot in enumerate(snapshots)}
+
+    def source(item: object, name: str) -> tuple[WorkspaceRepositorySnapshot, RepositorySnapshot, Mapping[str, object]]:
+        if not isinstance(item, dict):
+            raise ValueError(f"{name} must be an object")
+        _reject_unknown_fields(item, {"repo_id", "module_id", "source_revision", "path", "role"}, name)
+        repo_id = _required_string(item, "repo_id")
+        revision = _required_string(item, "source_revision")
+        if repo_id not in by_repo or by_repo[repo_id][0].source_revision != revision:
+            raise ValueError(f"{name} must use a current repository snapshot")
+        path = _required_string(item, "path")
+        relative = Path(path)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(f"{name}.path must be relative to the repository snapshot root")
+        return (*by_repo[repo_id], item)
+
+    raw_sources = manifest.get("contract_sources", [])
+    if not isinstance(raw_sources, list):
+        raise ValueError("java_rpc.contract_sources must be a list")
+    contracts = []
+    for index, item in enumerate(raw_sources):
+        snapshot, runtime, data = source(item, f"java_rpc.contract_sources[{index}]")
+        role = data.get("role")
+        try:
+            role_value = ContractSourceRole(role)
+        except (TypeError, ValueError) as error:
+            raise ValueError("contract source role must be api, client_module, or shared_library") from error
+        contracts.append(
+            JavaContractSource(
+                snapshot.repo_id,
+                snapshot.module_id or snapshot.repo_id,
+                snapshot.source_revision,
+                (runtime.root_path / Path(_required_string(data, "path"))).resolve(),
+                role_value,
+            )
+        )
+
+    raw_mappings = manifest.get("contract_mappings", [])
+    if not isinstance(raw_mappings, list):
+        raise ValueError("java_rpc.contract_mappings must be a list")
+    mappings = []
+    for index, item in enumerate(raw_mappings):
+        name = f"java_rpc.contract_mappings[{index}]"
+        if not isinstance(item, dict):
+            raise ValueError(f"{name} must be an object")
+        _reject_unknown_fields(
+            item,
+            {
+                "consumer_repo_id",
+                "consumer_module_id",
+                "consumer_source_revision",
+                "contract_repo_id",
+                "contract_module_id",
+                "contract_source_revision",
+                "version",
+                "evidence_file_path",
+                "evidence_start_line",
+                "evidence_end_line",
+            },
+            name,
+        )
+        consumer_repo = _required_string(item, "consumer_repo_id")
+        contract_repo = _required_string(item, "contract_repo_id")
+        consumer_revision = _required_string(item, "consumer_source_revision")
+        contract_revision = _required_string(item, "contract_source_revision")
+        if (
+            consumer_repo not in by_repo
+            or by_repo[consumer_repo][0].source_revision != consumer_revision
+            or contract_repo not in by_repo
+            or by_repo[contract_repo][0].source_revision != contract_revision
+        ):
+            raise ValueError(f"{name} must use current repository snapshots")
+        evidence = Path(_required_string(item, "evidence_file_path"))
+        if evidence.is_absolute() or ".." in evidence.parts:
+            raise ValueError(f"{name}.evidence_file_path must be relative to the repository snapshot root")
+        mappings.append(
+            ContractSourceMapping(
+                consumer_repo,
+                by_repo[consumer_repo][0].module_id or consumer_repo,
+                consumer_revision,
+                contract_repo,
+                by_repo[contract_repo][0].module_id or contract_repo,
+                contract_revision,
+                _required_string(item, "version"),
+                str(evidence),
+                _required_int(item, "evidence_start_line"),
+                _required_int(item, "evidence_end_line"),
+            )
+        )
+
+    raw_providers = manifest.get("authorized_provider_sources", [])
+    if not isinstance(raw_providers, list):
+        raise ValueError("java_rpc.authorized_provider_sources must be a list")
+    providers = set()
+    for index, item in enumerate(raw_providers):
+        if not isinstance(item, dict):
+            raise ValueError(f"java_rpc.authorized_provider_sources[{index}] must be an object")
+        _reject_unknown_fields(
+            item, {"repo_id", "module_id", "source_revision"}, f"java_rpc.authorized_provider_sources[{index}]"
+        )
+        repo = _required_string(item, "repo_id")
+        revision = _required_string(item, "source_revision")
+        if repo not in by_repo or by_repo[repo][0].source_revision != revision:
+            raise ValueError("authorized provider source must use a current repository snapshot")
+        providers.add(AuthorizedProviderSource(repo, by_repo[repo][0].module_id or repo, revision))
+    return WorkspaceJavaRpcAuthorization(tuple(contracts), tuple(mappings), frozenset(providers))
+
+
+def _required_int(value: Mapping[str, object], name: str) -> int:
+    item = value.get(name)
+    if type(item) is not int:
+        raise ValueError(f"{name} must be an integer")
+    return item
 
 
 def _reject_callables(value: object, name: str) -> None:

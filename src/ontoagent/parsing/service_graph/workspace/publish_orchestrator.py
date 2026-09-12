@@ -106,7 +106,8 @@ class WorkspaceServiceGraphPublishInput:
             raise ValueError("frozen and runtime source revisions must match")
         if self.java_rpc_authorization is not None:
             frozen_identities = {
-                (snapshot.repo_id, snapshot.repo_id, snapshot.source_revision) for snapshot in self.snapshots
+                (snapshot.repo_id, snapshot.module_id or snapshot.repo_id, snapshot.source_revision)
+                for snapshot in self.snapshots
             }
             contract_source_identities = {source.identity for source in self.java_rpc_authorization.contract_sources}
             if not contract_source_identities.issubset(frozen_identities):
