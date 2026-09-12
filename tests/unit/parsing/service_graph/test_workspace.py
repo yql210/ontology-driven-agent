@@ -74,6 +74,7 @@ def test_todo_d34_parser_version_is_not_a_workspace_generation_input() -> None:
         "source_revision",
         "source",
         "module_id",
+        "services",
     )
     assert "parser_version" not in {field.name for field in fields(WorkspaceGeneration)}
 

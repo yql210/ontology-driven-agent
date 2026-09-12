@@ -10,6 +10,7 @@ from ..graph_writer import WriteReceipt
 from ..neo4j_manifest_repository import Neo4jServiceGraphManifestRepository
 from .models import (
     BuildTask,
+    ServiceIdentity,
     Workspace,
     WorkspaceActiveBinding,
     WorkspaceGeneration,
@@ -89,7 +90,7 @@ class Neo4jWorkspaceRepository:
         "{workspaceId: $workspace_id, generationId: $generation_id, repoId: snapshot.repo_id}) "
         "ON CREATE SET frozen.branch = snapshot.branch, frozen.moduleId = snapshot.module_id, "
         "frozen.sourceRevision = snapshot.source_revision, frozen.sourceKind = snapshot.source_kind, "
-        "frozen.sourceDescriptor = snapshot.source_descriptor "
+        "frozen.sourceDescriptor = snapshot.source_descriptor, frozen.services = snapshot.services "
         "MERGE (generation)-[:HAS_FROZEN_SNAPSHOT]->(frozen) "
         "RETURN generation.generationId AS generation_id"
     )
@@ -99,7 +100,7 @@ class Neo4jWorkspaceRepository:
         "WITH generation, snapshot ORDER BY snapshot.repoId "
         "RETURN generation.workspaceId AS workspace_id, generation.generationId AS generation_id, generation.state AS state, "
         "collect({repo_id: snapshot.repoId, module_id: snapshot.moduleId, branch: snapshot.branch, source_revision: snapshot.sourceRevision, "
-        "source_kind: snapshot.sourceKind, source_descriptor: snapshot.sourceDescriptor}) AS snapshots"
+        "source_kind: snapshot.sourceKind, source_descriptor: snapshot.sourceDescriptor, services: snapshot.services}) AS snapshots"
     )
     GET_ACTIVE_BINDING_QUERY = (
         "MATCH (binding:OntoAgentWorkspaceActiveBinding {workspaceId: $workspace_id}) "
@@ -360,7 +361,7 @@ class Neo4jWorkspaceRepository:
         return WorkspaceActiveBinding(_string(values, "workspace_id"), _string(values, "generation_id"))
 
 
-def _snapshot_params(snapshot: WorkspaceRepositorySnapshot) -> dict[str, str | None]:
+def _snapshot_params(snapshot: WorkspaceRepositorySnapshot) -> dict[str, object]:
     return {
         "repo_id": snapshot.repo_id,
         "branch": snapshot.branch,
@@ -368,6 +369,7 @@ def _snapshot_params(snapshot: WorkspaceRepositorySnapshot) -> dict[str, str | N
         "source_kind": snapshot.source.kind.value,
         "source_descriptor": snapshot.source.value,
         "module_id": snapshot.module_id,
+        "services": [{"service_id": service.service_id, "role": service.role} for service in snapshot.services],
     }
 
 
@@ -391,7 +393,24 @@ def _snapshot_from_mapping(workspace_id: str, row: object) -> WorkspaceRepositor
             WorkspaceSourceKind(_string(values, "source_kind")), _string(values, "source_descriptor")
         ),
         _optional_nonblank_string(values, "module_id"),
+        _services_from_mapping(values, _string(values, "repo_id")),
     )
+
+
+def _services_from_mapping(values: Mapping[str, object], repo_id: str) -> tuple[ServiceIdentity, ...]:
+    raw = values.get("services")
+    if raw is None:
+        return (ServiceIdentity(repo_id, "provider"),)
+    try:
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        if not isinstance(raw, list):
+            raise ValueError("services must be a JSON list")
+        return tuple(
+            ServiceIdentity(_string(_mapping(item), "service_id"), _string(_mapping(item), "role")) for item in raw
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError("malformed persisted services") from exc
 
 
 def _mapping(row: object) -> Mapping[str, object]:

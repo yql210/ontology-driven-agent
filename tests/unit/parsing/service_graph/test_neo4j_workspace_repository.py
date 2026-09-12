@@ -96,6 +96,7 @@ def test_create_generation_serializes_frozen_snapshot_set_with_parameterized_cyp
             "source_kind": "git",
             "source_descriptor": "https://example.test/repo-1.git",
             "module_id": "checkout-api",
+            "services": [{"service_id": "repo-1", "role": "provider"}],
         },
         {
             "repo_id": "repo-2",
@@ -104,9 +105,52 @@ def test_create_generation_serializes_frozen_snapshot_set_with_parameterized_cyp
             "source_revision": "revision-repo-2",
             "source_kind": "git",
             "source_descriptor": "https://example.test/repo-2.git",
+            "services": [{"service_id": "repo-2", "role": "provider"}],
         },
     ]
     assert persisted == generation
+
+
+def test_create_generation_persists_frozen_service_identities() -> None:
+    driver = _Driver([[{"generation_id": "generation-1"}]])
+    repository = _repository(driver)
+    generation = WorkspaceGeneration("workspace-1", "generation-1", (_snapshot("repo-1"), _snapshot("repo-2")))
+
+    repository.create_generation(generation)
+
+    assert driver.calls[-1][1]["snapshots"][0]["services"] == [{"service_id": "repo-1", "role": "provider"}]
+
+
+def test_get_generation_legacy_snapshot_defaults_service_identity() -> None:
+    driver = _Driver(
+        [
+            [
+                {
+                    "workspace_id": "workspace-1",
+                    "generation_id": "generation-1",
+                    "state": "verifying",
+                    "snapshots": [
+                        {
+                            "repo_id": "repo-1",
+                            "branch": "main",
+                            "source_revision": "revision-1",
+                            "source_kind": "git",
+                            "source_descriptor": "https://example.test/repo-1.git",
+                            "module_id": None,
+                        }
+                    ],
+                }
+            ]
+        ]
+    )
+    repository = _repository(driver)
+
+    generation = repository.get_generation("workspace-1", "generation-1")
+
+    assert generation is not None
+    from ontoagent.parsing.service_graph.workspace.models import ServiceIdentity
+
+    assert generation.snapshots[0].services == (ServiceIdentity("repo-1", "provider"),)
 
 
 def test_persist_service_graph_receipt_accepts_an_exact_confirmed_readback() -> None:
@@ -143,6 +187,7 @@ def test_read_generation_and_active_binding_decode_persisted_records() -> None:
                             "source_kind": "git",
                             "source_descriptor": "https://example.test/repo-1.git",
                             "module_id": "checkout-api",
+                            "services": [{"service_id": "repo-1", "role": "provider"}],
                         }
                     ],
                 }

@@ -22,6 +22,7 @@ from ontoagent.parsing.service_graph.models import RepositorySnapshot
 
 from .models import (
     BuildTask,
+    ServiceIdentity,
     Workspace,
     WorkspaceGeneration,
     WorkspaceGenerationState,
@@ -276,7 +277,7 @@ def _repositories(manifest: Mapping[str, object]) -> tuple[Mapping[str, object],
             raise ValueError(f"repository {index} must be an object")
         _reject_unknown_fields(
             item,
-            {"repo_id", "module_id", "path", "git_url", "branch", "source_revision", "languages"},
+            {"repo_id", "module_id", "path", "git_url", "branch", "source_revision", "languages", "services"},
             f"repository {index}",
         )
         for field_name in ("repo_id", "branch", "source_revision"):
@@ -296,6 +297,7 @@ def _repositories(manifest: Mapping[str, object]) -> tuple[Mapping[str, object],
             or any(not isinstance(value, str) or not value.strip() for value in languages)
         ):
             raise ValueError(f"repository {index} languages must be a non-empty list of strings")
+        _services(item, index)
         repositories.append(item)
     if len({item["repo_id"] for item in repositories}) != len(repositories):
         raise ValueError("manifest repositories contain duplicate repo_id values")
@@ -312,11 +314,12 @@ def _freeze_repositories(
     runtime: list[RepositorySnapshot] = []
     owned_work_dirs: list[Path] = []
     try:
-        for repository in repositories:
+        for index, repository in enumerate(repositories):
             repo_id = _required_string(repository, "repo_id")
             module_id = _optional_string(repository, "module_id") or repo_id
             branch = _required_string(repository, "branch")
             revision = _required_string(repository, "source_revision")
+            services = _services(repository, index)
             if "path" in repository:
                 root_path = _repository_path(_required_string(repository, "path"), manifest_dir, repo_id)
                 source = WorkspaceSourceDescriptor(WorkspaceSourceKind.LOCAL, repo_id)
@@ -352,7 +355,7 @@ def _freeze_repositories(
                 raise ValueError(f"repository {repo_id} languages must be a list")
             languages = frozenset(value.strip().lower() for value in language_values if isinstance(value, str))
             frozen.append(
-                WorkspaceRepositorySnapshot(workspace_id, repo_id, branch, actual_revision, source, module_id)
+                WorkspaceRepositorySnapshot(workspace_id, repo_id, branch, actual_revision, source, module_id, services)
             )
             runtime.append(RepositorySnapshot(repo_id, actual_revision, root_path, languages))
     except Exception:
@@ -412,6 +415,25 @@ def _optional_string(mapping: Mapping[str, object], field_name: str) -> str | No
     if field_name not in mapping:
         return None
     return _required_string(mapping, field_name)
+
+
+def _services(repository: Mapping[str, object], index: int) -> tuple[ServiceIdentity, ...]:
+    value = repository.get("services")
+    if value is None:
+        return (ServiceIdentity(_required_string(repository, "repo_id"), "provider"),)
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"repository {index} services must be a non-empty list")
+    try:
+        services = tuple(
+            ServiceIdentity(_required_string(item, "service_id"), _required_string(item, "role"))
+            for item in value
+            if isinstance(item, Mapping)
+        )
+    except (AttributeError, TypeError, ValueError) as error:
+        raise ValueError(f"repository {index} services must contain service_id and role strings") from error
+    if len(services) != len(value) or len({service.service_id for service in services}) != len(services):
+        raise ValueError(f"repository {index} services must contain unique objects")
+    return services
 
 
 def _reject_unknown_fields(mapping: Mapping[str, object], allowed: set[str], name: str) -> None:

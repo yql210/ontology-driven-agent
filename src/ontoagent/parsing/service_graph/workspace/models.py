@@ -111,6 +111,7 @@ class WorkspaceRepositorySnapshot:
     source_revision: str
     source: WorkspaceSourceDescriptor
     module_id: str | None = None
+    services: tuple[ServiceIdentity, ...] = ()
 
     def __post_init__(self) -> None:
         for field_name in ("workspace_id", "repo_id", "branch", "source_revision"):
@@ -122,6 +123,25 @@ class WorkspaceRepositorySnapshot:
         else:
             _require_nonblank(self.module_id, "module_id")
             object.__setattr__(self, "module_id", self.module_id.strip())
+        if type(self.services) is not tuple or any(type(service) is not ServiceIdentity for service in self.services):
+            raise ValueError("services must be an immutable tuple of ServiceIdentity values")
+        if not self.services:
+            object.__setattr__(self, "services", (ServiceIdentity(self.repo_id, "provider"),))
+        if len({service.service_id for service in self.services}) != len(self.services):
+            raise ValueError("services must have unique service_id values")
+        object.__setattr__(self, "services", tuple(self.services))
+
+
+@dataclass(frozen=True)
+class ServiceIdentity:
+    service_id: str
+    role: str
+
+    def __post_init__(self) -> None:
+        _require_nonblank(self.service_id, "service_id")
+        _require_nonblank(self.role, "role")
+        object.__setattr__(self, "service_id", self.service_id.strip())
+        object.__setattr__(self, "role", self.role.strip())
 
 
 @dataclass(frozen=True)

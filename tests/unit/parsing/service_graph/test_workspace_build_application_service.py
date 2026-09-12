@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from ontoagent.parsing.service_graph.workspace.build_application_service import WorkspaceBuildApplicationService
+from ontoagent.parsing.service_graph.workspace.models import ServiceIdentity
 from ontoagent.parsing.service_graph.workspace.publish_orchestrator import WorkspacePublishStatus
 
 
@@ -90,6 +91,32 @@ def test_build_passes_custom_module_id_and_defaults_legacy_manifest_to_repo_id(t
     service.build(_manifest(tmp_path, repositories))
 
     assert tuple(snapshot.module_id for snapshot in received[0].snapshots) == ("checkout-api", "repo-b")
+
+
+def test_build_freezes_manifest_service_id_and_role_identities(tmp_path: Path) -> None:
+    repositories = _repositories(tmp_path)[:2]
+    repositories[0] = {
+        **repositories[0],
+        "services": [{"service_id": "orders-api", "role": "provider"}, {"service_id": "checkout", "role": "consumer"}],
+    }
+    received = []
+    service = WorkspaceBuildApplicationService(received.append, id_factory=iter(("task-key", "generation-1")).__next__)
+
+    service.build(_manifest(tmp_path, repositories))
+
+    assert received[0].snapshots[0].services == (
+        ServiceIdentity("orders-api", "provider"),
+        ServiceIdentity("checkout", "consumer"),
+    )
+
+
+def test_build_legacy_manifest_gets_compatibility_service_identity(tmp_path: Path) -> None:
+    received = []
+    service = WorkspaceBuildApplicationService(received.append, id_factory=iter(("task-key", "generation-1")).__next__)
+
+    service.build(_manifest(tmp_path, _repositories(tmp_path)[:2]))
+
+    assert received[0].snapshots[0].services == (ServiceIdentity("repo-a", "provider"),)
 
 
 @pytest.mark.parametrize(
