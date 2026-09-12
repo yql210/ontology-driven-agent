@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import hmac
 import json
@@ -51,6 +52,7 @@ class FileBuildManifestStore:
                 temporary_file.flush()
                 os.fsync(temporary_file.fileno())
             os.replace(temporary_path, self._path)
+            _fsync_directory(self._path.parent)
         except Exception:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
@@ -155,6 +157,19 @@ _HEALTH_FIELDS = frozenset(
         "reasons",
     }
 )
+_DIRECTORY_FSYNC_UNSUPPORTED_ERRNOS = frozenset({errno.EINVAL, errno.ENOTSUP, errno.EOPNOTSUPP})
+
+
+def _fsync_directory(directory: Path) -> None:
+    directory_fd = os.open(directory, os.O_RDONLY)
+    try:
+        try:
+            os.fsync(directory_fd)
+        except OSError as error:
+            if error.errno not in _DIRECTORY_FSYNC_UNSUPPORTED_ERRNOS:
+                raise
+    finally:
+        os.close(directory_fd)
 
 
 def _mapping(value: object, expected_fields: frozenset[str]) -> dict[str, object]:

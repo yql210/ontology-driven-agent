@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -139,6 +142,70 @@ def test_persisted_manifest_does_not_contain_secret(tmp_path: Path) -> None:
     store.persist(_binding())
 
     assert "sensitive-secret" not in path.read_text(encoding="utf-8")
+
+
+def test_persist_fsyncs_containing_directory_after_replace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = tmp_path / "build-manifest.json"
+    store = FileBuildManifestStore(path, "test-secret")
+    events: list[str] = []
+    directory_fd = 9876
+    real_replace = os.replace
+    real_open = os.open
+    real_fsync = os.fsync
+    real_close = os.close
+
+    def record_replace(source: str | Path, destination: str | Path) -> None:
+        events.append("replace")
+        real_replace(source, destination)
+
+    def open_directory(directory: str | bytes | Path, flags: int, mode: int = 0o777) -> int:
+        if directory == path.parent:
+            assert flags == os.O_RDONLY
+            events.append("open")
+            return directory_fd
+        return real_open(directory, flags, mode)
+
+    def record_fsync(fd: int) -> None:
+        if fd == directory_fd:
+            events.append("fsync")
+            return
+        real_fsync(fd)
+
+    def close_directory(fd: int) -> None:
+        if fd == directory_fd:
+            events.append("close")
+            return
+        real_close(fd)
+
+    monkeypatch.setattr("ontoagent.store.build_manifest_store.os.replace", record_replace)
+    monkeypatch.setattr("ontoagent.store.build_manifest_store.os.open", open_directory)
+    monkeypatch.setattr("ontoagent.store.build_manifest_store.os.fsync", record_fsync)
+    monkeypatch.setattr("ontoagent.store.build_manifest_store.os.close", close_directory)
+
+    store.persist(_binding())
+
+    assert events == ["replace", "open", "fsync", "close"]
+
+
+def test_resolve_blocks_correctly_signed_manifest_with_extra_top_level_field(tmp_path: Path) -> None:
+    path = tmp_path / "build-manifest.json"
+    store = FileBuildManifestStore(path, "test-secret")
+    store.persist(_binding())
+    contents = json.loads(path.read_text(encoding="utf-8"))
+    contents["unexpected"] = "field"
+    payload = {field: value for field, value in contents.items() if field != "signature"}
+    contents["signature"] = hmac.new(
+        b"test-secret",
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii"),
+        hashlib.sha256,
+    ).hexdigest()
+    path.write_text(json.dumps(contents), encoding="utf-8")
+
+    resolution = store.resolve("repo-1", "build-1")
+
+    assert resolution.status is BuildManifestResolutionStatus.BLOCKED
+    assert resolution.binding is None
+    assert resolution.reasons == (BuildManifestBlockReason.MALFORMED_MANIFEST,)
 
 
 def test_persist_cleans_up_temp_file_when_replace_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
